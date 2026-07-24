@@ -5,6 +5,8 @@ from pathlib import Path
 
 # Disable LangSmith tracing globally during tests to avoid Rate Limit Errors
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
+os.environ["APP_SECRET_KEY"] = "test-secret-key-123456789"
+os.environ["UNVERIFIED_DRAFT_SIGNING_KEY"] = "test-secret-key-123456789-with-enough-entropy-for-tests"
 
 # ทำให้ทุก test resolve absolute imports ได้ (agents/, tools/, core/, schemas/)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent

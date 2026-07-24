@@ -17,6 +17,11 @@ class TestBuildArticleMd:
         kwargs.update(overrides)
         return kt_core._build_article_md(**kwargs)
 
+    def _parse_frontmatter(self, md_text: str) -> dict:
+        import yaml
+        parts = md_text.split("---")
+        return yaml.safe_load(parts[1]) if len(parts) >= 3 else {}
+
     def test_starts_with_yaml_frontmatter(self):
         assert self._build().startswith("---\n")
 
@@ -26,27 +31,32 @@ class TestBuildArticleMd:
         assert len(parts) >= 3  # ---, frontmatter body, ---, content
 
     def test_entity_type_article_note(self):
-        assert "entity_type: article_note" in self._build()
+        meta = self._parse_frontmatter(self._build())
+        assert meta.get("entity_type") == "article_note"
 
     def test_source_url_in_frontmatter(self):
-        result = self._build(source_url="https://example.com/test")
-        assert "source_url: https://example.com/test" in result
+        meta = self._parse_frontmatter(self._build(source_url="https://example.com/test"))
+        assert meta.get("source_url") == "https://example.com/test"
 
     def test_date_in_frontmatter(self):
-        assert "date: 2026-01-15" in self._build(today="2026-01-15")
+        meta = self._parse_frontmatter(self._build(today="2026-01-15"))
+        assert str(meta.get("date")) == "2026-01-15"
 
     def test_last_updated_in_frontmatter(self):
-        assert "last_updated: 2026-01-15 10:30:00" in self._build(now_time="2026-01-15 10:30:00")
+        meta = self._parse_frontmatter(self._build(now_time="2026-01-15 10:30:00"))
+        assert str(meta.get("last_updated")) == "2026-01-15 10:30:00"
 
     def test_tags_in_frontmatter(self):
-        assert "tags: [article, investment_insight]" in self._build()
+        meta = self._parse_frontmatter(self._build())
+        assert meta.get("tags") == ["article", "investment_insight"]
 
     def test_image_line_present_when_provided(self):
-        result = self._build(image="https://example.com/og.jpg")
-        assert "image: https://example.com/og.jpg" in result
+        meta = self._parse_frontmatter(self._build(image="https://example.com/og.jpg"))
+        assert meta.get("image") == "https://example.com/og.jpg"
 
     def test_image_line_absent_when_none(self):
-        assert "image:" not in self._build(image=None)
+        meta = self._parse_frontmatter(self._build(image=None))
+        assert "image" not in meta
 
     def test_colon_in_title_replaced(self):
         result = self._build(title="Breaking: New Insight")

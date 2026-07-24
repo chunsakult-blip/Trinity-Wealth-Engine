@@ -16,25 +16,40 @@ def _fake_pitches_batch():
         core_hook="Hook เปิดคลิป",
         key_questions_to_answer=["คำถาม 1", "คำถาม 2", "คำถาม 3"],
         research_hypotheses=["สมมติฐาน 1", "สมมติฐาน 2"],
-        source_event_ids=["ev-1"],
-        source_links=["http://example.com/news"],
-        source_titles=["ข่าวเศรษฐกิจสำคัญ"],
+        source_event_ids=["ev-1", "ev-2"],
+        source_links=["https://example.com/news", "https://second.example.com/news"],
+        source_titles=["ข่าวเศรษฐกิจสำคัญ", "ข่าวยืนยันจากอีกสำนัก"],
         recommended_format="Deep Dive 15m",
         estimated_impact="ผลกระทบสูง",
     )
     return YouTubeContentPitchBatch(
         pitches=[item],
         date_range_summary="ย้อนหลัง 7 วัน",
-        total_source_events=1,
+        total_source_events=2,
     )
 
 
+def _fake_candidates():
+    return [
+        {
+            "event_id": "ev-1", "canonical_title": "ข่าวเศรษฐกิจสำคัญ",
+            "links": ["https://example.com/news"], "publisher": "Reuters",
+            "published_at": "2026-07-23", "verification_status": "verified",
+        },
+        {
+            "event_id": "ev-2", "canonical_title": "ข่าวยืนยันจากอีกสำนัก",
+            "links": ["https://second.example.com/news"], "publisher": "Bloomberg",
+            "published_at": "2026-07-23", "verification_status": "verified",
+        },
+    ]
+
+
 def test_default_run_fn_youtube_pitch_flow_pauses_for_approval(tmp_path, monkeypatch):
-    monkeypatch.setattr("tools.content.youtube_pitcher.fetch_news_for_pitching", lambda **kwargs: ([{"event_id": "ev-1", "canonical_title": "ข่าวเศรษฐกิจสำคัญ"}], "macro_str", False))
+    monkeypatch.setattr("tools.content.youtube_pitcher.fetch_news_for_pitching", lambda **kwargs: (_fake_candidates(), "macro_str", False))
     monkeypatch.setattr("tools.content.youtube_pitcher.generate_youtube_pitches", lambda **kwargs: _fake_pitches_batch())
     try:
         import agents.youtube_pitch_flow as flow_mod
-        monkeypatch.setattr(flow_mod, "fetch_news_for_pitching", lambda **kwargs: ([{"event_id": "ev-1", "canonical_title": "ข่าวเศรษฐกิจสำคัญ"}], "macro_str", False))
+        monkeypatch.setattr(flow_mod, "fetch_news_for_pitching", lambda **kwargs: (_fake_candidates(), "macro_str", False))
         monkeypatch.setattr(flow_mod, "generate_youtube_pitches", lambda **kwargs: _fake_pitches_batch())
     except ImportError:
         pass
@@ -60,16 +75,20 @@ def test_default_run_fn_youtube_pitch_flow_pauses_for_approval(tmp_path, monkeyp
 
 
 def test_default_run_fn_youtube_pitch_flow_resumes_and_completes(tmp_path, monkeypatch):
-    monkeypatch.setattr("tools.content.youtube_pitcher.fetch_news_for_pitching", lambda **kwargs: ([{"event_id": "ev-1", "canonical_title": "ข่าวเศรษฐกิจสำคัญ"}], "macro_str", False))
-    monkeypatch.setattr("tools.content.youtube_pitcher.generate_youtube_pitches", lambda **kwargs: _fake_pitches_batch())
-    monkeypatch.setattr("tools.content.youtube_pitcher.synthesize_notebooklm_source", lambda pitch, candidates, macro_baselines: "# Briefing Book เนื้อหาเต็ม")
-    monkeypatch.setattr("tools.content.youtube_pitcher.save_notebooklm_source", lambda content, title, date_str: "C:/vault/saved_pitch.md")
+    monkeypatch.setattr("tools.content.youtube_pitcher.fetch_news_for_pitching", lambda **kwargs: (_fake_candidates(), "macro_str", False))
+    class DummyResult:
+        content = "# Briefing Book เนื้อหาเต็ม"
+        quality_report = None
+        override_audit = None
+    dummy = DummyResult()
+    monkeypatch.setattr("tools.content.youtube_pitcher.synthesize_notebooklm_source", lambda *args, **kwargs: dummy)
+    monkeypatch.setattr("tools.content.briefing_artifacts.save_briefing_artifact", lambda synthesis, title, date_str, **kwargs: "C:/vault/saved_pitch.md")
     try:
         import agents.youtube_pitch_flow as flow_mod
-        monkeypatch.setattr(flow_mod, "fetch_news_for_pitching", lambda **kwargs: ([{"event_id": "ev-1", "canonical_title": "ข่าวเศรษฐกิจสำคัญ"}], "macro_str", False))
+        monkeypatch.setattr(flow_mod, "fetch_news_for_pitching", lambda **kwargs: (_fake_candidates(), "macro_str", False))
         monkeypatch.setattr(flow_mod, "generate_youtube_pitches", lambda **kwargs: _fake_pitches_batch())
-        monkeypatch.setattr(flow_mod, "synthesize_notebooklm_source", lambda pitch, candidates, macro_baselines: "# Briefing Book เนื้อหาเต็ม")
-        monkeypatch.setattr(flow_mod, "save_notebooklm_source", lambda content, title, date_str: "C:/vault/saved_pitch.md")
+        monkeypatch.setattr(flow_mod, "synthesize_notebooklm_source", lambda *args, **kwargs: dummy)
+        monkeypatch.setattr(flow_mod, "save_briefing_artifact", lambda synthesis, title, date_str, **kwargs: "C:/vault/saved_pitch.md")
     except ImportError:
         pass
 
@@ -102,16 +121,20 @@ def test_job_queue_resume_youtube_pitch_flow(tmp_path, monkeypatch):
     import asyncio
     from api.jobs import JobQueue
 
-    monkeypatch.setattr("tools.content.youtube_pitcher.fetch_news_for_pitching", lambda **kwargs: ([{"event_id": "ev-1", "canonical_title": "ข่าวเศรษฐกิจสำคัญ"}], "macro_str", False))
-    monkeypatch.setattr("tools.content.youtube_pitcher.generate_youtube_pitches", lambda **kwargs: _fake_pitches_batch())
-    monkeypatch.setattr("tools.content.youtube_pitcher.synthesize_notebooklm_source", lambda pitch, candidates, macro_baselines: "# Briefing Book เนื้อหาเต็ม")
-    monkeypatch.setattr("tools.content.youtube_pitcher.save_notebooklm_source", lambda content, title, date_str: "C:/vault/saved_pitch.md")
+    monkeypatch.setattr("tools.content.youtube_pitcher.fetch_news_for_pitching", lambda **kwargs: (_fake_candidates(), "macro_str", False))
+    class DummyResult:
+        content = "# Briefing Book เนื้อหาเต็ม"
+        quality_report = None
+        override_audit = None
+    dummy = DummyResult()
+    monkeypatch.setattr("tools.content.youtube_pitcher.synthesize_notebooklm_source", lambda *args, **kwargs: dummy)
+    monkeypatch.setattr("tools.content.briefing_artifacts.save_briefing_artifact", lambda synthesis, title, date_str, **kwargs: "C:/vault/saved_pitch.md")
     try:
         import agents.youtube_pitch_flow as flow_mod
-        monkeypatch.setattr(flow_mod, "fetch_news_for_pitching", lambda **kwargs: ([{"event_id": "ev-1", "canonical_title": "ข่าวเศรษฐกิจสำคัญ"}], "macro_str", False))
+        monkeypatch.setattr(flow_mod, "fetch_news_for_pitching", lambda **kwargs: (_fake_candidates(), "macro_str", False))
         monkeypatch.setattr(flow_mod, "generate_youtube_pitches", lambda **kwargs: _fake_pitches_batch())
-        monkeypatch.setattr(flow_mod, "synthesize_notebooklm_source", lambda pitch, candidates, macro_baselines: "# Briefing Book เนื้อหาเต็ม")
-        monkeypatch.setattr(flow_mod, "save_notebooklm_source", lambda content, title, date_str: "C:/vault/saved_pitch.md")
+        monkeypatch.setattr(flow_mod, "synthesize_notebooklm_source", lambda *args, **kwargs: dummy)
+        monkeypatch.setattr(flow_mod, "save_briefing_artifact", lambda synthesis, title, date_str, **kwargs: "C:/vault/saved_pitch.md")
     except ImportError:
         pass
 
@@ -134,12 +157,15 @@ def test_job_queue_resume_youtube_pitch_flow(tmp_path, monkeypatch):
     assert job["status"] == "awaiting_approval"
 
     # สั่ง resume
-    queue.resume(job_id, {"approved_pitch_ids": ["pitch-abc"]})
+    with closing(state_db.get_connection(db_path)) as conn:
+        import json
+        state_db.claim_job_resume(conn, job_id=job_id, resume_value_json=json.dumps({"approved_pitch_ids": ["pitch-abc"]}))
+    queue.enqueue(job_id)
 
     conn = state_db.get_connection(db_path)
     job = state_db.get_job(conn, job_id)
     conn.close()
-    assert job["status"] == "running"
+    assert job["status"] == "queued"
 
     asyncio.run(_drive())
 
@@ -147,4 +173,3 @@ def test_job_queue_resume_youtube_pitch_flow(tmp_path, monkeypatch):
     job = state_db.get_job(conn, job_id)
     conn.close()
     assert job["status"] == "done"
-

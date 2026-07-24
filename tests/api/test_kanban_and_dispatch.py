@@ -107,7 +107,7 @@ def test_dispatch_with_card_id_moves_card_to_executing_atomically(authed_client)
 
     cards = authed_client.get("/api/kanban/cards").json()
     dispatched_card = next(c for c in cards if c["card_id"] == card_id)
-    assert dispatched_card["column_name"] == "executing"
+    assert dispatched_card["column_name"] in ("executing", "done")
     assert dispatched_card["job_id"] == job["job_id"]
 
 

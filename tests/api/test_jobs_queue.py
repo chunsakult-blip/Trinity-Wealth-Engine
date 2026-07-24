@@ -164,6 +164,55 @@ def test_job_to_dto_exposes_current_node_only_while_running(tmp_path):
     conn.close()
 
 
+def test_job_queue_preserves_partial_failure_terminal_status(tmp_path):
+    """A flow that completed one pitch but failed another must not be overwritten as done."""
+    import asyncio
+
+    db_path = str(tmp_path / "state.sqlite")
+
+    def _partial_run(job_id, **_kwargs):
+        conn = state_db.get_connection(db_path)
+        try:
+            state_db.update_job_status(conn, job_id, "done_with_errors", error_message="Pitch p-2 failed quality gate")
+        finally:
+            conn.close()
+
+    queue = JobQueue(run_fn=_partial_run, db_path=db_path)
+    job_id = queue.dispatch("สร้าง briefing", card_id="card-1", flow="youtube_pitch")
+    asyncio.run(queue._run_job(job_id))
+
+    conn = state_db.get_connection(db_path)
+    job = state_db.get_job(conn, job_id)
+    conn.close()
+    assert job["status"] == "done_with_errors"
+    assert "quality gate" in job["error_message"]
+
+
+def test_job_queue_persists_terminal_error_notification(tmp_path):
+    """A failed job must expose the diagnostic in both job status and SSE logs."""
+    import asyncio
+
+    db_path = str(tmp_path / "state.sqlite")
+
+    def _failing_run(**_kwargs):
+        raise ValueError("macro provider remained stale after forced refresh")
+
+    queue = JobQueue(run_fn=_failing_run, db_path=db_path)
+    job_id = queue.dispatch("create briefing", card_id="card-1", flow="youtube_pitch")
+    asyncio.run(queue._run_job(job_id))
+
+    conn = state_db.get_connection(db_path)
+    job = state_db.get_job(conn, job_id)
+    logs = state_db.get_job_logs_since(conn, job_id)
+    conn.close()
+
+    assert job["status"] == "error"
+    assert job["error_message"] == "macro provider remained stale after forced refresh"
+    assert logs[-1]["node_name"] == "system_error"
+    assert logs[-1]["label"] == "System Error"
+    assert "macro provider remained stale" in logs[-1]["content"]
+
+
 def test_get_connection_only_initializes_schema_once_per_path(tmp_path, monkeypatch):
     """init_schema (CREATE TABLE + migrate + backfill) ต้องรันแค่ครั้งเดียวต่อ db path —
     ไม่ใช่ทุกครั้งที่เปิด connection ใหม่ (SSE poll ทุก 1s จะเปิด connection ใหม่รัวๆ)
@@ -273,3 +322,44 @@ def test_worker_loop_survives_run_job_raising_unexpected_exception(tmp_path):
     job_id_bad, job_id_good = asyncio.run(_run())
 
     assert job_id_good in processed
+
+
+def test_job_queue_cas_concurrency(tmp_path):
+    """ทดสอบ CAS (cas_job_status) ว่าสามารถป้องกัน concurrency ได้จริง"""
+    import asyncio
+    db_path = str(tmp_path / "state.sqlite")
+    queue = JobQueue(run_fn=_noop_run_fn, db_path=db_path)
+    job_id = queue.dispatch("ทดสอบ CAS", card_id="card-cas")
+
+    conn = state_db.get_connection(db_path)
+    state_db.update_job_status(conn, job_id, "running")
+    conn.close()
+
+    calls = []
+    def _mocked_run_fn(*args, **kwargs):
+        calls.append(True)
+    queue._run_fn = _mocked_run_fn
+
+    asyncio.run(queue._run_job(job_id))
+    assert len(calls) == 0
+
+
+def test_job_queue_persistence_failure(tmp_path):
+    """ทดสอบกรณี _run_fn โยน exception ระหว่าง _run_job ต้อง mark job เป็น error"""
+    import asyncio
+    db_path = str(tmp_path / "state.sqlite")
+
+    def _faulty_run_fn(*args, **kwargs):
+        raise RuntimeError("simulated persistence failure")
+
+    queue = JobQueue(run_fn=_faulty_run_fn, db_path=db_path)
+    job_id = queue.dispatch("ทดสอบ persistence failure", card_id="card-fail")
+
+    asyncio.run(queue._run_job(job_id))
+
+    conn = state_db.get_connection(db_path)
+    job = state_db.get_job(conn, job_id)
+    conn.close()
+
+    assert job["status"] == "error"
+    assert "simulated persistence failure" in str(job["error_message"])

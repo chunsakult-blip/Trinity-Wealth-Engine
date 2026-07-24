@@ -113,6 +113,7 @@ def test_job_queue_resume_transitions_status_and_reruns(tmp_path, monkeypatch):
 
     def _fake_run_fn(job_id, thread_id, instruction, flow="manager", resume_value=None, **kwargs):
         calls.append(resume_value)
+        import json
         conn = state_db.get_connection(db_path)
         if resume_value is None:
             state_db.set_job_awaiting_approval(conn, job_id, json.dumps({"type": "news_youtube_approval"}))
@@ -133,14 +134,19 @@ def test_job_queue_resume_transitions_status_and_reruns(tmp_path, monkeypatch):
     conn = state_db.get_connection(db_path)
     job = state_db.get_job(conn, job_id)
     conn.close()
+    if job["status"] == "error":
+        print("ERROR:", dict(job).get("error_message"))
     assert job["status"] == "awaiting_approval"
 
-    queue.resume(job_id, {"approved_news_links": ["http://a.test"], "approved_youtube_links": []})
+    with closing(state_db.get_connection(db_path)) as conn:
+        import json
+        state_db.claim_job_resume(conn, job_id=job_id, resume_value_json=json.dumps({"approved_news_links": ["http://a.test"], "approved_youtube_links": []}))
+    queue.enqueue(job_id)
 
     conn = state_db.get_connection(db_path)
     job = state_db.get_job(conn, job_id)
     conn.close()
-    assert job["status"] == "running"
+    assert job["status"] == "queued"
 
     asyncio.run(_drive())
 

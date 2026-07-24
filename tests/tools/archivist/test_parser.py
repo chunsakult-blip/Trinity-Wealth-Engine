@@ -69,3 +69,23 @@ def test_chunk_file(tmp_path, monkeypatch):
     assert len(texts) > 0
     assert metas[0]["source"] == "test.md"
     assert ids[0] == "test.md::0"
+
+
+def test_parse_frontmatter_metadata():
+    from tools.archivist.parser import parse_frontmatter_metadata
+    md = """---
+title: Test Note
+extracted_tickers:
+- AAPL
+- NVDA
+tags: [article, test]
+---
+# Body content
+"""
+    res = parse_frontmatter_metadata(md)
+    assert res["title"] == "Test Note"
+    assert res["extracted_tickers"] == ["AAPL", "NVDA"]
+    assert res["tags"] == ["article", "test"]
+
+    # No frontmatter
+    assert parse_frontmatter_metadata("Just text") == {}

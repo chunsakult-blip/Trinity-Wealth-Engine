@@ -34,8 +34,29 @@ def test_call_extractor_llm(mock_get_llm, mock_env):
 
 @patch("tools.knowledge.core.get_llm")
 def test_get_extractor_llm(mock_get_llm):
+    _get_extractor_llm.cache_clear()
     mock_llm = MagicMock()
     mock_get_llm.return_value = mock_llm
-    
     res = _get_extractor_llm()
     assert mock_llm.with_retry.call_count == 1
+
+
+def test_build_article_md_frontmatter_roundtrip():
+    from tools.archivist.parser import parse_frontmatter_metadata
+    res = _build_article_md(
+        extracted="## ตัวเลขสำคัญทางเศรษฐกิจ\n- GDP: 3.2%",
+        source_url="https://example.com/news/1",
+        title="Gold & Berkshire Update: Mid East",
+        today="2026-07-20",
+        now_time="2026-07-20 12:00:00",
+        event_id="ev-12345",
+        extracted_tickers=["GC=F", "BRK.B"],
+        extracted_themes=["Geopolitics: Middle East", "AI: Hype"],
+        published_at="2026-07-20T10:00:00Z",
+    )
+    assert "event_id: ev-12345" in res or "event_id: 'ev-12345'" in res
+    metadata = parse_frontmatter_metadata(res)
+    assert metadata.get("event_id") == "ev-12345"
+    assert metadata.get("extracted_tickers") == ["GC=F", "BRK.B"]
+    assert metadata.get("extracted_themes") == ["Geopolitics: Middle East", "AI: Hype"]
+    assert metadata.get("published_at") == "2026-07-20T10:00:00Z"

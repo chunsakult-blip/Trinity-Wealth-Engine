@@ -162,7 +162,7 @@ def test_get_filtered_or_rejected_events(temp_store):
             "macro_impact_score": 8,
             "asset_impact_score": 7,
             "is_high_impact": True,
-            "ingested_at": "2026-07-17T10:00:00",
+            "ingested_at": "2030-07-17T10:00:00",
         },
         {
             "event_id": "low_pending",
@@ -170,7 +170,8 @@ def test_get_filtered_or_rejected_events(temp_store):
             "macro_impact_score": 4,
             "asset_impact_score": 3,
             "is_high_impact": False,
-            "ingested_at": "2026-07-17T11:00:00",
+            "status": "pending_synthesis",
+            "ingested_at": "2030-07-17T11:00:00",
         },
         {
             "event_id": "rej_ev",
@@ -178,13 +179,15 @@ def test_get_filtered_or_rejected_events(temp_store):
             "macro_impact_score": 8,
             "asset_impact_score": 8,
             "is_high_impact": True,
-            "ingested_at": "2026-07-17T12:00:00",
+            "ingested_at": "2030-07-17T12:00:00",
         },
     ]
     save_triage_events(events, store_path=temp_store)
     update_events_status(rejected_ids=["rej_ev"], store_path=temp_store)
 
     filtered = get_filtered_or_rejected_events(store_path=temp_store)
+    from tools.macro.news_funnel_store import load_store
+    print("STATE:", load_store(temp_store))
     ids = [f["event_id"] for f in filtered]
     assert "rej_ev" in ids
     assert "low_pending" in ids
@@ -243,3 +246,32 @@ def test_store_raw_candidates_remove_by_identity(temp_store):
     assert raw_after[0]["title"] == "Keep Me"
 
 
+def test_commit_event_synthesis_results_and_path_support(tmp_path):
+    from pathlib import Path
+    from tools.macro.news_funnel_store import (
+        save_triage_events,
+        commit_event_synthesis_results,
+        load_store,
+        normalize_news_url,
+        _normalize_url,
+    )
+    store_file = Path(tmp_path) / "test_commit.json"
+    events = [
+        {"event_id": "s1", "canonical_title": "S1", "is_high_impact": True},
+        {"event_id": "f1", "canonical_title": "F1", "is_high_impact": True},
+    ]
+    # Pass Path object to verify Union[str, Path, None] support
+    save_triage_events(events, store_path=store_file)
+    commit_event_synthesis_results(
+        synthesized_event_ids=["s1"],
+        failed_event_ids=["f1"],
+        error_messages={"f1": "Err details"},
+        store_path=store_file,
+    )
+    state = load_store(store_path=store_file)
+    s1 = next(e for e in state["pending_events"] if e["event_id"] == "s1")
+    f1 = next(e for e in state["pending_events"] if e["event_id"] == "f1")
+    assert s1["status"] == "synthesized"
+    assert f1["status"] == "skipped_error"
+    assert f1["error_msg"] == "Err details"
+    assert normalize_news_url("https://www.example.com/page/?utm_source=fb&id=10") == _normalize_url("https://www.example.com/page/?utm_source=fb&id=10")

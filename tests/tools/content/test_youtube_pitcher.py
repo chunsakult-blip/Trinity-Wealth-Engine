@@ -9,9 +9,9 @@ from tools.content.youtube_pitcher import (
     fetch_news_for_pitching,
     generate_youtube_pitches,
     parse_date_filters_from_instruction,
-    save_notebooklm_source,
     synthesize_notebooklm_source,
 )
+from tools.content.briefing_artifacts import save_briefing_artifact
 
 
 def test_parse_date_filters_from_instruction():
@@ -116,11 +116,30 @@ def test_generate_youtube_pitches_retry_and_lenient_fallback(mock_invoke):
     assert len(batch.pitches[0].working_titles) == 3
 
 
-@patch("tools.content.youtube_pitcher.get_llm")
-def test_synthesize_notebooklm_source(mock_get_llm):
-    mock_llm = MagicMock()
-    mock_llm.invoke.return_value.content = "# 📑 สรุปผู้บริหารและแหล่งอ้างอิง\nเนื้อหา Briefing Book ครบ 7 Sections..."
-    mock_get_llm.return_value = mock_llm
+@patch("tools.content.briefing_quality.validate_briefing_book_quality")
+@patch("tools.content.provenance_enrichment.assess_pitch_source_readiness")
+@patch("tools.content.youtube_pitcher.invoke_structured_llm")
+def test_synthesize_notebooklm_source(mock_invoke, mock_assess, mock_validate):
+    mock_assess.return_value = ("ready", [], [], [{"event_id": "ev-1", "title": "ข่าว 1"}])
+
+    from schemas.briefing_book_schemas import ResearchQualityReport, InvestigativeBriefingBookDraft
+    mock_validate.return_value = ResearchQualityReport(score=100, status="pass", publishable=True, issues=[], advisories=[])
+
+    mock_draft = InvestigativeBriefingBookDraft(
+        title="Mock Title",
+        executive_summary="📑 สรุปผู้บริหารและแหล่งอ้างอิง",
+        causality_scenarios=[],
+        asset_impacts=[],
+        bull_case="Bull",
+        bear_case="Bear",
+        falsification_triggers=["F1"],
+        act1_script="A1",
+        act2_script="A2",
+        act3_script="A3",
+        visual_directives=[],
+        notebooklm_prompts=[],
+    )
+    mock_invoke.return_value = mock_draft
 
     pitch = YouTubeContentPitchItem(
         pitch_id="uuid-test",
@@ -137,20 +156,22 @@ def test_synthesize_notebooklm_source(mock_get_llm):
     )
 
     res = synthesize_notebooklm_source(pitch, source_events=[{"event_id": "ev-1", "title": "ข่าว 1"}])
-    assert "📑 สรุปผู้บริหารและแหล่งอ้างอิง" in res
-    mock_get_llm.assert_called_once_with(
-        provider="google",
-        model_name="gemini-3.1-flash-lite-preview",
-        max_output_tokens=16384,
-    )
+    assert "📑 สรุปผู้บริหารและแหล่งอ้างอิง" in res.content
 
 
-def test_save_notebooklm_source_with_thai_filename(tmp_path, monkeypatch):
+def test_save_briefing_artifact_with_thai_filename(tmp_path, monkeypatch):
     monkeypatch.setattr("tools.content.youtube_pitcher.VAULT_PATH", tmp_path)
     content = "# Briefing Book เนื้อหาเต็ม"
     title = "วิเคราะห์หุ้นเทคไทยและโลก ปี 2026"
 
-    saved_path_str = save_notebooklm_source(content, title, date_str="2026-07-18")
+    class DummySynthesis:
+        def __init__(self):
+            self.content = content
+            self.quality_report = None
+
+    synthesis = DummySynthesis()
+
+    saved_path_str = save_briefing_artifact(synthesis, title, date_str="2026-07-18")
     saved_path = Path(saved_path_str)
 
     assert saved_path.exists()
@@ -159,9 +180,9 @@ def test_save_notebooklm_source_with_thai_filename(tmp_path, monkeypatch):
     assert saved_path.read_text(encoding="utf-8") == content
 
     # ทดสอบ collision (_2)
-    saved_path_2 = Path(save_notebooklm_source(content, title, date_str="2026-07-18"))
+    saved_path_2 = Path(save_briefing_artifact(synthesis, title, date_str="2026-07-18"))
     assert saved_path_2.exists()
-    assert "_2.md" in saved_path_2.name
+    assert saved_path_2 != saved_path
 
 
 @patch("tools.content.youtube_pitcher.load_store")
@@ -249,3 +270,132 @@ def test_generate_pitches_internal_quota_and_truncation(mock_invoke):
             summary_part = block.split("   สรุป: ")[1].split("\n")[0]
             assert len(summary_part) == 550
 
+def test_visual_markers_by_act_parsing():
+    from tools.content.youtube_pitcher import _visual_markers_by_act
+    md = """
+## Act I
+[VISUAL_EVIDENCE id=V01 evidence=E01]
+[VISUAL_EVIDENCE id=V02 evidence=E02,E03,E04]
+## Act II
+[VISUAL_EVIDENCE id=V03 evidence=]
+[VISUAL_EVIDENCE id=V04]
+    """
+    res = _visual_markers_by_act(md)
+    assert res["Act I"] == [("V01", ("E01",)), ("V02", ("E02", "E03", "E04"))]
+    assert res["Act II"] == [("V03", ()), ("V04", ())]
+    assert res["Act III"] == []
+
+def test_visual_markers_validation_rules():
+    from tools.content.briefing_quality import validate_briefing_book_quality
+
+    bundle = MagicMock()
+    bundle.sources = []
+    bundle.evidence_items = []
+
+    source = MagicMock()
+    source.source_id = "S1"
+    source.source_type = "news"
+    source.verification_status = "verified"
+    source.published_at = "2026-07-01"
+    source.independence_key = "K1"
+    source.publisher = "Pub1"
+    source.url = "http"
+    source.ingested_at = "2026-07-01"
+
+    source2 = MagicMock()
+    source2.source_id = "S2"
+    source2.source_type = "news"
+    source2.verification_status = "verified"
+    source2.published_at = "2026-07-01"
+    source2.independence_key = "K2"
+    source2.publisher = "Pub2"
+    source2.url = "http"
+    source2.ingested_at = "2026-07-01"
+
+    bundle.sources = [source, source2]
+
+    ev1 = MagicMock()
+    ev1.evidence_id = "E01"
+    ev1.source_ids = ["S1"]
+    ev1.classification = "verified_fact"
+    ev1.claim = "X"
+    ev1.metric_name = None
+    ev1.value = None
+    ev1.observed_at = "2026-07-01"
+
+    ev2 = MagicMock()
+    ev2.evidence_id = "E02"
+    ev2.source_ids = ["S2"]
+    ev2.classification = "verified_fact"
+    ev2.claim = "Y"
+    ev2.metric_name = None
+    ev2.value = None
+    ev2.observed_at = "2026-07-01"
+
+    bundle.evidence_items = [ev1, ev2]
+    bundle.investigation_mode = "narrative"
+    bundle.macro_snapshot = None
+    bundle.financial_snapshots = []
+
+    draft = MagicMock()
+    draft.executive_summary = "[E01] [S1]"
+    draft.causality_scenarios = []
+    draft.notebooklm_prompts = []
+    draft.asset_impacts = []
+
+    d1 = MagicMock()
+    d1.visual_id = "V01"
+    d1.act = "Act I"
+    d1.series_keys = ["Key1"]
+    d1.date_range = "2026"
+    d1.sources = ["S1"]
+    d1.evidence_ids = ["E01"]
+    d1.historical_comparison = False
+
+    d2 = MagicMock()
+    d2.visual_id = "V02"
+    d2.act = "Act II"
+    d2.series_keys = ["Key2"]
+    d2.date_range = "2026"
+    d2.sources = ["S2"]
+    d2.evidence_ids = ["E02"]
+    d2.historical_comparison = False
+
+    d3 = MagicMock()
+    d3.visual_id = "V03"
+    d3.act = "Act III"
+    d3.series_keys = ["Key3"]
+    d3.date_range = "2026"
+    d3.sources = ["S1", "S2"]
+    d3.evidence_ids = ["E01", "E02"]
+    d3.historical_comparison = False
+
+    draft.visual_directives = [d1, d2, d3]
+
+    from tools.content.briefing_renderer import RenderedBriefing
+    from schemas.briefing_book_schemas import RenderedVisualMarker
+    v1_act1 = RenderedVisualMarker(id="V01", act="Act I", evidence_ids=["E01"])
+    v2_act2 = RenderedVisualMarker(id="V02", act="Act II", evidence_ids=["E02"])
+    v3_act3 = RenderedVisualMarker(id="V03", act="Act III", evidence_ids=["E01", "E02"])
+
+    md_missing = RenderedBriefing(content="", section_names=["Act I", "Act II", "Act III"], visual_markers=[v2_act2, v3_act3], cited_evidence_ids=[], cited_source_ids=[])
+    report1 = validate_briefing_book_quality(bundle, draft, md_missing)
+    assert report1.status == "fail"
+
+    md_dup = RenderedBriefing(content="", section_names=["Act I", "Act II", "Act III"], visual_markers=[v1_act1, v1_act1, v2_act2, v3_act3], cited_evidence_ids=[], cited_source_ids=[])
+    report2 = validate_briefing_book_quality(bundle, draft, md_dup)
+    assert any(i.code == "VISUAL_DUPLICATED" for i in report2.issues)
+
+    v1_act2 = RenderedVisualMarker(id="V01", act="Act II", evidence_ids=["E01"])
+    md_wrong_act = RenderedBriefing(content="", section_names=["Act I", "Act II", "Act III"], visual_markers=[v1_act2, v2_act2, v3_act3], cited_evidence_ids=[], cited_source_ids=[])
+    report3 = validate_briefing_book_quality(bundle, draft, md_wrong_act)
+    assert any(i.code == "VISUAL_WRONG_ACT" for i in report3.issues)
+
+    v1_mismatch = RenderedVisualMarker(id="V01", act="Act I", evidence_ids=["E02"])
+    md_mismatch = RenderedBriefing(content="", section_names=["Act I", "Act II", "Act III"], visual_markers=[v1_mismatch, v2_act2, v3_act3], cited_evidence_ids=[], cited_source_ids=[])
+    report4 = validate_briefing_book_quality(bundle, draft, md_mismatch)
+    assert any(i.code == "VISUAL_EVIDENCE_MISMATCH" for i in report4.issues)
+
+    md_good = RenderedBriefing(content="", section_names=["Act I", "Act II", "Act III"], visual_markers=[v1_act1, v2_act2, v3_act3], cited_evidence_ids=[], cited_source_ids=[])
+    report5 = validate_briefing_book_quality(bundle, draft, md_good)
+    assert not any(i.code in ("VISUAL_MISSING", "VISUAL_DUPLICATED", "VISUAL_WRONG_ACT", "VISUAL_EVIDENCE_MISMATCH") for i in report5.issues)

@@ -1,0 +1,18 @@
+{
+  "score": 100,
+  "hard_blockers": [],
+  "warnings": [
+    "Only one independent source group is available; claims remain source-scoped",
+    "Financial providers returned no usable historical statements"
+  ],
+  "rubric_breakdown": {
+    "structure": 10,
+    "provenance_integrity": 15,
+    "claim_evidence_traceability": 20,
+    "quantitative_autopsy": 15,
+    "analytical_discipline": 15,
+    "asset_relevance": 10,
+    "detective_script_visuals": 10,
+    "notebooklm_prompts": 5
+  }
+}

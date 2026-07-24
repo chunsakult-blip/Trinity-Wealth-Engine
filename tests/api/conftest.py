@@ -5,7 +5,7 @@ import pytest
 def api_env(tmp_path, monkeypatch):
     """แยก state ต่อ test — password/secret คงที่ระหว่าง test, DB แยกเป็น tmp_path"""
     monkeypatch.setenv("WEBUI_PASSWORD", "test-password")
-    monkeypatch.setenv("SESSION_SECRET_KEY", "test-secret-key")
+    monkeypatch.setenv("SESSION_SECRET_KEY", "test-secret-key-123456789-with-enough-entropy")
     monkeypatch.setenv("WEBUI_STATE_DB_PATH", str(tmp_path / "webui_state.sqlite"))
     monkeypatch.setenv("CHECKPOINT_DB_PATH", str(tmp_path / "checkpoints.sqlite"))
 

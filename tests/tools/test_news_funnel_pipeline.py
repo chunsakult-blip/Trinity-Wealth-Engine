@@ -367,6 +367,15 @@ def test_synthesize_requires_kanban_approval_and_creates_card(tmp_path, monkeypa
         cards = state_db.list_kanban_cards(conn)
         assert sum(1 for c in cards if c["flow"] == "news_funnel") == 1
 
+    # upsert ซ้ำข้าม period (morning -> evening) ต้องอัปเดตการ์ด backlog เดิม ไม่สร้างการ์ดซ้อน (Single Active Review Card)
+    upsert_news_funnel_card("evening", res["pending_events"])
+    with closing(state_db.get_connection()) as conn:
+        cards = state_db.list_kanban_cards(conn)
+        assert sum(1 for c in cards if c["flow"] == "news_funnel") == 1
+        news_card = next((c for c in cards if c["flow"] == "news_funnel"), None)
+        assert news_card is not None
+        assert "[EVENING]" in news_card["title"]
+
 
 def test_ingest_llm_failure_falls_back_to_tagged_heuristic(tmp_path, monkeypatch):
     """LLM triage ล้มเหลวทั้ง batch และรายตัว → ต้อง ingest ด้วย heuristic ที่ถูก tag ไม่ใช่ starve หรือปนกับคะแนน LLM"""
@@ -859,4 +868,75 @@ def test_news_funnel_synthesize_updates_master_index(test_paths, monkeypatch):
         assert "Inflation Cools Down" in idx_content
 
 
+def test_prescan_recovery_flow(tmp_path, monkeypatch):
+    from pathlib import Path
+    import tools.macro.news_funnel as funnel_module
+    from tools.macro.news_funnel import run_news_funnel_synthesize
+    from tools.macro.news_funnel_store import save_triage_events, load_store
 
+    monkeypatch.setattr(funnel_module, "_is_mock_mode", lambda: True)
+    vault_dir = str(tmp_path / "vault")
+    store_file = str(tmp_path / "state.json")
+
+    news_dir = Path(vault_dir) / "30_Knowledge_Base" / "News"
+    news_dir.mkdir(parents=True, exist_ok=True)
+
+    # Pre-create a note with event_id: ev-recovered in frontmatter
+    existing_note = news_dir / "2026-07-20_Existing_Note.md"
+    existing_note.write_text(
+        "---\ntitle: Existing Note\nevent_id: ev-recovered\nextracted_tickers: [NVDA]\n---\n## ใจความสำคัญ\nExisting body content without re-synthesizing.",
+        encoding="utf-8",
+    )
+
+    events = [
+        {
+            "event_id": "ev-recovered",
+            "canonical_title": "Recovered Title",
+            "comprehensive_summary": "Should not be re-synthesized because file exists",
+            "links": ["https://example.com/rec"],
+            "macro_impact_score": 8,
+            "asset_impact_score": 8,
+            "is_high_impact": True,
+            "status": "pending_synthesis",
+        }
+    ]
+    save_triage_events(events, store_path=store_file)
+
+    res = run_news_funnel_synthesize(
+        period="morning",
+        approved_event_ids=["ev-recovered"],
+        store_path=store_file,
+        vault_root=vault_dir,
+    )
+    assert res["status"] == "success"
+    assert res["published_count"] == 1
+    # Check that the returned file path points to existing_note
+    assert res["created_files"][0] == str(existing_note)
+    state = load_store(store_path=store_file)
+    recovered_ev = next(e for e in state["pending_events"] if e["event_id"] == "ev-recovered")
+    assert recovered_ev["status"] == "synthesized"
+
+
+def test_published_at_persistence_and_frontmatter(test_paths, monkeypatch):
+    from tools.macro.news_funnel import _heuristic_prefilter_candidates, _build_article_md
+    store_file, _ = test_paths
+
+    pub_iso = "2026-07-20T10:00:00+07:00"
+    candidates = [
+        {"title": "Manchester United football win", "summary": "sports", "link": "https://example.com/sp", "published_at": pub_iso},
+        {"title": "US Fed rate decision expected today", "summary": "macro", "link": "https://example.com/fed", "published_at": pub_iso},
+    ]
+
+    _, prefiltered = _heuristic_prefilter_candidates(candidates)
+    assert len(prefiltered) == 1
+    assert prefiltered[0]["published_at"] == pub_iso
+
+    md = _build_article_md(
+        extracted="body",
+        source_url="https://example.com/fed",
+        title="Fed Rate",
+        today="2026-07-20",
+        now_time="2026-07-20T12:00:00+07:00",
+        published_at=pub_iso,
+    )
+    assert "published_at: '2026-07-20T10:00:00+07:00'" in md or "published_at: 2026-07-20T10:00:00+07:00" in md
