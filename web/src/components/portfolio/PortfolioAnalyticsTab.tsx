@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import type { PerformanceSnapshotDTO } from '../../api/types'
-import { formatTHB } from './PortfolioSummaryCards'
+import { formatTHB } from '../../utils/formatters'
 
 interface Props {
   performanceRows: PerformanceSnapshotDTO[]

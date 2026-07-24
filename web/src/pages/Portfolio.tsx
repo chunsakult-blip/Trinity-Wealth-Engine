@@ -128,7 +128,7 @@ export default function Portfolio() {
       setLoading(false)
       setRefreshingPrices(false)
     }
-  }, [])
+  }, [daysRange])
 
   // Initial load
   useEffect(() => {

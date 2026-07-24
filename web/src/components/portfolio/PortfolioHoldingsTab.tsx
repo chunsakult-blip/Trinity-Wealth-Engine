@@ -1,6 +1,6 @@
 import { useState, useMemo, Fragment } from 'react'
 import type { ActualHoldingDTO, AllocationTargetDTO, ActualPortfolioStateDTO, JournalEntryDTO } from '../../api/types'
-import { formatTHB } from './PortfolioSummaryCards'
+import { formatTHB } from '../../utils/formatters'
 import { api } from '../../api/client'
 import BatchAssignBucketModal from './Modals/BatchAssignBucketModal'
 import HoldingCorrectionModal from './Modals/HoldingCorrectionModal'
@@ -230,6 +230,7 @@ export default function PortfolioHoldingsTab({
                 <th className="w-10 px-4 py-3 text-center">
                   <input
                     type="checkbox"
+                    aria-label="Select all holdings"
                     checked={sortedHoldings.length > 0 && selectedSymbols.size === sortedHoldings.length}
                     onChange={toggleSelectAll}
                     className="h-4 w-4 rounded border-sky-300 text-flow-blue focus:ring-flow-cyan"
@@ -278,6 +279,7 @@ export default function PortfolioHoldingsTab({
                     <td className="px-4 py-4 text-center align-top">
                       <input
                         type="checkbox"
+                        aria-label={`Select ${h.symbol}`}
                         checked={isSelected}
                         onChange={() => toggleSelect(h.symbol)}
                         className="h-4 w-4 rounded border-sky-300 text-flow-blue focus:ring-flow-cyan"
@@ -429,7 +431,7 @@ export default function PortfolioHoldingsTab({
 
                   {expandedSymbol === h.symbol && (
                     <tr className="bg-sky-50/70 border-b border-sky-200 animate-fade-in">
-                      <td colSpan={11} className="px-6 py-5">
+                      <td colSpan={11} className="px-6 py-5" aria-label="Journal Details">
                         <div className="rounded-xl border border-sky-200 bg-white p-4 shadow-sm space-y-4 text-left">
                           <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-sky-100 pb-3 gap-2">
                             <div className="flex items-center gap-2">

@@ -8,7 +8,7 @@ interface DateFilters {
   toDate: string
 }
 
-export function parsePitchPromptDate(prompt: string): DateFilters {
+function parsePitchPromptDate(prompt: string): DateFilters {
   if (!prompt) {
     return { mode: 'lookback', lookbackDays: 7, fromDate: '', toDate: '' }
   }
@@ -35,7 +35,7 @@ export function parsePitchPromptDate(prompt: string): DateFilters {
   return { mode: 'lookback', lookbackDays: 7, fromDate: '', toDate: '' }
 }
 
-export function updatePitchPromptDate(
+function updatePitchPromptDate(
   prompt: string,
   mode: 'lookback' | 'range',
   lookbackDays: number,

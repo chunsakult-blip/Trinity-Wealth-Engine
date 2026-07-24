@@ -68,10 +68,11 @@ export default function ResetConfirmModal({ onClose, onSuccess }: Props) {
         </div>
 
         <div>
-          <label className="block font-bold text-zinc-700 mb-1">
+          <label htmlFor="reset-input" className="block font-bold text-zinc-700 mb-1">
             พิมพ์คำว่า <span className="font-mono text-rose-600 font-extrabold">RESET</span> เพื่อยืนยัน:
           </label>
           <input
+            id="reset-input"
             type="text"
             value={confirmText}
             onChange={(e) => setConfirmText(e.target.value)}

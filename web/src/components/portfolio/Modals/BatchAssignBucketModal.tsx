@@ -61,8 +61,9 @@ export default function BatchAssignBucketModal({ symbols, targets, onClose, onSu
         </div>
 
         <div>
-          <label className="block text-xs font-bold text-zinc-700 mb-1.5">เลือก Bucket เป้าหมาย</label>
+          <label htmlFor="bucket-select" className="block text-xs font-bold text-zinc-700 mb-1.5">เลือก Bucket เป้าหมาย</label>
           <select
+            id="bucket-select"
             value={selectedBucketId}
             onChange={(e) => setSelectedBucketId(e.target.value)}
             className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-800 focus:border-flow-blue focus:outline-none"

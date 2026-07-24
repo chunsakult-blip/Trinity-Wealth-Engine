@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { AllocationTargetDTO, BucketAllocationSummaryDTO, ActualPortfolioStateDTO } from '../../api/types'
-import { formatTHB } from './PortfolioSummaryCards'
+import { formatTHB } from '../../utils/formatters'
 import BucketTargetModal from './Modals/BucketTargetModal'
 import { TradeIcon } from './icons/PortfolioIcons'
 
@@ -294,7 +294,7 @@ export default function PortfolioOverviewTab({ targets, summaries, warning, onSe
                         isHovered ? 'bg-flow-cyan/15 scale-[1.005]' : 'hover:bg-sky-50/60'
                       }`}
                     >
-                      <td className="px-4 py-3.5 font-medium text-zinc-900 flex items-center gap-2.5">
+                      <td className="px-4 py-3.5 font-medium text-zinc-900 flex items-center gap-2.5" aria-label="Bucket Details">
                         <span
                           className="h-3 w-3 shrink-0 rounded-full shadow-sm"
                           style={{ backgroundColor: color }}

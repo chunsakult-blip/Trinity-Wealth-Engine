@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ActualGoalItemDTO, ActualGoalsResponseDTO } from '../../api/types'
-import { formatTHB } from './PortfolioSummaryCards'
+import { formatTHB } from '../../utils/formatters'
 import { api } from '../../api/client'
 import GoalModal from './Modals/GoalModal'
 

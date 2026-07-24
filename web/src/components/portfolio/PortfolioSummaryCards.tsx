@@ -9,15 +9,8 @@ interface Props {
   onRefreshPrices?: () => void
   performanceRows?: PerformanceSnapshotDTO[]
 }
+import { formatTHB } from '../../utils/formatters'
 
-export function formatTHB(val: number): string {
-  return new Intl.NumberFormat('th-TH', {
-    style: 'currency',
-    currency: 'THB',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(val)
-}
 
 export default function PortfolioSummaryCards({
   summary,
