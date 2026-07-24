@@ -15,7 +15,7 @@ from tests.fixtures.briefing_fixtures import (
 from tools.content.briefing_renderer import render_briefing_book
 from tools.content.briefing_quality import validate_briefing_book_quality
 from tools.content.briefing_artifacts import save_briefing_artifact
-from schemas.briefing_book_schemas import BriefingSynthesisResult
+from schemas.briefing_book_schemas import PublishableBriefingResult
 
 
 @pytest.fixture
@@ -58,16 +58,15 @@ def test_golden_path_macro_mode_success(mock_pitch, tmp_path):
     assert report.status == "pass"
     
     # Act - Persistence
-    result = BriefingSynthesisResult(
+    result = PublishableBriefingResult(
         content=rendered.content,
         draft=draft,
         quality_report=report,
         evidence_bundle=bundle,
     )
     
-    # Temporarily set VAULT_PATH for test isolation
-    with patch("tools.content.youtube_pitcher.VAULT_PATH", tmp_path):
-        saved_path = save_briefing_artifact(result, title="Golden Macro", date_str="2026-07-24")
+    saved_artifact = save_briefing_artifact(result, title="Golden Macro", vault_root=tmp_path, date_str="2026-07-24")
+    saved_path = saved_artifact.path
         
     assert Path(saved_path).exists()
     # Test should ensure sidecar and index are also created correctly (to be implemented)
@@ -103,9 +102,16 @@ def test_golden_path_stock_mode_success(mock_pitch, tmp_path):
 
 
 def test_golden_path_stock_mode_missing_eligible_asset(mock_pitch):
-    # This should fail BEFORE LLM is called. We simulate this by checking build_briefing_evidence or similar.
-    # Currently, build_briefing_evidence might not enforce this directly, but the orchestrator does.
-    pass  # We will test the orchestrator behavior in another test
+    import pytest
+    from unittest.mock import patch
+    from tools.content.youtube_pitcher import synthesize_notebooklm_source
+    mock_pitch.investigation_mode = "stock"
+    mock_pitch.target_symbols = []
+    mock_pitch.source_event_ids = ["EV1"]
+    events = [{"event_id": "EV1", "symbols": [], "independence_key": "x", "source_url": "x"}]
+    with patch("tools.content.provenance_enrichment.assess_pitch_source_readiness", return_value=("ready", [], [], events)):
+        with pytest.raises(ValueError, match="No eligible asset found for Stock Mode"):
+            synthesize_notebooklm_source(mock_pitch, source_events=events)
 
 
 def test_golden_path_mixed_mode_success(mock_pitch, tmp_path):
@@ -145,7 +151,7 @@ def test_golden_path_draft_metadata_missing_allowlist(mock_pitch):
     bundle.sources[0].published_at = None
     bundle.sources[0].verification_status = "unverified"
     # We must also change the classification of E01 (which uses src-1) to something other than verified_fact
-    bundle.evidence_items[0].classification = "anecdotal"
+    bundle.evidence_items[0].classification = "speculation"
 
     draft = make_valid_briefing_draft()
     rendered = render_briefing_book(draft, bundle)

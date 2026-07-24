@@ -88,7 +88,8 @@ def test_synthesize_notebooklm_node_success(mock_synth, mock_save):
         quality_report = None
         override_audit = None
     mock_synth.return_value = DummyResult()
-    mock_save.return_value = "c:/vault/30_Knowledge_Base/NotebookLM_Sources/2026-07-18_test.md"
+    mock_art = type('MockArt', (), {'path': 'c:/vault/30_Knowledge_Base/NotebookLM_Sources/2026-07-18_test.md'})()
+    mock_save.return_value = mock_art
 
     item_dict = {
         "pitch_id": "p-1",
@@ -137,7 +138,8 @@ def test_synthesize_notebooklm_node_raises_when_every_approved_pitch_fails(mock_
 
 @patch("agents.youtube_pitch_flow.synthesize_notebooklm_source")
 def test_synthesize_notebooklm_node_marks_partial_failure(mock_synth, monkeypatch):
-    monkeypatch.setattr("tools.content.briefing_artifacts.save_briefing_artifact", lambda synthesis, title, date_str, **kwargs: "C:/vault/saved_pitch.md")
+    mock_art = type('MockArt', (), {'path': 'C:/vault/saved_pitch.md'})()
+    monkeypatch.setattr("tools.content.briefing_artifacts.save_briefing_artifact", lambda *args, **kwargs: mock_art)
     class DummyResult:
         content = "# briefing"
         quality_report = None
@@ -156,7 +158,7 @@ def test_synthesize_notebooklm_node_marks_partial_failure(mock_synth, monkeypatc
     }
     result = synthesize_notebooklm_node(state, {})
 
-    assert result["synthesis_status"] == "partial_failure"
+    assert result["synthesis_status"] == "done_with_errors"
     assert len(result["synthesis_failures"]) == 1
 
 

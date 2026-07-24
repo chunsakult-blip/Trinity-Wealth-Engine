@@ -77,6 +77,12 @@ def render_briefing_book(
         lines.append(f"Bull: {draft.bull_case}")
         lines.append(f"Bear: {draft.bear_case}")
 
+    if draft.falsification_triggers:
+        lines.append("## Falsification Triggers")
+        section_names.append("Falsification Triggers")
+        for trigger in draft.falsification_triggers:
+            lines.append(f"- {trigger}")
+
     if draft.notebooklm_prompts:
         lines.append("## NotebookLM Prompts")
         section_names.append("NotebookLM Prompts")
@@ -97,8 +103,35 @@ def render_briefing_book(
         for e in bundle.evidence_items:
             lines.append(f"- **[{e.evidence_id}]** {e.claim} (Sources: {', '.join(e.source_ids)})")
 
+    if bundle.macro_snapshot and bundle.macro_snapshot.observations:
+        lines.append("### Macro Snapshot")
+        for obs in bundle.macro_snapshot.observations:
+            lines.append(f"- **{obs.category}**: {obs.value} {obs.unit} (Change: {obs.change_pct}%)")
+
+    if bundle.financial_snapshots:
+        lines.append("### Financial Snapshots")
+        for fin in bundle.financial_snapshots:
+            lines.append(f"#### Symbol: {fin.symbol}")
+            if fin.revenue: lines.append(f"- Revenue: {fin.revenue}")
+            if fin.net_income: lines.append(f"- Net Income: {fin.net_income}")
+            if fin.fcf: lines.append(f"- FCF: {fin.fcf}")
+            if fin.total_debt: lines.append(f"- Total Debt: {fin.total_debt}")
+            if fin.health_notes: lines.append(f"- Notes: {fin.health_notes}")
+            for period in fin.periods:
+                lines.append(f"  - **{period.fiscal_period_end}**: Rev={period.total_revenue}, NI={period.net_income}, FCF={period.free_cash_flow}")
+
     content = "\n\n".join(lines)
     
+    # Validation: Ensure critical sections were rendered
+    missing_sections = []
+    if not draft.executive_summary: missing_sections.append("Executive Summary")
+    if not draft.causality_scenarios: missing_sections.append("Causality Scenarios")
+    if not draft.asset_impacts: missing_sections.append("Asset Impacts")
+    if not draft.falsification_triggers: missing_sections.append("Falsification Triggers")
+    
+    if missing_sections:
+        raise ValueError(f"Draft is missing critical required fields: {missing_sections}")
+
     cited_evidence_ids = _collect_ids(content, "E")
     cited_source_ids = _collect_ids(content, "S")
     

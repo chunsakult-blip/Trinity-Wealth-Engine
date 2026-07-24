@@ -20,19 +20,21 @@ def _years_in_text(text: str) -> set:
 def validate_briefing_book_structure(rendered: RenderedBriefing) -> Tuple[bool, List[str]]:
     missing = []
     
-    expected_sections = [
-        "Main Title (H1)",
-        "Act I",
-        "Act II",
-        "Act III",
-        "Causality Scenarios",
-        "NotebookLM Prompts",
-        "Evidence Ledger",
+    expected_markdown_headers = [
+        ("Main Title (H1)", r"^#\s+"),
+        ("Act I", r"^##\s*Act I"),
+        ("Act II", r"^##\s*Act II"),
+        ("Act III", r"^##\s*Act III"),
+        ("Causality Scenarios", r"^##\s*Causality Scenarios"),
+        ("Asset Impacts", r"^##\s*Asset Impacts"),
+        ("Falsification Triggers", r"^##\s*Falsification Triggers"),
+        ("NotebookLM Prompts", r"^##\s*NotebookLM Prompts"),
+        ("Evidence Ledger", r"^##\s*Evidence Ledger"),
     ]
     
-    for section in expected_sections:
-        if section not in rendered.section_names:
-            missing.append(f"{section} Section" if not section.endswith(")") else section)
+    for name, pattern in expected_markdown_headers:
+        if not re.search(pattern, rendered.content, flags=re.MULTILINE | re.IGNORECASE):
+            missing.append(f"{name} Section" if not name.endswith(")") else name)
             
     if "UNKNOWN" in rendered.content:
         missing.append("Placeholder 'UNKNOWN' detected in markdown")

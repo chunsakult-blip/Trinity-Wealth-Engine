@@ -7,6 +7,8 @@ from langgraph.types import Command, interrupt
 
 from core.logger import get_logger
 from schemas.youtube_pitch_schemas import YouTubeContentPitchItem
+from pathlib import Path
+
 from tools.content.youtube_pitcher import (
     fetch_news_for_pitching,
     generate_youtube_pitches,
@@ -14,6 +16,7 @@ from tools.content.youtube_pitcher import (
     synthesize_notebooklm_source,
 )
 from tools.content.briefing_artifacts import save_briefing_artifact
+from tools.archivist.core import VAULT_PATH
 from tools.content.provenance_enrichment import (
     assess_pitch_source_readiness,
     prepare_verified_candidate_pool,
@@ -34,7 +37,7 @@ class YouTubePitchState(TypedDict, total=False):
     approved_pitch_ids: list[str]
     unverified_draft_selections: list[dict]
     result_summary: str
-    synthesis_status: Literal["success", "partial_failure", "success_with_unverified_drafts"]
+    synthesis_status: Literal["done", "done_with_warnings", "done_with_errors", "error"]
     synthesis_failures: list[str]
     pitch_generation_attempt: int
     approval_revision: int
@@ -395,16 +398,17 @@ def synthesize_notebooklm_node(state: YouTubePitchState, config: RunnableConfig)
             )
 
             # บันทึกลง Vault
-            saved_path = save_briefing_artifact(
+            saved_artifact = save_briefing_artifact(
                 synthesis=synthesis_result,
                 title=main_title,
+                vault_root=Path(VAULT_PATH),
                 date_str=today_str,
             )
 
             if is_draft:
-                line = f"✓ บันทึก Draft สำเร็จ: {saved_path} (หัวข้อ: {main_title})"
+                line = f"✓ บันทึก Draft สำเร็จ: {saved_artifact.path} (หัวข้อ: {main_title})"
             else:
-                line = f"✓ บันทึก Briefing Book สำเร็จ: {saved_path} (หัวข้อ: {main_title})"
+                line = f"✓ บันทึก Briefing Book สำเร็จ: {saved_artifact.path} (หัวข้อ: {main_title})"
 
             summary_lines.append(line)
             messages.append(AIMessage(content=line, name="synthesize_notebooklm"))
@@ -425,11 +429,11 @@ def synthesize_notebooklm_node(state: YouTubePitchState, config: RunnableConfig)
         # ``error`` rather than incorrectly labelling AG-19-style failures done.
         raise RuntimeError("YouTube Pitch synthesis failed for every approved pitch:\n" + "\n".join(failures))
 
-    synthesis_status = "success"
+    synthesis_status = "done"
     if failures:
-        synthesis_status = "partial_failure"
+        synthesis_status = "done_with_errors"
     elif draft_ids:
-        synthesis_status = "success_with_unverified_drafts"
+        synthesis_status = "done_with_warnings"
 
     return {
         "result_summary": "\n".join(summary_lines),

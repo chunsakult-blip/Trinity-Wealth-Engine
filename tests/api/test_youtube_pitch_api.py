@@ -82,13 +82,14 @@ def test_default_run_fn_youtube_pitch_flow_resumes_and_completes(tmp_path, monke
         override_audit = None
     dummy = DummyResult()
     monkeypatch.setattr("tools.content.youtube_pitcher.synthesize_notebooklm_source", lambda *args, **kwargs: dummy)
-    monkeypatch.setattr("tools.content.briefing_artifacts.save_briefing_artifact", lambda synthesis, title, date_str, **kwargs: "C:/vault/saved_pitch.md")
+    mock_art = type('MockArt', (), {'path': 'C:/vault/saved_pitch.md'})()
+    monkeypatch.setattr("tools.content.briefing_artifacts.save_briefing_artifact", lambda *args, **kwargs: mock_art)
     try:
         import agents.youtube_pitch_flow as flow_mod
         monkeypatch.setattr(flow_mod, "fetch_news_for_pitching", lambda **kwargs: (_fake_candidates(), "macro_str", False))
         monkeypatch.setattr(flow_mod, "generate_youtube_pitches", lambda **kwargs: _fake_pitches_batch())
         monkeypatch.setattr(flow_mod, "synthesize_notebooklm_source", lambda *args, **kwargs: dummy)
-        monkeypatch.setattr(flow_mod, "save_briefing_artifact", lambda synthesis, title, date_str, **kwargs: "C:/vault/saved_pitch.md")
+        monkeypatch.setattr(flow_mod, "save_briefing_artifact", lambda *args, **kwargs: mock_art)
     except ImportError:
         pass
 
@@ -128,13 +129,14 @@ def test_job_queue_resume_youtube_pitch_flow(tmp_path, monkeypatch):
         override_audit = None
     dummy = DummyResult()
     monkeypatch.setattr("tools.content.youtube_pitcher.synthesize_notebooklm_source", lambda *args, **kwargs: dummy)
-    monkeypatch.setattr("tools.content.briefing_artifacts.save_briefing_artifact", lambda synthesis, title, date_str, **kwargs: "C:/vault/saved_pitch.md")
+    mock_art2 = type('MockArt', (), {'path': 'C:/vault/saved_pitch.md'})()
+    monkeypatch.setattr("tools.content.briefing_artifacts.save_briefing_artifact", lambda *args, **kwargs: mock_art2)
     try:
         import agents.youtube_pitch_flow as flow_mod
         monkeypatch.setattr(flow_mod, "fetch_news_for_pitching", lambda **kwargs: (_fake_candidates(), "macro_str", False))
         monkeypatch.setattr(flow_mod, "generate_youtube_pitches", lambda **kwargs: _fake_pitches_batch())
         monkeypatch.setattr(flow_mod, "synthesize_notebooklm_source", lambda *args, **kwargs: dummy)
-        monkeypatch.setattr(flow_mod, "save_briefing_artifact", lambda synthesis, title, date_str, **kwargs: "C:/vault/saved_pitch.md")
+        monkeypatch.setattr(flow_mod, "save_briefing_artifact", lambda *args, **kwargs: mock_art2)
     except ImportError:
         pass
 

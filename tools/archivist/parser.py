@@ -50,6 +50,16 @@ def extract_yaml_frontmatter_value(content: str, key: str) -> Optional[str]:
     return None
 
 
+def parse_frontmatter_metadata(content: str) -> dict[str, Any]:
+    """แปลง YAML frontmatter เป็น dict โดยใช้ python-frontmatter เพื่อได้ชนิดข้อมูลที่แท้จริง (เช่น list[str])"""
+    try:
+        post = fm.loads(content)
+        return dict(post.metadata)
+    except Exception as e:
+        log.warning("parse_frontmatter_metadata failed: %s", e)
+        return {}
+
+
 def _strip_frontmatter(content: str) -> str:
     """ตัด YAML frontmatter (--- ... ---) ออก คืนเฉพาะ body"""
     if content.startswith("---"):

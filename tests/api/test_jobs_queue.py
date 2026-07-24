@@ -164,7 +164,7 @@ def test_job_to_dto_exposes_current_node_only_while_running(tmp_path):
     conn.close()
 
 
-def test_job_queue_preserves_partial_failure_terminal_status(tmp_path):
+def test_job_queue_preserves_done_with_errors_terminal_status(tmp_path):
     """A flow that completed one pitch but failed another must not be overwritten as done."""
     import asyncio
 

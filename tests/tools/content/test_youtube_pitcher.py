@@ -128,8 +128,12 @@ def test_synthesize_notebooklm_source(mock_invoke, mock_assess, mock_validate):
     mock_draft = InvestigativeBriefingBookDraft(
         title="Mock Title",
         executive_summary="📑 สรุปผู้บริหารและแหล่งอ้างอิง",
-        causality_scenarios=[],
-        asset_impacts=[],
+        causality_scenarios=[
+            {"scenario_id": "S1", "name": "Base", "description": "Base", "probability_pct": 50, "trigger_conditions": [], "falsification_triggers": [], "evidence_ids": [], "threshold_basis": ""}
+        ],
+        asset_impacts=[
+            {"symbol_or_name": "AAPL", "impact_type": "direct_upside", "reasoning": "Good", "risk_factors": [], "invalidation_conditions": [], "evidence_ids": []}
+        ],
         bull_case="Bull",
         bear_case="Bear",
         falsification_triggers=["F1"],
@@ -159,30 +163,31 @@ def test_synthesize_notebooklm_source(mock_invoke, mock_assess, mock_validate):
     assert "📑 สรุปผู้บริหารและแหล่งอ้างอิง" in res.content
 
 
-def test_save_briefing_artifact_with_thai_filename(tmp_path, monkeypatch):
-    monkeypatch.setattr("tools.content.youtube_pitcher.VAULT_PATH", tmp_path)
+def test_save_briefing_artifact_with_thai_filename(tmp_path):
     content = "# Briefing Book เนื้อหาเต็ม"
     title = "วิเคราะห์หุ้นเทคไทยและโลก ปี 2026"
 
-    class DummySynthesis:
-        def __init__(self):
-            self.content = content
-            self.quality_report = None
+    from schemas.briefing_book_schemas import PublishableBriefingResult, ResearchQualityReport
+    from tests.fixtures.briefing_fixtures import make_valid_briefing_draft, make_valid_evidence_bundle
+    synthesis = PublishableBriefingResult(
+        content=content,
+        draft=make_valid_briefing_draft(),
+        quality_report=ResearchQualityReport(score=100, status="pass", publishable=True),
+        evidence_bundle=make_valid_evidence_bundle()
+    )
 
-    synthesis = DummySynthesis()
-
-    saved_path_str = save_briefing_artifact(synthesis, title, date_str="2026-07-18")
-    saved_path = Path(saved_path_str)
+    saved_artifact = save_briefing_artifact(synthesis, title, vault_root=tmp_path, date_str="2026-07-18")
+    saved_path = saved_artifact.path
 
     assert saved_path.exists()
     assert "วิเคราะห์หุ้นเทคไทยและโลก" in saved_path.name
     assert "2026-07-18_" in saved_path.name
     assert saved_path.read_text(encoding="utf-8") == content
 
-    # ทดสอบ collision (_2)
-    saved_path_2 = Path(save_briefing_artifact(synthesis, title, date_str="2026-07-18"))
+    # ทดสอบ collision (_2) (Now tests idempotency)
+    saved_path_2 = save_briefing_artifact(synthesis, title, vault_root=tmp_path, date_str="2026-07-18").path
     assert saved_path_2.exists()
-    assert saved_path_2 != saved_path
+    assert saved_path_2 == saved_path
 
 
 @patch("tools.content.youtube_pitcher.load_store")

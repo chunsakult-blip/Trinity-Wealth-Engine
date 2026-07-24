@@ -2,7 +2,12 @@
 import json
 from pathlib import Path
 
-from schemas.briefing_book_schemas import BriefingEvidenceBundle, SourceRecord, EvidenceItem
+from schemas.briefing_book_schemas import (
+    BriefingEvidenceBundle,
+    SourceRecord,
+    EvidenceItem,
+    InvestigativeBriefingBookDraft,
+)
 from schemas.youtube_pitch_schemas import YouTubeContentPitchItem
 from tools.content.briefing_evidence import build_briefing_evidence, _get_independence_key
 from tools.content.youtube_pitcher import (
@@ -144,16 +149,27 @@ def test_all_unverified_core_sources_are_a_hard_failure():
 
 
 def test_renderer_owns_each_visual_marker_once():
-    directive = SimpleNamespace(
-        visual_id="V01", act="Act I", title="Oil futures", chart_type="line",
-        date_range="2026-07-20 to 2026-07-23", series_keys=["BZ=F"],
-        sources=["Yahoo Finance"], annotation="Move", evidence_ids=["E01"],
-    )
-    draft = SimpleNamespace(
-        title="Visual ownership", executive_summary="[E01]", causality_scenarios=[],
-        asset_impacts=[], bull_case="[E01]", bear_case="[E01]", falsification_triggers=[],
-        act1_script="Act I text [VISUAL_EVIDENCE id=V01 evidence=E99]",
-        act2_script="Act II text", act3_script="Act III text",
+    directive = {
+        "visual_id": "V01", "act": "Act I", "title": "Oil futures", "chart_type": "line",
+        "date_range": "2026-07-20 to 2026-07-23", "series_keys": ["BZ=F"],
+        "sources": ["Yahoo Finance"], "annotation": "Move", "evidence_ids": ["E01"],
+        "data_mode": "provider_series"
+    }
+    draft = InvestigativeBriefingBookDraft(
+        title="Valid Metadata Test",
+        executive_summary="[E01]",
+        causality_scenarios=[
+            {"scenario_id": "S1", "name": "Base", "description": "Base", "probability_pct": 50, "trigger_conditions": [], "falsification_triggers": [], "evidence_ids": [], "threshold_basis": ""}
+        ],
+        asset_impacts=[
+            {"symbol_or_name": "AAPL", "impact_type": "direct_upside", "reasoning": "Good", "risk_factors": [], "invalidation_conditions": [], "evidence_ids": []}
+        ],
+        bull_case="Bull",
+        bear_case="Bear",
+        falsification_triggers=["F1"],
+        act1_script="[VISUAL_EVIDENCE id=V01 evidence=E01]",
+        act2_script="[VISUAL_EVIDENCE id=V02 evidence=E02]",
+        act3_script="[VISUAL_EVIDENCE id=V03 evidence=E03]",
         visual_directives=[directive], notebooklm_prompts=[],
     )
     bundle = BriefingEvidenceBundle(
@@ -236,7 +252,6 @@ def test_save_verifies_persisted_content_and_quality_hash(tmp_path, monkeypatch)
     from schemas.briefing_book_schemas import ResearchQualityReport
     import tools.content.youtube_pitcher as pitcher
 
-    monkeypatch.setattr(pitcher, "VAULT_PATH", str(tmp_path))
     monkeypatch.setattr("tools.archivist.indexer._index_upsert", lambda *args, **kwargs: None)
     monkeypatch.setattr("tools.archivist.indexer.flush_index_if_dirty", lambda *args, **kwargs: None)
 
@@ -249,18 +264,21 @@ def test_save_verifies_persisted_content_and_quality_hash(tmp_path, monkeypatch)
         advisories=[],
     )
 
-    class MockSynthesis:
-        def __init__(self, c, r):
-            self.content = c
-            self.quality_report = r
-            
-    synthesis = MockSynthesis(content, report)
+    from schemas.briefing_book_schemas import PublishableBriefingResult
+    from tests.fixtures.briefing_fixtures import make_valid_briefing_draft, make_valid_evidence_bundle
+    synthesis = PublishableBriefingResult(
+        content=content,
+        draft=make_valid_briefing_draft(),
+        quality_report=report,
+        evidence_bundle=make_valid_evidence_bundle()
+    )
 
-    saved = Path(save_briefing_artifact(
+    saved = save_briefing_artifact(
         synthesis,
         "AG-20",
+        vault_root=tmp_path,
         date_str="2026-07-23",
-    ))
+    ).path
     sidecar = saved.with_suffix(".quality.json")
 
     assert saved.read_text(encoding="utf-8") == content

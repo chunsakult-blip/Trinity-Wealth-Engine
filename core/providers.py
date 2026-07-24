@@ -79,3 +79,18 @@ def with_provider_retry(
             raise ValueError(f"{provider_name} failed unexpectedly")
         return wrapper
     return decorator
+
+def resolve_provider(model_env: str, provider_env: str, default: str = "default_provider") -> str:
+    """
+    Centralize provider selection.
+    Priority: model_env > provider_env > default
+    """
+    val = os.getenv(model_env)
+    if val:
+        return val
+        
+    val = os.getenv(provider_env)
+    if val:
+        return val
+        
+    return default

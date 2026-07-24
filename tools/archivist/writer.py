@@ -145,7 +145,7 @@ def write_raw_markdown(content: str, folder_path: str, filename: str) -> str:
     ระบบจะทำการ Auto-route สร้าง subfolder ย่อยตามข้อมูลใน YAML อัตโนมัติ:
     - path ลงท้าย 'Daily_Snapshots' → เติม subfolder วันที่จาก `date:` field
     - path ลงท้าย 'Stocks' → เติม subfolder ชื่อหุ้นจาก `ticker:` field
-    - path ลงท้าย 'YouTube_Summaries' → เติม subfolder ชื่อช่องจาก `channel:` field
+    - path ลงท้าย 'YouTube_Summaries' → จัดรูปแบบชื่อไฟล์นำหน้าด้วยวันที่ [YYYY-MM-DD] อัตโนมัติ (เช่น '2026-07-22 Title.md')
     - path มีคำว่า 'News' → เติม subfolder สำนักข่าวจาก `publisher:` field
 
     [Caution]
@@ -184,6 +184,17 @@ def write_raw_markdown(content: str, folder_path: str, filename: str) -> str:
     safe_name = _sanitize_filename(filename)
     safe_name = re.sub(r'[,()\[\].—–]', '', safe_name)
     safe_name = re.sub(r'_{2,}', '_', safe_name).strip('_') or "untitled"
+
+    if (entity_type_val == "youtube_insight" or str(resolved_path).rstrip("/").endswith("YouTube_Summaries")) and not re.match(r"^\d{4}-\d{2}-\d{2}", safe_name) and not re.match(r"^YT\d+$", safe_name):
+        date_val = extract_yaml_frontmatter_value(content, "published_at") or extract_yaml_frontmatter_value(content, "date")
+        if not date_val:
+            m_date = _DATE_FRONTMATTER_RE.search(content)
+            if m_date:
+                date_val = m_date.group(1).strip()
+        date_prefix = date_val[:10] if date_val and len(date_val) >= 10 else datetime.now().strftime("%Y-%m-%d")
+        if re.match(r"^\d{4}-\d{2}-\d{2}$", date_prefix):
+            safe_name = f"{date_prefix} {safe_name}"
+
     file_path = target_dir / f"{safe_name}.md"
     existed = file_path.exists()
     _atomic_write_text(file_path, content)

@@ -386,7 +386,7 @@ def synthesize_notebooklm_source(
 ) -> Any:
     """สังเคราะห์เอกสาร Research-Grade & Audio-Ready Briefing Book ครบ 7 Sections ให้ NotebookLM"""
     from schemas.briefing_book_schemas import (
-        BriefingSynthesisResult,
+        PublishableBriefingResult,
         InvestigativeBriefingBookDraft,
         MacroAutopsySnapshot,
         UnverifiedBriefingDraftResult,
@@ -397,7 +397,7 @@ def synthesize_notebooklm_source(
 
     matched_events = [ev for ev in source_events if ev.get("event_id") in pitch.source_event_ids or ev.get("canonical_title") in pitch.source_titles]
     if not matched_events:
-        raise ValueError(f"No matched events found for pitch '{pitch.title}'. Synthesis requires matched_events only.")
+        raise ValueError(f"No matched events found for pitch '{getattr(pitch, 'title', pitch.pitch_id)}'. Synthesis requires matched_events only.")
     target_events = matched_events
 
     readiness, readiness_issues, issue_codes, target_events = assess_pitch_source_readiness(
@@ -430,6 +430,8 @@ def synthesize_notebooklm_source(
     financial_snapshots = []
     if mode in {"stock", "mixed"}:
         assets = select_financial_autopsy_assets(pitch, target_events)
+        if not assets and mode == "stock":
+            raise ValueError(f"No eligible asset found for Stock Mode pitch '{getattr(pitch, 'title', pitch.pitch_id)}' before LLM invocation.")
         for asset in assets:
             try:
                 res = get_financial_autopsy(asset)
@@ -445,7 +447,8 @@ def synthesize_notebooklm_source(
         financial_snapshots=financial_snapshots,
     )
 
-    provider_name = os.getenv("YOUTUBE_PITCH_PROVIDER", "google")
+    from core.providers import resolve_provider
+    provider_name = resolve_provider("YOUTUBE_PITCH_MODEL", "YOUTUBE_PITCH_PROVIDER", "google")
 
     prompt_lines = [
         f"You are a Senior Research Director generating an InvestigativeBriefingBookDraft.",
@@ -515,11 +518,12 @@ def synthesize_notebooklm_source(
     if output_mode == "unverified_draft":
         return UnverifiedBriefingDraftResult(
             content=md_content,
+            draft=draft,
             quality_report=report,
             evidence_bundle=bundle,
             override_audit=override_audit,
         )
-    return BriefingSynthesisResult(
+    return PublishableBriefingResult(
         content=md_content,
         draft=draft,
         quality_report=report,

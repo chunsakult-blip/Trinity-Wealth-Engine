@@ -17,6 +17,25 @@ if str(_PROJECT_ROOT) not in sys.path:
 import pytest  # noqa: E402
 
 
+@pytest.fixture(scope="session", autouse=True)
+def enforce_vault_isolation():
+    """Safety check: ensure tests do not modify production vault"""
+    vault_dir = Path("memories/00_Inbox/NotebookLM")
+    if vault_dir.exists():
+        initial_files = {f: f.stat().st_mtime for f in vault_dir.glob("**/*") if f.is_file()}
+    else:
+        initial_files = {}
+
+    yield
+
+    if vault_dir.exists():
+        final_files = {f: f.stat().st_mtime for f in vault_dir.glob("**/*") if f.is_file()}
+    else:
+        final_files = {}
+
+    # Check for modifications or new/deleted files
+    assert initial_files == final_files, "Production vault was modified during test run!"
+
 @pytest.fixture
 def tmp_vault(tmp_path, monkeypatch):
     """แยก Vault per test — set OBSIDIAN_VAULT_PATH ให้ชี้ tmp_path"""

@@ -218,7 +218,7 @@ def search_graph_context(entity_name: str) -> str:
     Returns:
         str: เนื้อหาของ Entity หลัก พร้อมกับเนื้อหาแบบตัดทอนของไฟล์ทั้งหมดที่เชื่อมโยงอยู่ (หรือแจ้งเตือนหากไม่พบไฟล์)
     """
-    all_files = list(VAULT_PATH.rglob("*.md"))
+    all_files = _searchable_files()
     if not all_files:
         return "ยังไม่มีไฟล์ความจำใดใน Vault"
 
