@@ -87,9 +87,18 @@ def _save_ingested_content(content: str) -> str:
     from tools.archivist.core import _sanitize_filename
     from tools.archivist.parser import extract_yaml_frontmatter_value
     from tools.archivist.writer import write_raw_markdown
+    import re
+    from datetime import datetime
 
     entity_type = extract_yaml_frontmatter_value(content, "entity_type") or ""
     title = extract_yaml_frontmatter_value(content, "title") or datetime.now().strftime("news_youtube_%Y%m%d_%H%M%S")
+
+    if entity_type == "youtube_insight":
+        date_str = extract_yaml_frontmatter_value(content, "published_at") or extract_yaml_frontmatter_value(content, "date") or datetime.now().strftime("%Y-%m-%d")
+        date_prefix = date_str[:10] if date_str and len(date_str) >= 10 else datetime.now().strftime("%Y-%m-%d")
+        if re.match(r"^\d{4}-\d{2}-\d{2}$", date_prefix) and not re.match(r"^\d{4}-\d{2}-\d{2}", title):
+            title = f"{date_prefix} {title}"
+
     filename = _sanitize_filename(title)
 
     folder_map = {

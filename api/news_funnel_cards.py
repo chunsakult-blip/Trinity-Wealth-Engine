@@ -26,7 +26,7 @@ def upsert_news_funnel_card(period: str, pending_events: List[Dict[str, Any]]) -
             formatted_prompt = format_news_funnel_card_prompt(period, pending_events)
             existing_cards = state_db.list_kanban_cards(conn)
             existing_card = next(
-                (c for c in existing_cards if c["flow"] == "news_funnel" and c["column_name"] in ("backlog", "approval") and period.upper() in c["title"]),
+                (c for c in existing_cards if c["flow"] == "news_funnel" and c["column_name"] in ("backlog", "approval")),
                 None
             )
             if existing_card is None:

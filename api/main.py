@@ -20,6 +20,18 @@ WEB_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from api import config
+    if not config.get_webui_password():
+        raise RuntimeError("WEBUI_PASSWORD must be set in environment variables.")
+
+    session_secret = config.get_session_secret()
+    if not session_secret or len(session_secret) < 32:
+        raise RuntimeError("SESSION_SECRET_KEY must be set and at least 32 characters long for security.")
+
+    draft_key = config.get_unverified_draft_signing_key()
+    if not draft_key or len(draft_key) < 32:
+        raise RuntimeError("UNVERIFIED_DRAFT_SIGNING_KEY must be set and at least 32 characters long to sign tokens securely.")
+
     with closing(state_db.get_connection()) as conn:
         state_db.init_schema(conn)
 

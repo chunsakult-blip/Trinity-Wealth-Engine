@@ -15,6 +15,15 @@ def get_session_secret() -> str:
     return os.getenv("SESSION_SECRET_KEY", "")
 
 
+def get_unverified_draft_signing_key() -> str:
+    """Return the dedicated HMAC key for Unverified Draft approval tokens.
+
+    This intentionally does not fall back to the session-cookie secret: rotating
+    either key must not silently change the trust boundary of the other.
+    """
+    return os.getenv("UNVERIFIED_DRAFT_SIGNING_KEY", "")
+
+
 def get_cookie_secure() -> bool:
     """ตั้ง SESSION_COOKIE_SECURE=1 เมื่อ deploy หลัง HTTPS (reverse proxy/tunnel) —
     default ปิดเพราะ localhost ใช้ http และ browser จะไม่เก็บ Secure cookie บน http

@@ -12,7 +12,9 @@ interface Props {
     approvedNewsLinks: string[],
     approvedYoutubeLinks: string[],
     approvedEventIds?: string[],
-    approvedPitchIds?: string[]
+    approvedPitchIds?: string[],
+    action?: 'approve' | 'refresh_sources',
+    unverifiedDraftSelections?: import('../api/types').UnverifiedDraftSelection[]
   ) => void
   submitting?: boolean
 }
@@ -173,6 +175,7 @@ function NewsYoutubeApprovalView({
   const [selectedNews, setSelectedNews] = useState<Set<string>>(new Set())
   const [selectedYoutube, setSelectedYoutube] = useState<Set<string>>(new Set())
   const [showFetched, setShowFetched] = useState(false)
+  const [youtubeSort, setYoutubeSort] = useState<'date_desc' | 'date_asc' | 'channel'>('date_desc')
 
   function toggle(set: Set<string>, setSet: (s: Set<string>) => void, link: string) {
     const next = new Set(set)
@@ -196,6 +199,25 @@ function NewsYoutubeApprovalView({
   const visibleYoutube = showFetched
     ? payload.youtube_candidates
     : payload.youtube_candidates.filter((v) => !v.is_fetched)
+
+  const sortedYoutube = visibleYoutube.slice().sort((a, b) => {
+    if (youtubeSort === 'date_desc') {
+      const cmp = (b.published || '').localeCompare(a.published || '')
+      if (cmp !== 0) return cmp
+      const chCmp = (a.channel || '').localeCompare(b.channel || '')
+      return chCmp !== 0 ? chCmp : (a.title || '').localeCompare(b.title || '')
+    }
+    if (youtubeSort === 'date_asc') {
+      const cmp = (a.published || '').localeCompare(b.published || '')
+      if (cmp !== 0) return cmp
+      const chCmp = (a.channel || '').localeCompare(b.channel || '')
+      return chCmp !== 0 ? chCmp : (a.title || '').localeCompare(b.title || '')
+    }
+    // channel (default / original grouping by channel)
+    const chCmp = (a.channel || '').localeCompare(b.channel || '')
+    if (chCmp !== 0) return chCmp
+    return (b.published || '').localeCompare(a.published || '')
+  })
 
   return (
     <div className="space-y-4 rounded-xl border border-amber-200 bg-amber-50 p-4 shadow-sm shadow-black/5">
@@ -257,22 +279,63 @@ function NewsYoutubeApprovalView({
         </div>
       )}
 
-      {visibleYoutube.length > 0 && (
+      {sortedYoutube.length > 0 && (
         <div>
-          <div className="mb-2 flex items-center justify-between">
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-              YouTube ({visibleYoutube.length})
-            </h4>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                YouTube ({sortedYoutube.length})
+              </h4>
+              <div className="flex items-center gap-1 rounded-md border border-edge bg-white px-1.5 py-0.5 text-[11px] shadow-2xs">
+                <span className="text-zinc-400">เรียงตาม:</span>
+                <button
+                  type="button"
+                  onClick={() => setYoutubeSort('date_desc')}
+                  className={`rounded px-1.5 py-0.5 font-medium transition-colors ${
+                    youtubeSort === 'date_desc'
+                      ? 'bg-sky-500 text-white shadow-2xs'
+                      : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'
+                  }`}
+                  title="เรียงตามวันที่ใหม่สุดไปเก่าสุด"
+                >
+                  วันที่ล่าสุด ↓
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setYoutubeSort('date_asc')}
+                  className={`rounded px-1.5 py-0.5 font-medium transition-colors ${
+                    youtubeSort === 'date_asc'
+                      ? 'bg-sky-500 text-white shadow-2xs'
+                      : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'
+                  }`}
+                  title="เรียงตามวันที่เก่าสุดไปใหม่สุด"
+                >
+                  วันที่เก่าสุด ↑
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setYoutubeSort('channel')}
+                  className={`rounded px-1.5 py-0.5 font-medium transition-colors ${
+                    youtubeSort === 'channel'
+                      ? 'bg-sky-500 text-white shadow-2xs'
+                      : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'
+                  }`}
+                  title="จัดกลุ่มเรียงตามชื่อช่อง"
+                >
+                  ช่อง
+                </button>
+              </div>
+            </div>
             <button
               type="button"
-              onClick={() => toggleAll(visibleYoutube, selectedYoutube, setSelectedYoutube)}
+              onClick={() => toggleAll(sortedYoutube, selectedYoutube, setSelectedYoutube)}
               className="text-xs font-medium text-sky-700 hover:underline"
             >
-              {visibleYoutube.every((v) => selectedYoutube.has(v.link)) ? 'ยกเลิกทั้งหมด' : 'เลือกทั้งหมด'}
+              {sortedYoutube.every((v) => selectedYoutube.has(v.link)) ? 'ยกเลิกทั้งหมด' : 'เลือกทั้งหมด'}
             </button>
           </div>
           <ul className="space-y-1.5">
-            {visibleYoutube.map((v) => (
+            {sortedYoutube.map((v) => (
               <li key={v.link}>
                 <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-edge bg-panel p-2 text-xs text-zinc-700 hover:border-zinc-300">
                   <input
@@ -282,14 +345,14 @@ function NewsYoutubeApprovalView({
                     className="mt-0.5 accent-sky-500"
                   />
                   <span>
-                    <span className={v.is_fetched ? 'text-zinc-400 line-through' : 'text-zinc-800'}>{v.title}</span>{' '}
+                    <span className={v.is_fetched ? 'text-zinc-400 line-through' : 'text-zinc-800 font-medium'}>{v.title}</span>{' '}
                     {v.is_fetched && (
                       <span className="rounded border border-edge bg-surface px-1 py-0.5 text-[10px] text-zinc-500">
                         อ่านแล้ว
                       </span>
                     )}{' '}
                     <span className="text-zinc-500">
-                      · {v.channel} · {v.published}
+                      · <span className="font-medium text-sky-700">{v.channel}</span> · <span className="inline-flex items-center rounded border border-zinc-200/60 bg-zinc-100 px-1 py-0.2 font-mono text-[10px] text-zinc-600">📅 {v.published}</span>
                     </span>
                   </span>
                 </label>
@@ -334,10 +397,20 @@ function YoutubePitchApprovalView({
   submitting?: boolean
 }) {
   const [selectedPitchIds, setSelectedPitchIds] = useState<Set<string>>(new Set())
+  const [draftSelections, setDraftSelections] = useState<import('../api/types').UnverifiedDraftSelection[]>([])
+  const [draftModalTarget, setDraftModalTarget] = useState<(typeof payload.pitches)[0] | null>(null)
+  const [draftAcknowledge, setDraftAcknowledge] = useState(false)
 
   const pitches = payload.pitches || []
+  const selectablePitches = pitches.filter((pitch) => pitch.source_readiness === 'ready')
+
+  function canApprove(pitch: (typeof pitches)[number]) {
+    return pitch.source_readiness === 'ready'
+  }
 
   function toggle(id: string) {
+    const pitch = pitches.find((item) => item.pitch_id === id)
+    if (!pitch || !canApprove(pitch)) return
     const next = new Set(selectedPitchIds)
     if (next.has(id)) next.delete(id)
     else next.add(id)
@@ -345,17 +418,87 @@ function YoutubePitchApprovalView({
   }
 
   function toggleAll() {
-    if (selectedPitchIds.size === pitches.length && pitches.length > 0) {
+    if (selectedPitchIds.size === selectablePitches.length && selectablePitches.length > 0) {
       setSelectedPitchIds(new Set())
     } else {
-      setSelectedPitchIds(new Set(pitches.map((p) => p.pitch_id)))
+      setSelectedPitchIds(new Set(selectablePitches.map((p) => p.pitch_id)))
     }
   }
 
-  const allSelected = pitches.length > 0 && selectedPitchIds.size === pitches.length
+  function openDraftModal(pitch: (typeof pitches)[number]) {
+    setDraftModalTarget(pitch)
+    setDraftAcknowledge(false)
+  }
+
+  function confirmDraft() {
+    if (!draftModalTarget || !draftAcknowledge || !draftModalTarget.unverified_draft_eligibility_token) return
+    setDraftSelections((prev) => [
+      ...prev.filter(d => d.pitch_id !== draftModalTarget.pitch_id),
+      {
+        pitch_id: draftModalTarget.pitch_id,
+        ack: {
+          acknowledged: true,
+          policy_version: 'unverified-draft-v1',
+          eligibility_token: draftModalTarget.unverified_draft_eligibility_token!
+        }
+      }
+    ])
+    setDraftModalTarget(null)
+  }
+
+  function removeDraft(pitch_id: string) {
+    setDraftSelections((prev) => prev.filter(d => d.pitch_id !== pitch_id))
+  }
+
+  const allSelected = selectablePitches.length > 0 && selectedPitchIds.size === selectablePitches.length
 
   return (
-    <div className="space-y-4 rounded-xl border border-sky-200 bg-sky-50/50 p-4 shadow-sm shadow-black/5">
+    <div className="space-y-4 rounded-xl border border-sky-200 bg-sky-50/50 p-4 shadow-sm shadow-black/5 relative">
+      {draftModalTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-lg relative z-50">
+            <h4 className="text-lg font-bold text-red-700">⚠️ สร้าง Unverified Draft?</h4>
+            <p className="mt-2 text-sm text-zinc-600">
+              การสร้าง Draft สำหรับหัวข้อ <strong>{draftModalTarget.working_titles[0]}</strong> จะข้ามขั้นตอนตรวจสอบแหล่งข่าว โดยพบปัญหาดังนี้:
+            </p>
+            {draftModalTarget.source_readiness_issues && draftModalTarget.source_readiness_issues.length > 0 && (
+              <ul className="mt-2 list-inside list-disc text-sm text-red-600 font-medium">
+                {draftModalTarget.source_readiness_issues.map((issue, idx) => (
+                  <li key={idx}>{issue}</li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-2 text-sm text-zinc-600">
+              ทำให้ Briefing Book ที่ได้อาจมีข้อมูลที่ไม่สามารถตรวจสอบความถูกต้องได้
+            </p>
+            <label className="mt-4 flex cursor-pointer items-start gap-2 rounded-lg bg-red-50 p-3 text-sm text-red-900 border border-red-200">
+              <input
+                type="checkbox"
+                checked={draftAcknowledge}
+                onChange={(e) => setDraftAcknowledge(e.target.checked)}
+                className="mt-0.5 accent-red-600"
+              />
+              <span>ข้าพเจ้ารับทราบความเสี่ยง และยืนยันให้สร้าง Unverified Draft</span>
+            </label>
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                onClick={() => setDraftModalTarget(null)}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100"
+              >
+                ยกเลิก
+              </button>
+              <button
+                onClick={confirmDraft}
+                disabled={!draftAcknowledge}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                ยืนยันการสร้าง Draft
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="h-2 w-2 rounded-full bg-flow-cyan" />
@@ -372,19 +515,42 @@ function YoutubePitchApprovalView({
         )}
       </div>
 
+      {(payload.source_refresh_attempts ?? 0) < 1 && pitches.length > 0 && selectablePitches.length < pitches.length && (
+        <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
+          <p className="font-semibold">มีบางหัวข้อที่ข้อมูลแหล่งข่าวไม่พร้อม</p>
+          <p className="mt-1">คุณสามารถสร้าง Unverified Draft หากหัวข้อนั้นมีสิทธิ์ (ปุ่มแดงในรายการ) หรือค้นหาแหล่งข่าวใหม่ได้อีก {1 - (payload.source_refresh_attempts ?? 0)} ครั้ง</p>
+          <button
+            type="button"
+            onClick={() => onApprove([], [], [], [], 'refresh_sources')}
+            disabled={submitting}
+            className="mt-2 rounded-md bg-amber-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-800 disabled:opacity-50"
+          >
+            ค้นหาแหล่งข่าวใหม่
+          </button>
+        </div>
+      )}
+
       {pitches.length > 0 ? (
         <ul className="space-y-3">
-          {pitches.map((p) => (
+          {pitches.map((p) => {
+            const approved = canApprove(p)
+            return (
             <li key={p.pitch_id}>
-              <label className="relative flex cursor-pointer items-start gap-3 rounded-xl border border-edge bg-panel p-3.5 text-xs text-zinc-700 transition-colors hover:border-sky-300">
+              <label className={`relative flex items-start gap-3 rounded-xl border border-edge bg-panel p-3.5 text-xs text-zinc-700 transition-colors ${approved ? 'cursor-pointer hover:border-sky-300' : 'cursor-not-allowed border-red-200 bg-red-50/40'}`}>
                 <input
                   type="checkbox"
                   checked={selectedPitchIds.has(p.pitch_id)}
                   onChange={() => toggle(p.pitch_id)}
+                  disabled={!approved}
                   className="mt-1 accent-sky-500"
                 />
                 <div className="flex-1 space-y-2 pr-2">
                   <div className="flex flex-wrap items-center gap-2">
+                    {p.investigation_mode && (
+                      <span className="rounded bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-800 border border-indigo-200/60 uppercase">
+                        🔍 Mode: {p.investigation_mode}
+                      </span>
+                    )}
                     {p.recommended_format && (
                       <span className="rounded bg-flow-cyan/10 px-2 py-0.5 text-[11px] font-semibold text-sky-800 border border-sky-200/60">
                         🎬 {p.recommended_format}
@@ -414,6 +580,60 @@ function YoutubePitchApprovalView({
                   {p.core_hook && (
                     <div className="rounded-lg bg-surface/70 p-2 border border-edge/60">
                       <span className="font-semibold text-zinc-800">🔥 Core Hook:</span> {p.core_hook}
+                    </div>
+                  )}
+
+                  {p.counter_intuitive_lead && (
+                    <div className="rounded-lg bg-red-50/70 p-2 border border-red-200/60 text-red-950">
+                      <span className="font-semibold text-red-800">⚡ Counter-Intuitive Lead:</span> {p.counter_intuitive_lead}
+                    </div>
+                  )}
+
+                  {p.analogy_generator && (
+                    <div className="rounded-lg bg-amber-50/70 p-2 border border-amber-200/60 text-amber-950">
+                      <span className="font-semibold text-amber-800">💡 Analogy Generator:</span> {p.analogy_generator}
+                    </div>
+                  )}
+
+                  {p.source_readiness && (
+                    <div className={`rounded-lg border p-2 ${p.source_readiness === 'ready' ? 'border-emerald-200 bg-emerald-50/70 text-emerald-900' : p.source_readiness === 'unknown' ? 'border-amber-200 bg-amber-50/70 text-amber-900' : 'border-red-200 bg-red-50/70 text-red-900'}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold">Source readiness: {p.source_readiness === 'unknown' ? 'สถานะไม่ชัดเจน (Unknown)' : p.source_readiness}</span>
+                        {p.unverified_draft_eligibility_token && !approved && (
+                          <div className="flex gap-2">
+                            {draftSelections.some(d => d.pitch_id === p.pitch_id) ? (
+                              <button
+                                type="button"
+                                onClick={(e) => { e.preventDefault(); removeDraft(p.pitch_id); }}
+                                className="rounded bg-red-100 px-2 py-1 text-[11px] font-bold text-red-700 hover:bg-red-200"
+                              >
+                                ยกเลิก Draft
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={(e) => { e.preventDefault(); openDraftModal(p); }}
+                                className="rounded bg-red-600 px-2 py-1 text-[11px] font-bold text-white hover:bg-red-700 shadow-sm"
+                              >
+                                สร้าง Unverified Draft
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      {draftSelections.some(d => d.pitch_id === p.pitch_id) && (
+                        <p className="mt-1 text-xs font-bold text-red-600 bg-red-100 p-1.5 rounded inline-block">
+                          ⚠️ รออนุมัติสร้างเป็น Unverified Draft
+                        </p>
+                      )}
+                      {p.source_readiness_issues && p.source_readiness_issues.length > 0 && (
+                        <ul className="mt-1 list-inside list-disc space-y-0.5">
+                          {p.source_readiness_issues.map((issue, idx) => <li key={idx}>{issue}</li>)}
+                        </ul>
+                      )}
+                      {p.source_readiness === 'unknown' && (
+                        <p className="mt-1 text-xs text-amber-700">ไม่สามารถระบุได้ว่าแหล่งข่าวพร้อมหรือไม่ กรุณาตรวจสอบด้วยตนเองก่อนดำเนินการต่อ หรือเลือกสร้างเป็น Unverified Draft หากทำได้</p>
+                      )}
                     </div>
                   )}
 
@@ -449,25 +669,28 @@ function YoutubePitchApprovalView({
                 </div>
               </label>
             </li>
-          ))}
+            )
+          })}
         </ul>
       ) : (
         <p className="text-xs text-zinc-500">ไม่มีไอเดียคลิป YouTube รออนุมัติ</p>
       )}
 
-      <button
-        onClick={() => onApprove([], [], [], Array.from(selectedPitchIds))}
-        disabled={submitting}
-        className={`rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors disabled:opacity-50 ${
-          selectedPitchIds.size === 0 ? 'bg-zinc-600 hover:bg-zinc-700' : 'bg-sky-500 hover:bg-sky-600'
-        }`}
-      >
-        {submitting
-          ? 'กำลังส่ง...'
-          : selectedPitchIds.size === 0
-            ? 'ข้ามรอบนี้ (0 รายการ) — ไม่สร้าง Briefing Book'
-            : `อนุมัติและสร้าง Briefing Book (${selectedPitchIds.size} รายการ)`}
-      </button>
+      {(selectablePitches.length > 0 || draftSelections.length > 0) && (
+        <button
+          onClick={() => onApprove([], [], [], Array.from(selectedPitchIds), 'approve', draftSelections)}
+          disabled={submitting}
+          className={`rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors disabled:opacity-50 ${
+            (selectedPitchIds.size === 0 && draftSelections.length === 0) ? 'bg-zinc-600 hover:bg-zinc-700' : 'bg-sky-500 hover:bg-sky-600'
+          }`}
+        >
+          {submitting
+            ? 'กำลังส่ง...'
+            : (selectedPitchIds.size === 0 && draftSelections.length === 0)
+              ? 'ข้ามรอบนี้ (0 รายการ) — ไม่สร้าง Briefing Book'
+              : `อนุมัติและสร้าง Briefing Book (ปกติ ${selectedPitchIds.size}, Draft ${draftSelections.length} รายการ)`}
+        </button>
+      )}
     </div>
   )
 }

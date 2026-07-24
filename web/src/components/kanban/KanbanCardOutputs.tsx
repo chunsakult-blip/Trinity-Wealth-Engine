@@ -100,6 +100,14 @@ export default function KanbanCardOutputs({ jobId, refreshVersion, onStatusChang
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
           {outputs.error_message || 'งานหยุดก่อนที่ Manager Summary จะถูกสร้าง'}
         </p>
+      ) : outputs.status === 'done_with_errors' ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          งานเสร็จบางส่วน: {outputs.error_message || 'มีบาง Pitch ที่ไม่ผ่าน Research Quality Gate'}
+        </p>
+      ) : outputs.status === 'done_with_warnings' ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          งานเสร็จพร้อมคำเตือน: {outputs.error_message || 'Completed with Unverified Drafts'}
+        </p>
       ) : (
         <p className="rounded-lg border border-edge bg-surface p-3 text-xs text-zinc-500">
           Manager Summary จะปรากฏเมื่อการทำงานเสร็จสมบูรณ์

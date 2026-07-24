@@ -5,6 +5,7 @@ import { columnForStatus } from './agentStatus'
 describe('columnForStatus', () => {
   it('จับคู่สถานะปลายทางไปคอลัมน์ที่ถูกต้อง', () => {
     expect(columnForStatus('done')).toBe('done')
+    expect(columnForStatus('done_with_errors')).toBe('done')
     expect(columnForStatus('error')).toBe('backlog')
     expect(columnForStatus('awaiting_approval')).toBe('approval')
   })

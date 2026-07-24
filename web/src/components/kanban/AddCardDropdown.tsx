@@ -68,7 +68,7 @@ export default function AddCardDropdown({
       {open && (
         <div
           role="menu"
-          className="animate-dropdown-in absolute right-0 top-full z-40 mt-1 w-64 rounded-lg border border-edge bg-panel p-1.5 shadow-lg shadow-black/5"
+          className="animate-dropdown-in absolute right-0 top-full z-50 mt-1 w-64 rounded-lg border border-edge bg-white p-1.5 shadow-xl shadow-black/10"
         >
           {groups.map((group) => (
             <div key={group.flow} className="mb-1 last:mb-0">

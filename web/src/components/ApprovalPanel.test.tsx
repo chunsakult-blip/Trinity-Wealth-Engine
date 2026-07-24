@@ -92,7 +92,7 @@ describe('ApprovalPanel', () => {
     expect(onApprove).toHaveBeenCalledWith([], [], ['ev-1'])
   })
 
-  it('แสดงรายการ YouTube Pitch และส่ง approvedPitchIds เมื่ออนุมัติ', async () => {
+  it('แสดงรายการ YouTube Pitch และส่ง approvedPitchIds เมื่ออนุมัติ พร้อมแสดง mode, lead และ analogy', async () => {
     const pitchPayload: YoutubePitchApprovalPayload = {
       type: 'youtube_pitch_approval',
       pitches: [
@@ -108,6 +108,10 @@ describe('ApprovalPanel', () => {
           source_titles: ['ข่าว Fed'],
           recommended_format: 'Deep Dive 15 นาที',
           estimated_impact: 'High',
+          investigation_mode: 'macro',
+          counter_intuitive_lead: 'ดอกเบี้ยคงที่แต่ตลาดหุ้นพุ่ง',
+          analogy_generator: 'เหมือนพายุสงบก่อนจะพัดแรง',
+          source_readiness: 'ready',
         },
       ],
     }
@@ -116,10 +120,54 @@ describe('ApprovalPanel', () => {
 
     expect(screen.getByText('คลิปวิเคราะห์ Fed')).toBeInTheDocument()
     expect(screen.getByText('🔥 Core Hook:')).toBeInTheDocument()
+    expect(screen.getByText('🔍 Mode: macro')).toBeInTheDocument()
+    expect(screen.getByText('⚡ Counter-Intuitive Lead:')).toBeInTheDocument()
+    expect(screen.getByText('💡 Analogy Generator:')).toBeInTheDocument()
+
     await userEvent.click(screen.getByRole('checkbox'))
-    const approveBtn = screen.getByRole('button', { name: /อนุมัติและสร้าง Briefing Book \(1 รายการ\)/ })
+    const approveBtn = screen.getByRole('button', { name: /อนุมัติและสร้าง Briefing Book \(ปกติ 1, Draft 0 รายการ\)/ })
     await userEvent.click(approveBtn)
 
-    expect(onApprove).toHaveBeenCalledWith([], [], [], ['pitch-101'])
+    expect(onApprove).toHaveBeenCalledWith([], [], [], ['pitch-101'], 'approve', [])
+  })
+
+  it('ไม่อนุญาตให้เลือก Pitch ที่ provenance ยังไม่พร้อม', async () => {
+    const pitchPayload: YoutubePitchApprovalPayload = {
+      type: 'youtube_pitch_approval',
+      pitches: [{
+        pitch_id: 'blocked-1', working_titles: ['One', 'Two', 'Three'], target_audience: 'Investor',
+        core_hook: 'Hook', key_questions_to_answer: ['Q1'], research_hypotheses: [],
+        source_event_ids: ['ev-1'], source_links: ['https://example.test'], source_titles: ['Source'],
+        recommended_format: '15m', estimated_impact: 'High', source_readiness: 'blocked',
+        source_readiness_issues: ['ไม่พบวันเผยแพร่จากหน้าแหล่งข้อมูล'],
+      }],
+    }
+    render(<ApprovalPanel payload={pitchPayload} onApprove={() => {}} />)
+
+    expect(screen.getByText('Source readiness: blocked')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox')).toBeDisabled()
+  })
+
+  it('เรียงลำดับหัวข้อคลิป YouTube ตามวันที่ (ล่าสุด/เก่าสุด/ช่อง) เมื่อรออนุมัติ', async () => {
+    const payload = makePayload({
+      youtube_candidates: [
+        { channel: 'A Channel', title: 'คลิปเก่า', link: 'https://youtu.be/old', video_id: 'old', published: '2026-07-01', is_fetched: false },
+        { channel: 'B Channel', title: 'คลิปล่าสุด', link: 'https://youtu.be/new', video_id: 'new', published: '2026-07-21', is_fetched: false },
+        { channel: 'C Channel', title: 'คลิปกลาง', link: 'https://youtu.be/mid', video_id: 'mid', published: '2026-07-15', is_fetched: false },
+      ],
+    })
+    render(<ApprovalPanel payload={payload} onApprove={() => {}} />)
+
+    // ค่าเริ่มต้นคือ date_desc (ใหม่สุดไปเก่าสุด) -> คลิปล่าสุด ควรอยู่ก่อน คลิปกลาง และ คลิปเก่า
+    const getTitlesOrder = () => screen.getAllByText(/คลิป/).map((el) => el.textContent)
+    expect(getTitlesOrder()).toEqual(['คลิปล่าสุด', 'คลิปกลาง', 'คลิปเก่า'])
+
+    // กดปุ่มเรียงตามวันที่เก่าสุด
+    await userEvent.click(screen.getByRole('button', { name: 'วันที่เก่าสุด ↑' }))
+    expect(getTitlesOrder()).toEqual(['คลิปเก่า', 'คลิปกลาง', 'คลิปล่าสุด'])
+
+    // กดปุ่มเรียงตามช่อง
+    await userEvent.click(screen.getByRole('button', { name: 'ช่อง' }))
+    expect(getTitlesOrder()).toEqual(['คลิปเก่า', 'คลิปล่าสุด', 'คลิปกลาง'])
   })
 })

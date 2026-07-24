@@ -11,6 +11,18 @@ from pydantic import BaseModel
 from schemas.warning_registry import WarningMessage, translate_warning
 
 
+class SourceOverrideAck(BaseModel):
+    acknowledged: Literal[True]
+    policy_version: Literal["unverified-draft-v1"]
+    eligibility_token: str
+    reason: Optional[str] = None
+
+
+class UnverifiedDraftSelection(BaseModel):
+    pitch_id: str
+    ack: SourceOverrideAck
+
+
 class WarningDTO(BaseModel):
     """แสดง warning แบบ generic — code อาจเป็น ID ที่ registry ยังไม่มี Thai template ก็ยังโชว์ได้
     (ไม่ hardcode switch-case ตาม warning_registry.py วันนี้ ดู Rev.5 ข้อ 7)

@@ -1,10 +1,12 @@
 """เครื่องมือหลักสำหรับดักจับข่าว เสนอไอเดีย และสร้าง Research-Grade Briefing Book ให้ NotebookLM"""
 from datetime import datetime, timedelta, timezone
 import json
+import hashlib
+from filelock import FileLock
 import os
 from pathlib import Path
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 import uuid
 
 from core.llm_factory import get_llm, invoke_structured_llm
@@ -314,7 +316,7 @@ def _generate_pitches_internal(
         prompt_lines=prompt_lines,
         purpose="YouTube Content Pitch Generation",
         default_model="gemini-3.1-flash-lite-preview",
-        provider="google",
+        provider=os.getenv("YOUTUBE_PITCH_PROVIDER", "google"),
     )
 
 
@@ -374,120 +376,255 @@ def generate_youtube_pitches(
     )
 
 
+
 def synthesize_notebooklm_source(
     pitch: YouTubeContentPitchItem,
     source_events: List[Dict[str, Any]],
     macro_baselines: str = "",
-) -> str:
-    """สังเคราะห์เอกสาร Research-Grade & Audio-Ready Briefing Book ครบ 7 Sections ให้ NotebookLM
+    output_mode: Literal["publishable", "unverified_draft"] = "publishable",
+    override_audit: Optional[Dict[str, Any]] = None,
+) -> Any:
+    """สังเคราะห์เอกสาร Research-Grade & Audio-Ready Briefing Book ครบ 7 Sections ให้ NotebookLM"""
+    from schemas.briefing_book_schemas import (
+        BriefingSynthesisResult,
+        InvestigativeBriefingBookDraft,
+        MacroAutopsySnapshot,
+        UnverifiedBriefingDraftResult,
+    )
+    from tools.content.briefing_evidence import build_briefing_evidence
+    from tools.content.provenance_enrichment import assess_pitch_source_readiness
+    from tools.market.financial_autopsy import get_financial_autopsy
 
-    ใช้ plain llm.invoke พร้อม max_output_tokens=16384 เพื่อให้เนื้อหาลึกซึ้ง ครบถ้วน ไม่ถูกตัดจบ
-    """
-    model_name = os.getenv("YOUTUBE_PITCH_MODEL", "gemini-3.1-flash-lite-preview")
-    llm = get_llm(provider="google", model_name=model_name, max_output_tokens=16384)
+    matched_events = [ev for ev in source_events if ev.get("event_id") in pitch.source_event_ids or ev.get("canonical_title") in pitch.source_titles]
+    if not matched_events:
+        raise ValueError(f"No matched events found for pitch '{pitch.title}'. Synthesis requires matched_events only.")
+    target_events = matched_events
 
-    # เตรียมเนื้อหาข่าวต้นทาง
-    source_details = []
-    for ev in source_events:
-        ev_id = ev.get("event_id", "")
-        if ev_id in pitch.source_event_ids or (ev.get("canonical_title") in pitch.source_titles):
-            t = ev.get("canonical_title") or ev.get("title") or ""
-            s = ev.get("comprehensive_summary") or ev.get("summary") or ""
-            l = (ev.get("links") or [ev.get("link")])[0] if (ev.get("links") or ev.get("link")) else "N/A"
-            source_details.append(f"- **{t}** (ID: `{ev_id}`)\n  สรุป: {s}\n  อ้างอิง: {l}")
+    readiness, readiness_issues, issue_codes, target_events = assess_pitch_source_readiness(
+        pitch, target_events, refresh=True
+    )
+    if readiness != "ready":
+        if output_mode == "publishable":
+            raise ValueError("Briefing source preflight failed before draft generation: " + "; ".join(readiness_issues))
+        else:
+            from tools.content.provenance_enrichment import evaluate_unverified_draft_eligibility
+            if not evaluate_unverified_draft_eligibility(issue_codes):
+                raise ValueError(f"Briefing source preflight failed and issue codes {issue_codes} are not allowlisted for Unverified Draft: " + "; ".join(readiness_issues))
 
-    if not source_details:
-        for i, t in enumerate(pitch.source_titles):
-            l = pitch.source_links[i] if i < len(pitch.source_links) else "N/A"
-            source_details.append(f"- **{t}**\n  อ้างอิง: {l}")
+    mode = getattr(pitch, "investigation_mode", "mixed")
 
-    prompt = f"""คุณคือ Senior Research Director และ Chief Content Architect ประจำช่อง YouTube การเงินระดับโลก
-หน้าที่ของคุณคือการสร้างเอกสาร **Research-Grade & Audio-Ready Briefing Book** ฉบับสมบูรณ์ สำหรับอัปโหลดเข้าสู่ระบบ **NotebookLM**
-เอกสารนี้ต้องรองรับทั้ง **โหมด Research (ค้นคว้าเจาะลึก/อิง Hard Data)** และ **โหมด Audio Overview (Podcast 2 คนถกเถียงอย่างเข้มข้น)**
+    macro_snapshot = None
+    if mode in {"macro", "mixed"}:
+        from tools.macro.macro_autopsy import get_typed_macro_autopsy
+        from tools.content.briefing_evidence import build_macro_snapshot
+        try:
+            obs = get_typed_macro_autopsy(investigation_mode=mode)
+            macro_snapshot = build_macro_snapshot(obs, mode)
+        except Exception as e:
+            macro_snapshot = MacroAutopsySnapshot(
+                observations=[],
+                is_complete=False,
+                unavailable_reasons=[str(e)],
+            )
 
---- ข้อมูลไอเดียคลิป (Pitch Item) ---
-Working Titles: {', '.join(pitch.working_titles)}
-Target Audience: {pitch.target_audience}
-Core Hook: {pitch.core_hook}
-Key Questions: {', '.join(pitch.key_questions_to_answer)}
-Research Hypotheses: {', '.join(pitch.research_hypotheses)}
-Recommended Format: {pitch.recommended_format}
-Estimated Impact: {pitch.estimated_impact}
+    financial_snapshots = []
+    if mode in {"stock", "mixed"}:
+        assets = select_financial_autopsy_assets(pitch, target_events)
+        for asset in assets:
+            try:
+                res = get_financial_autopsy(asset)
+                if res.status == "success" and res.snapshot:
+                    financial_snapshots.append(_financial_snapshot_reference(res.snapshot))
+            except Exception as e:
+                logger.warning("Failed to fetch financial autopsy for %s: %s", asset.raw_symbol, e)
 
---- ข่าวและบทวิเคราะห์ที่เกี่ยวข้อง ---
-{chr(10).join(source_details)}
+    bundle = build_briefing_evidence(
+        pitch=pitch,
+        matched_sources=target_events,
+        macro_snapshot=macro_snapshot,
+        financial_snapshots=financial_snapshots,
+    )
 
---- ข้อมูลเศรษฐกิจมหภาคพื้นฐาน (Macro Baselines Snapshot) ---
-{macro_baselines or 'N/A'}
+    provider_name = os.getenv("YOUTUBE_PITCH_PROVIDER", "google")
 
-================================================================================
-คำสั่งและข้อกำหนดในการเขียนเอกสาร Briefing Book (ต้องครบถ้วนทั้ง 7 Sections ด้านล่างนี้ ห้ามย่อหรือข้ามส่วนใดส่วนหนึ่ง):
-================================================================================
-เขียนเป็นภาษาไทยระดับมืออาชีพ สวยงาม จัดรูปแบบด้วย Markdown ครบทั้ง 7 Sections ดังนี้:
+    prompt_lines = [
+        f"You are a Senior Research Director generating an InvestigativeBriefingBookDraft.",
+        f"Output JSON that matches the InvestigativeBriefingBookDraft schema exactly.",
+        "",
+        "--- ข้อมูลไอเดียคลิป (Pitch Item) ---",
+        f"Working Titles: {', '.join(getattr(pitch, 'working_titles', []) or ['untitled'])}",
+        f"Core Hook: {getattr(pitch, 'core_hook', '')}",
+        f"Investigation Mode: {getattr(pitch, 'investigation_mode', 'mixed')}",
+        f"Counter-intuitive Lead: {getattr(pitch, 'counter_intuitive_lead', '')}",
+        f"Key Questions: {', '.join(getattr(pitch, 'key_questions_to_answer', []) or [])}",
+        f"Research Hypotheses: {', '.join(getattr(pitch, 'research_hypotheses', []) or [])}",
+        "",
+        "--- รายการหลักฐานใน Evidence Bundle ---",
+    ]
 
-# 📑 สรุปผู้บริหารและแหล่งอ้างอิง (Executive Briefing & Provenance)
-- สรุปภาพรวมประเด็นสำคัญใน 3-5 บรรทัด
-- ตารางระบุแหล่งข้อมูลต้นทาง (สำนักข่าว, ลิงก์, วันที่, และประเมินระดับความน่าเชื่อถือ)
+    for s in bundle.sources:
+        prompt_lines.append(f"Source [{s.source_id}]: {s.original_title} | Publisher: {s.publisher} | Date: {s.published_at or 'unverified'}")
+    for e in bundle.evidence_items:
+        prompt_lines.append(f"Evidence [{e.evidence_id}] (Source: {', '.join(e.source_ids)}): {e.claim}")
 
-# 📊 ตารางแยกชั้น: ข้อเท็จจริง vs ความเห็นตลาด vs ข่าวลือ (Fact vs. Consensus vs. Speculation Matrix)
-- นำเสนอเป็นตาราง Markdown 3 คอลัมน์ที่ชัดเจน:
-  1. ข้อเท็จจริงและตัวเลขที่ยืนยันแล้ว (Hard Facts & Verified Metrics)
-  2. ความเห็นและประมาณการของนักวิเคราะห์ตลาด (Market Consensus & Analyst Projections)
-  3. ข่าวลือ สมมติฐาน และความกังวลที่ยังรอการพิสูจน์ (Speculation & Tail Risks)
-*(สำคัญมากสำหรับ NotebookLM Research Mode เพื่อไม่ให้ปนข้อเท็จจริงกับความเห็น)*
+    prompt_lines.extend([
+        "",
+        "ข้อบังคับสำคัญ:",
+        "1. ห้ามสร้างตัวเลข วันที่ หรือชื่อสำนักข่าวใหม่ที่ไม่มีใน Evidence Bundle เด็ดขาด",
+        "2. ต้องสร้าง causality_scenarios อย่างน้อย 3 ฉากทัศน์",
+        "3. ต้องกำหนด invalidation_conditions และ risk_factors สำหรับทุก asset_impacts",
+        "4. ต้องกำหนด visual_directives ครบทั้ง Act I, Act II, Act III",
+        "5. ต้องกำหนด notebooklm_prompts จำนวน 5-8 ข้อ",
+        "6. ทุก scenario ต้องระบุ time_horizon; หาก trigger มีตัวเลขต้องระบุ threshold_basis และอ้าง evidence_ids ที่รองรับ",
+        "7. Visual directive ที่เป็นกราฟราคาต้องใช้ provider series identifier",
+        "8. ห้ามใส่ [VISUAL_EVIDENCE ...] ลงใน act scripts",
+    ])
 
-# 🔗 กลไกส่งต่อผลกระทบเชิงระบบ (Structural Causality)
-- อธิบายกลไกเหตุและผลเชิงโครงสร้าง (Causal Chain) จากต้นเหตุสู่ผลลัพธ์
-- วิเคราะห์ผลกระทบทอดที่สอง (Second-order effects) และทอดที่สาม (Third-order effects)
-- นำเสนอแผนผังลูกศร `-->` หรือผังกลไกที่ชัดเจนเข้าใจง่าย
+    draft = invoke_structured_llm(
+        schema=InvestigativeBriefingBookDraft,
+        model_env="YOUTUBE_PITCH_MODEL",
+        prompt_lines=prompt_lines,
+        purpose="Briefing Book Draft Generation",
+        default_model="gemini-3.1-flash-lite-preview",
+        provider=provider_name,
+        max_output_tokens=16384,
+    )
+    draft = normalize_visual_directives(draft)
 
-# 🏢 สินทรัพย์และหุ้นที่เกี่ยวข้อง (Asset & Ticker Impact)
-- ระบุชื่อหุ้น สินทรัพย์ สกุลเงิน หรืออุตสาหกรรมที่เกี่ยวข้อง พร้อมครอบด้วย `[[Wikilinks]]` เช่น `[[NVDA]]`, `[[SET]]`
-- วิเคราะห์ทั้งโอกาสเชิงบวก (Upside Catalysts) และความเสี่ยงเชิงลบ (Downside Risks) ของแต่ละสินทรัพย์
+    from tools.content.briefing_renderer import render_briefing_book
+    from tools.content.briefing_quality import validate_briefing_book_quality
+    from tools.content.briefing_artifacts import save_briefing_artifact
 
-# ⚡ ประเด็นขัดแย้งและวิวาทะ Bull vs Bear (Opposing Viewpoints & Debate Points)
-- แยกมุมมองฝั่งกระทิง (Bull Case: มองบวก มองโอกาส) และฝั่งหมี (Bear Case: มองลบ เตือนความเสี่ยง) ให้ปะทะกันอย่างสมเหตุสมผล
-- ระบุจุดชี้ขาด (Key Turnarounds / Trigger Points) ที่ตัดสินว่าฝั่งไหนจะเป็นฝ่ายชนะ
-*(สำคัญมากสำหรับ NotebookLM Audio Overview เพื่อให้ AI Host 2 คนพูดคุยโต้เถียงกันได้อย่างสนุกและมีมิติ)*
+    rendered_briefing = render_briefing_book(draft, bundle)
+    md_content = rendered_briefing.content
 
-# 🎙️ โครงเรื่องคลิปและ Talking Points
-- โครงเรื่องสคริปต์คลิป YouTube แบ่งเป็น 3 Acts (Act I: The Hook & Setup, Act II: Deep Dive & Conflict, Act III: Resolution & Actionable Takeaways)
-- แทรก "คำเปรียบเปรย (Analogies)" ที่ช่วยให้อธิบายเรื่องการเงินยากๆ ให้เข้าใจง่ายใน 10 วินาที
+    # Validation step
+    report = validate_briefing_book_quality(bundle, draft, rendered_briefing)
+    if output_mode != "unverified_draft":
+        if report.score < 100 or report.status != "pass":
+            critical = [i.description for i in getattr(report, "issues", []) if getattr(i, "severity", "") == "blocker"]
+            raise ValueError(f"Briefing book failed quality gate with score {report.score}: {critical}")
+    else:
+        critical_unbypassable = [
+            i.description for i in getattr(report, "issues", [])
+            if getattr(i, "severity", "") == "blocker" and not getattr(i, "bypassable", False)
+        ]
+        if critical_unbypassable:
+            raise ValueError(f"Briefing book (Unverified Draft) failed quality gate on UNBYPASSABLE issues: {critical_unbypassable}")
 
-# 🔬 คำถามวิจัยขั้นสูงสำหรับ NotebookLM
-- ลิสต์ชุดคำถาม 5-8 ข้อที่ลึกซึ้งและเฉียบคม พร้อมให้ผู้ใช้คัดลอก (Copy & Paste) ไปถามต่อในแชท NotebookLM Research Mode ได้ทันที
+    if output_mode == "unverified_draft":
+        return UnverifiedBriefingDraftResult(
+            content=md_content,
+            quality_report=report,
+            evidence_bundle=bundle,
+            override_audit=override_audit,
+        )
+    return BriefingSynthesisResult(
+        content=md_content,
+        draft=draft,
+        quality_report=report,
+        evidence_bundle=bundle,
+    )
 
-ขอให้สร้างสรรค์เนื้อหาแต่ละ Section อย่างละเอียด ลึกซึ้ง เปี่ยมด้วยคุณค่าเชิงวิเคราะห์ขั้นสูง ห้ามสรุปสั้นจนเสียรายละเอียด"""
 
-    logger.info("Synthesizing Briefing Book with model=%s (max_output_tokens=16384)", model_name)
-    response = llm.invoke(prompt)
-    content = normalize_content(getattr(response, "content", str(response)))
-    return content
+def normalize_visual_directives(draft: Any) -> Any:
+    if not getattr(draft, "visual_directives", None):
+        return draft
+    acts_seen = set()
+    new_directives = []
 
+    for d in draft.visual_directives:
+        act = d.act if hasattr(d, "act") else None
+        if act and act not in acts_seen:
+            acts_seen.add(act)
 
-def save_notebooklm_source(
-    content: str,
-    title: str,
-    date_str: Optional[str] = None,
-) -> str:
-    """บันทึก Briefing Book ลงใน memories/30_Knowledge_Base/NotebookLM_Sources/ พร้อมจัดการชื่อไฟล์ไทยและ collision"""
-    target_dir = Path(VAULT_PATH) / "30_Knowledge_Base" / "NotebookLM_Sources"
-    target_dir.mkdir(parents=True, exist_ok=True)
+            sources = getattr(d, "sources", [])
+            series = getattr(d, "series_keys", [])
+            is_generic = any(str(s).lower() in {"war cost", "interest rate", "inflation", "cpi", "gdp"} for s in series)
 
-    d_str = date_str or datetime.now().strftime("%Y-%m-%d")
-    # _sanitize_filename รองรับอักษรไทยอยู่แล้ว รักษาอักษรไทยไม่ให้ถูกตัด
-    safe_title = _sanitize_filename(title.strip()[:80])
-    filename = f"{d_str}_{safe_title}.md"
-    file_path = target_dir / filename
+            if "Evidence ledger" in sources or is_generic or getattr(d, "data_mode", "") == "evidence_table":
+                d.data_mode = "evidence_table"
+                d.series_keys = ["EVIDENCE_TABLE"]
 
-    counter = 2
-    while file_path.exists():
-        file_path = target_dir / f"{d_str}_{safe_title}_{counter}.md"
-        counter += 1
+            new_directives.append(d)
+    draft.visual_directives = new_directives
+    return draft
 
-    _atomic_write_to(file_path, content)
-    from tools.archivist.indexer import _index_upsert, flush_index_if_dirty
-    _index_upsert(file_path, vault_root=Path(VAULT_PATH))
-    flush_index_if_dirty(vault_root=Path(VAULT_PATH))
-    logger.info("Successfully saved NotebookLM source briefing book to %s", file_path)
-    return str(file_path.resolve())
+def _years_in_text(value: Any) -> set[int]:
+    import re
+    if not isinstance(value, str): return set()
+    return {int(m) for m in re.findall(r'\b(20\d{2})\b', value)}
+
+def _visual_markers_by_act(rendered_markdown: str) -> dict:
+    import re
+    result = {"Act I": [], "Act II": [], "Act III": []}
+    acts_regex = re.split(r'##\s+(Act\s+[IV]+)', rendered_markdown)
+    current_act = None
+    for part in acts_regex:
+        if part.strip() in result:
+            current_act = part.strip()
+        elif current_act:
+            markers = re.findall(r'\[VISUAL_EVIDENCE\s+id=([^\s\]]+)(?:\s+evidence=([^\]]*))?\]', part)
+            for vid, ev_str in markers:
+                if ev_str and ev_str.strip():
+                    ev_ids = tuple(e.strip() for e in ev_str.split(","))
+                else:
+                    ev_ids = ()
+                result[current_act].append((vid, ev_ids))
+    return result
+
+def select_financial_autopsy_assets(pitch: Any, events: Any) -> list:
+    from tools.market.asset_resolver import resolve_asset
+
+    potential_symbols = []
+
+    # 1. From pitch.target_symbols if available
+    if hasattr(pitch, "target_symbols") and pitch.target_symbols:
+        potential_symbols.extend(pitch.target_symbols)
+
+    # 2. From events
+    for ev in events:
+        if isinstance(ev, dict) and ev.get("symbols"):
+            potential_symbols.extend(ev["symbols"])
+
+    # Fallback to regex if we have absolutely nothing
+    if not potential_symbols:
+        import re
+        text_parts = [getattr(pitch, "title", ""), getattr(pitch, "core_hook", ""), *getattr(pitch, "working_titles", [])]
+        for ev in events:
+            text_parts.append(ev.get("canonical_title", ""))
+            text_parts.append(ev.get("comprehensive_summary", ""))
+        text = " ".join(text_parts)
+        potential_symbols = re.findall(r'\b[A-Z][A-Z0-9]{1,5}\b', text)
+
+    resolved = []
+    seen = set()
+    for sym in potential_symbols:
+        if sym in seen: continue
+        seen.add(sym)
+        try:
+            asset = resolve_asset(sym)
+            if asset.eligible_for_financial_autopsy:
+                resolved.append(asset)
+                if len(resolved) >= 3:
+                    break
+        except Exception:
+            pass
+    return resolved
+
+def _financial_snapshot_reference(result: Any) -> Any:
+    from schemas.briefing_book_schemas import FinancialAutopsySnapshotRef
+    return FinancialAutopsySnapshotRef(
+        symbol=result.ticker,
+        provider_symbol=result.provider_symbol,
+        status="success",
+        currency=result.currency,
+        source=result.source,
+        periods=result.periods,
+        market_cap=result.market_cap_formatted,
+        revenue=result.revenue_formatted,
+        net_income=result.net_income_formatted,
+        fcf=result.fcf_formatted,
+        total_debt=result.total_debt_formatted,
+        health_notes=result.health_summary,
+    )

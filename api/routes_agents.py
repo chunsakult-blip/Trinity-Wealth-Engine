@@ -1,13 +1,14 @@
 """POST /api/agents/dispatch, GET /api/agents/stream/{job_id}, POST /api/agents/jobs/{job_id}/resume
 
-SSE ไม่ผูกกับ live run โดยตรง — tail จาก job_logs table เสมอ (Rev.3/5 ข้อ 5)
-ปิด/เปิด tab ใหม่ หรือรีเฟรชกลางคัน ยังเห็น log ที่พลาดไปได้ครบ เพราะ log ถูกเขียนลง DB
-ก่อนแล้วค่อย stream ออกไป ไม่ใช่ push สดจาก generator ที่หายไปพร้อม connection
+SSE à¹„à¸¡à¹ˆà¸œà¸¹à¸à¸à¸±à¸š live run à¹‚à¸”à¸¢à¸•à¸£à¸‡ â€” tail à¸ˆà¸²à¸ job_logs table à¹€à¸ªà¸¡à¸­ (Rev.3/5 à¸‚à¹‰à¸­ 5)
+à¸›à¸´à¸”/à¹€à¸›à¸´à¸” tab à¹ƒà¸«à¸¡à¹ˆ à¸«à¸£à¸·à¸­à¸£à¸µà¹€à¸Ÿà¸£à¸Šà¸à¸¥à¸²à¸‡à¸„à¸±à¸™ à¸¢à¸±à¸‡à¹€à¸«à¹‡à¸™ log à¸—à¸µà¹ˆà¸žà¸¥à¸²à¸”à¹„à¸›à¹„à¸”à¹‰à¸„à¸£à¸š à¹€à¸žà¸£à¸²à¸° log à¸–à¸¹à¸à¹€à¸‚à¸µà¸¢à¸™à¸¥à¸‡ DB
+à¸à¹ˆà¸­à¸™à¹à¸¥à¹‰à¸§à¸„à¹ˆà¸­à¸¢ stream à¸­à¸­à¸à¹„à¸› à¹„à¸¡à¹ˆà¹ƒà¸Šà¹ˆ push à¸ªà¸”à¸ˆà¸²à¸ generator à¸—à¸µà¹ˆà¸«à¸²à¸¢à¹„à¸›à¸žà¸£à¹‰à¸­à¸¡ connection
 """
 import asyncio
+import hashlib
 import json
 from contextlib import closing
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -15,13 +16,13 @@ from pydantic import BaseModel
 
 from api import state_db
 from api.auth import require_session
-from api.schemas import ActiveAgentStatusDTO, JobOutputsDTO, JobStatusDTO, SpecialistOutputDTO
+from api.schemas import ActiveAgentStatusDTO, JobOutputsDTO, JobStatusDTO, SpecialistOutputDTO, UnverifiedDraftSelection
 
 router = APIRouter(dependencies=[Depends(require_session)])
 
 _POLL_INTERVAL_SECONDS = 1.0
-_TERMINAL_STATUSES = ("done", "error", "awaiting_approval")
-_SUMMARY_NODES = ("manager_summary", "supervisor")
+_TERMINAL_STATUSES = ("done", "done_with_warnings", "done_with_errors", "error", "awaiting_approval")
+_SUMMARY_NODES = ("manager_summary", "supervisor", "synthesize_notebooklm")
 
 
 def _job_outputs_to_dto(conn, job) -> JobOutputsDTO:
@@ -30,7 +31,7 @@ def _job_outputs_to_dto(conn, job) -> JobOutputsDTO:
     if summary_row is None:
         summary_row = next((row for row in reversed(reply_logs) if row["node_name"] == "supervisor"), None)
     if summary_row is None:
-        summary_row = next((row for row in reversed(reply_logs) if row["node_name"] == "synthesize"), None)
+        summary_row = next((row for row in reversed(reply_logs) if row["node_name"] in ("synthesize", "synthesize_notebooklm")), None)
 
     latest_by_node = {}
     for row in reply_logs:
@@ -73,6 +74,8 @@ class ResumeRequest(BaseModel):
     approved_youtube_links: list[str] = []
     approved_event_ids: Optional[list[str]] = None
     approved_pitch_ids: Optional[list[str]] = None
+    unverified_draft_selections: Optional[list[UnverifiedDraftSelection]] = None
+    action: Literal["approve", "refresh_sources"] = "approve"
 
 
 def _job_to_dto(conn, job) -> JobStatusDTO:
@@ -100,8 +103,8 @@ def dispatch_job(payload: DispatchRequest, request: Request) -> JobStatusDTO:
     job_id = job_queue.dispatch(payload.instruction, payload.card_id, flow=payload.flow, scope=payload.scope)
 
     with closing(state_db.get_connection()) as conn:
-        # ย้ายการ์ดเป็น executing + ผูก job_id ในคำขอเดียวกับ dispatch — กันเคสที่ frontend
-        # ยิง PUT /api/kanban/move ตามหลังแล้วล้มเหลว ทำให้การ์ดค้าง backlog ทั้งที่ job รันอยู่จริง
+        # à¸¢à¹‰à¸²à¸¢à¸à¸²à¸£à¹Œà¸”à¹€à¸›à¹‡à¸™ executing + à¸œà¸¹à¸ job_id à¹ƒà¸™à¸„à¸³à¸‚à¸­à¹€à¸”à¸µà¸¢à¸§à¸à¸±à¸š dispatch â€” à¸à¸±à¸™à¹€à¸„à¸ªà¸—à¸µà¹ˆ frontend
+        # à¸¢à¸´à¸‡ PUT /api/kanban/move à¸•à¸²à¸¡à¸«à¸¥à¸±à¸‡à¹à¸¥à¹‰à¸§à¸¥à¹‰à¸¡à¹€à¸«à¸¥à¸§ à¸—à¸³à¹ƒà¸«à¹‰à¸à¸²à¸£à¹Œà¸”à¸„à¹‰à¸²à¸‡ backlog à¸—à¸±à¹‰à¸‡à¸—à¸µà¹ˆ job à¸£à¸±à¸™à¸­à¸¢à¸¹à¹ˆà¸ˆà¸£à¸´à¸‡
         if payload.card_id is not None:
             existing_card = state_db.get_kanban_card(conn, payload.card_id)
             if existing_card is not None:
@@ -130,7 +133,7 @@ def get_job_outputs(job_id: str) -> JobOutputsDTO:
 
 @router.get("/api/agents/active", response_model=ActiveAgentStatusDTO)
 def get_active_agent_status() -> ActiveAgentStatusDTO:
-    # single-worker queue (api/jobs.py) — จะมี job สถานะ running พร้อมกันได้แค่ 0 หรือ 1 รายการเสมอ
+    # single-worker queue (api/jobs.py) â€” à¸ˆà¸°à¸¡à¸µ job à¸ªà¸–à¸²à¸™à¸° running à¸žà¸£à¹‰à¸­à¸¡à¸à¸±à¸™à¹„à¸”à¹‰à¹à¸„à¹ˆ 0 à¸«à¸£à¸·à¸­ 1 à¸£à¸²à¸¢à¸à¸²à¸£à¹€à¸ªà¸¡à¸­
     with closing(state_db.get_connection()) as conn:
         running_jobs = state_db.list_jobs_by_status(conn, ["running"])
         if not running_jobs:
@@ -146,25 +149,104 @@ def get_active_agent_status() -> ActiveAgentStatusDTO:
 
 @router.post("/api/agents/jobs/{job_id}/resume", response_model=JobStatusDTO)
 def resume_job(job_id: str, payload: ResumeRequest, request: Request) -> JobStatusDTO:
+    """Validate and atomically claim one human approval resume."""
+
+    token_uses: list[dict[str, str | int]] = []
     with closing(state_db.get_connection()) as conn:
         job = state_db.get_job(conn, job_id)
         if job is None:
-            raise HTTPException(status_code=404, detail="ไม่พบ job นี้")
+            raise HTTPException(status_code=404, detail="job not found")
         if job["status"] != "awaiting_approval":
-            raise HTTPException(status_code=400, detail=f"job นี้ไม่ได้อยู่ในสถานะรอ approve (สถานะปัจจุบัน: {job['status']})")
+            raise HTTPException(status_code=409, detail="job is no longer awaiting approval")
 
-    resume_value: dict[str, Any] = {
-        "approved_news_links": payload.approved_news_links,
-        "approved_youtube_links": payload.approved_youtube_links,
-        "approved_event_ids": payload.approved_event_ids,
-        "approved_pitch_ids": payload.approved_pitch_ids,
-    }
-    job_queue = request.app.state.job_queue
-    job_queue.resume(job_id, resume_value)
+        interrupt_payload = json.loads(job["interrupt_payload"]) if job["interrupt_payload"] else {}
+        pitches = interrupt_payload.get("pitches") if isinstance(interrupt_payload, dict) else None
+        approval_revision = interrupt_payload.get("approval_revision") if isinstance(interrupt_payload, dict) else None
+        pitch_by_id = {
+            str(pitch.get("pitch_id")): pitch
+            for pitch in (pitches or [])
+            if isinstance(pitch, dict) and pitch.get("pitch_id")
+        }
 
-    with closing(state_db.get_connection()) as conn:
-        job = state_db.get_job(conn, job_id)
-        return _job_to_dto(conn, job)
+        approved_ids = payload.approved_pitch_ids or []
+        if len(approved_ids) != len(set(approved_ids)):
+            raise HTTPException(status_code=400, detail="duplicate publishable pitch IDs")
+
+        for p_id in approved_ids:
+            pitch = pitch_by_id.get(p_id)
+            if not pitch:
+                raise HTTPException(status_code=400, detail=f"approved pitch {p_id} not found")
+            if pitch.get("source_readiness") != "ready":
+                raise HTTPException(status_code=400, detail=f"pitch {p_id} is not source-ready")
+
+        draft_selections = payload.unverified_draft_selections or []
+        draft_ids = [selection.pitch_id for selection in draft_selections]
+        if len(draft_ids) != len(set(draft_ids)):
+            raise HTTPException(status_code=400, detail="duplicate Unverified Draft pitch IDs")
+        if set(approved_ids).intersection(draft_ids):
+            raise HTTPException(status_code=400, detail="a pitch cannot be both publishable and an Unverified Draft")
+
+        if payload.action == "refresh_sources":
+            if draft_selections or approved_ids:
+                raise HTTPException(status_code=400, detail="refresh_sources cannot include pitch selections")
+            refresh_attempts = int(interrupt_payload.get("source_refresh_attempts", 0) or 0)
+            if refresh_attempts >= 1:
+                raise HTTPException(status_code=409, detail="refresh_sources already attempted")
+
+        if draft_selections:
+            from tools.content.provenance_enrichment import verify_eligibility_token
+
+            if not isinstance(approval_revision, int) or approval_revision <= 0:
+                raise HTTPException(status_code=409, detail="approval checkpoint has no current Draft revision metadata")
+            for selection in draft_selections:
+                pitch = pitch_by_id.get(selection.pitch_id)
+                if not pitch or not pitch.get("unverified_draft_eligible"):
+                    raise HTTPException(status_code=400, detail=f"pitch {selection.pitch_id} is not Draft-eligible")
+                expected_token = str(pitch.get("unverified_draft_eligibility_token") or "")
+                if not expected_token or selection.ack.eligibility_token != expected_token:
+                    raise HTTPException(status_code=409, detail=f"stale or mismatched token for pitch {selection.pitch_id}")
+                claims = verify_eligibility_token(
+                    selection.ack.eligibility_token,
+                    expected_job_id=job_id,
+                    expected_thread_id=str(job["thread_id"]),
+                    expected_pitch_id=selection.pitch_id,
+                    expected_revision=approval_revision,
+                    expected_issue_codes=list(pitch.get("unverified_draft_issue_codes") or []),
+                )
+                if claims is None:
+                    raise HTTPException(status_code=400, detail=f"invalid, expired, or mismatched token for pitch {selection.pitch_id}")
+                token_uses.append({
+                    "token_hash": hashlib.sha256(selection.ack.eligibility_token.encode("utf-8")).hexdigest(),
+                    "jti": claims.jti,
+                    "thread_id": claims.thread_id,
+                    "pitch_id": claims.pitch_id,
+                    "approval_revision": claims.approval_revision,
+                })
+
+        resume_value: dict[str, Any] = {
+            "approved_news_links": payload.approved_news_links,
+            "approved_youtube_links": payload.approved_youtube_links,
+            "approved_event_ids": payload.approved_event_ids,
+            "approved_pitch_ids": payload.approved_pitch_ids,
+            "unverified_draft_selections": [selection.model_dump() for selection in draft_selections] or None,
+            "action": payload.action,
+        }
+        try:
+            state_db.claim_job_resume(
+                conn,
+                job_id=job_id,
+                resume_value_json=json.dumps(resume_value, ensure_ascii=False),
+                token_uses=token_uses,
+            )
+        except ValueError as exc:
+            detail = str(exc)
+            status_code = 409 if detail in {"approval_already_claimed", "eligibility_token_already_used"} else 400
+            raise HTTPException(status_code=status_code, detail=detail) from exc
+        claimed_job = state_db.get_job(conn, job_id)
+        response = _job_to_dto(conn, claimed_job)
+
+    request.app.state.job_queue.enqueue(job_id)
+    return response
 
 
 @router.get("/api/agents/stream/{job_id}")

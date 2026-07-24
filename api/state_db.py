@@ -35,6 +35,17 @@ CREATE TABLE IF NOT EXISTS job_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_job_logs_job_id ON job_logs(job_id, seq);
 
+CREATE TABLE IF NOT EXISTS used_eligibility_tokens (
+    token_hash TEXT PRIMARY KEY,
+    jti TEXT NOT NULL UNIQUE,
+    job_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    pitch_id TEXT NOT NULL,
+    approval_revision INTEGER NOT NULL,
+    used_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_used_eligibility_tokens_job ON used_eligibility_tokens(job_id);
+
 CREATE TABLE IF NOT EXISTS kanban_cards (
     card_id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
@@ -164,6 +175,57 @@ def set_job_resume_value(conn: sqlite3.Connection, job_id: str, resume_value_jso
     conn.commit()
 
 
+def claim_job_resume(
+    conn: sqlite3.Connection,
+    *,
+    job_id: str,
+    resume_value_json: str,
+    token_uses: list[dict[str, str | int]] | None = None,
+) -> None:
+    """Atomically consume Draft tokens and move one approval back to the queue.
+
+    A compare-and-set status check is essential: two browser clicks must not
+    enqueue the same LangGraph interrupt twice.
+    """
+    now = time.time()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        job = conn.execute(
+            "SELECT job_id, status FROM jobs WHERE job_id = ?", (job_id,)
+        ).fetchone()
+        if job is None:
+            raise ValueError("job_not_found")
+        if job["status"] != "awaiting_approval":
+            raise ValueError("approval_already_claimed")
+        for token_use in token_uses or []:
+            conn.execute(
+                "INSERT INTO used_eligibility_tokens "
+                "(token_hash, jti, job_id, thread_id, pitch_id, approval_revision, used_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    token_use["token_hash"],
+                    token_use["jti"],
+                    job_id,
+                    token_use["thread_id"],
+                    token_use["pitch_id"],
+                    token_use["approval_revision"],
+                    now,
+                ),
+            )
+        conn.execute(
+            "UPDATE jobs SET status = 'queued', resume_value = ?, interrupt_payload = NULL, updated_at = ? "
+            "WHERE job_id = ? AND status = 'awaiting_approval'",
+            (resume_value_json, now, job_id),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError as exc:
+        conn.rollback()
+        raise ValueError("eligibility_token_already_used") from exc
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def clear_job_resume_value(conn: sqlite3.Connection, job_id: str) -> None:
     conn.execute(
         "UPDATE jobs SET resume_value = NULL WHERE job_id = ?",
@@ -188,6 +250,16 @@ def update_job_status(conn: sqlite3.Connection, job_id: str, status: str, error_
         (status, error_message, time.time(), job_id),
     )
     conn.commit()
+
+
+def cas_job_status(conn: sqlite3.Connection, job_id: str, old_status: str, new_status: str) -> bool:
+    """Compare and Swap job status. Returns True if successful, False if current status was not old_status."""
+    cur = conn.execute(
+        "UPDATE jobs SET status = ?, updated_at = ? WHERE job_id = ? AND status = ?",
+        (new_status, time.time(), job_id, old_status),
+    )
+    conn.commit()
+    return cur.rowcount > 0
 
 
 def list_jobs_by_status(conn: sqlite3.Connection, statuses: list[str]) -> list[sqlite3.Row]:

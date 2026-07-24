@@ -8,6 +8,8 @@ const LAST_STEP_DOT_CLASS: Record<TerminalStatus, string> = {
   idle: 'bg-zinc-300',
   streaming: 'animate-pulse bg-emerald-500',
   done: 'bg-emerald-500',
+  done_with_warnings: 'bg-amber-400',
+  done_with_errors: 'bg-amber-500',
   error: 'bg-red-500',
   awaiting_approval: 'bg-amber-500',
 }
@@ -28,6 +30,7 @@ interface Props {
 export default function LiveTerminal({ jobId, onStatusChange, onNodeUpdate, onAwaitingApproval, onLineCountChange, onLogEntry, hideUi }: Props) {
   const [lines, setLines] = useState<LogLine[]>([])
   const [status, setStatus] = useState<TerminalStatus>('idle')
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
   // callback ทุกตัวอ่านผ่าน ref — parent ส่ง arrow function ใหม่ทุก render ถ้าใส่เป็น
@@ -48,10 +51,12 @@ export default function LiveTerminal({ jobId, onStatusChange, onNodeUpdate, onAw
     if (!jobId) {
       setLines([])
       setStatus('idle')
+      setErrorMessage(null)
       return
     }
     setLines([])
     setStatus('streaming')
+    setErrorMessage(null)
 
     const source = new EventSource(`/api/agents/stream/${jobId}`)
 
@@ -68,6 +73,16 @@ export default function LiveTerminal({ jobId, onStatusChange, onNodeUpdate, onAw
     }
     source.addEventListener('done', () => {
       setStatus('done')
+      onNodeUpdateRef.current?.(null)
+      source.close()
+    })
+    source.addEventListener('done_with_warnings', () => {
+      setStatus('done_with_warnings')
+      onNodeUpdateRef.current?.(null)
+      source.close()
+    })
+    source.addEventListener('done_with_errors', () => {
+      setStatus('done_with_errors')
       onNodeUpdateRef.current?.(null)
       source.close()
     })
@@ -90,6 +105,14 @@ export default function LiveTerminal({ jobId, onStatusChange, onNodeUpdate, onAw
       // ทั้งที่ backend ยังรันอยู่ปกติ ไม่ auto-reconnect เพราะ backend replay จาก seq 0 ทุกครั้ง
       // (จะทำให้ log ซ้ำ) — ปิด connection เงียบๆ แล้วให้ผู้ใช้เปิด drawer ใหม่เพื่อดูสถานะจริง
       if (e instanceof MessageEvent && typeof e.data === 'string') {
+        let detail = 'งานหยุดด้วยข้อผิดพลาดจากระบบ'
+        try {
+          const dto = JSON.parse(e.data) as Partial<JobStatusDTO> & { detail?: string }
+          detail = dto.error_message || dto.detail || detail
+        } catch {
+          // Keep the safe generic message when a non-JSON SSE error arrives.
+        }
+        setErrorMessage(detail)
         setStatus('error')
         onNodeUpdateRef.current?.(null)
       }
@@ -113,6 +136,8 @@ export default function LiveTerminal({ jobId, onStatusChange, onNodeUpdate, onAw
       ? 'text-emerald-700'
       : status === 'done'
         ? 'text-zinc-500'
+        : status === 'done_with_errors'
+          ? 'text-amber-700'
         : status === 'awaiting_approval'
           ? 'text-amber-700'
           : status === 'error'
@@ -135,6 +160,11 @@ export default function LiveTerminal({ jobId, onStatusChange, onNodeUpdate, onAw
         </span>
       </div>
       <div ref={containerRef} className="max-h-96 overflow-y-auto p-3">
+        {errorMessage && (
+          <p role="alert" className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+            <span className="font-semibold">ข้อผิดพลาดของงาน: </span>{errorMessage}
+          </p>
+        )}
         {steps.length === 0 && <p className="text-xs text-zinc-400">รอสั่งงาน...</p>}
         {steps.map((step, i) => {
           const isLast = i === steps.length - 1

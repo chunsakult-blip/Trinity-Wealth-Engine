@@ -181,6 +181,7 @@ uv run python main.py
 ```bash
 WEBUI_PASSWORD=รหัสผ่านที่ตั้งเอง
 SESSION_SECRET_KEY=สตริงยาวๆ แบบสุ่ม ห้ามเปลี่ยนบ่อย (ไม่งั้น session จะหลุดทุกครั้งที่ restart)
+UNVERIFIED_DRAFT_SIGNING_KEY=สตริงสุ่มแยกต่างหากอย่างน้อย 32 bytes สำหรับ sign การอนุมัติ Unverified Draft
 ```
 
 Terminal 1 — Backend:

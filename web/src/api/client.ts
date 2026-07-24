@@ -130,7 +130,9 @@ export const api = {
     approvedNewsLinks: string[] = [],
     approvedYoutubeLinks: string[] = [],
     approvedEventIds?: string[],
-    approvedPitchIds?: string[]
+    approvedPitchIds?: string[],
+    action: 'approve' | 'refresh_sources' = 'approve',
+    unverifiedDraftSelections?: import('./types').UnverifiedDraftSelection[]
   ) =>
     request<JobStatusDTO>(`/api/agents/jobs/${jobId}/resume`, {
       method: 'POST',
@@ -139,6 +141,8 @@ export const api = {
         approved_youtube_links: approvedYoutubeLinks,
         approved_event_ids: approvedEventIds,
         approved_pitch_ids: approvedPitchIds,
+        unverified_draft_selections: unverifiedDraftSelections,
+        action,
       }),
     }),
 
@@ -262,4 +266,3 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 }
-

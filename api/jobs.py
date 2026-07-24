@@ -28,6 +28,7 @@ class JobQueue:
         self._run_fn = run_fn
         self._db_path = db_path
         self._queue: "asyncio.Queue[str]" = asyncio.Queue()
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._worker_task: Optional[asyncio.Task] = None
 
     def _conn(self) -> sqlite3.Connection:
@@ -35,6 +36,7 @@ class JobQueue:
 
     def start(self) -> None:
         if self._worker_task is None:
+            self._loop = asyncio.get_running_loop()
             self._worker_task = asyncio.create_task(self._worker_loop())
 
     async def stop(self) -> None:
@@ -65,16 +67,19 @@ class JobQueue:
                 key = f"{idempotency_key}:{job_id}"
             state_db.create_job(conn, job_id, thread_id, card_id, key, instruction, status="queued", flow=flow, scope=scope)
 
-        self._queue.put_nowait(job_id)
+        self.enqueue(job_id)
         return job_id
 
     def resume(self, job_id: str, resume_value: dict[str, Any]) -> None:
-        """ส่งคำตอบของ human (เช่น รายการข่าว/คลิปที่ approve แล้ว) กลับเข้า graph ที่หยุดรออยู่
-        ต้องเป็นงานที่สถานะ awaiting_approval เท่านั้น — validate ที่ route layer ด้วย
-        """
-        with closing(self._conn()) as conn:
-            state_db.set_job_resume_value(conn, job_id, json.dumps(resume_value, ensure_ascii=False))
-        self._queue.put_nowait(job_id)
+        """Deprecated: Use state_db.claim_job_resume instead"""
+        raise NotImplementedError("Use state_db.claim_job_resume directly to ensure atomicity")
+
+    def enqueue(self, job_id: str) -> None:
+        """Queue a job whose durable state has already been updated."""
+        if self._loop is not None:
+            self._loop.call_soon_threadsafe(self._queue.put_nowait, job_id)
+        else:
+            self._queue.put_nowait(job_id)
 
     async def _worker_loop(self) -> None:
         while True:
@@ -93,15 +98,20 @@ class JobQueue:
             job = state_db.get_job(conn, job_id)
             if job is None:
                 return
+            if job["status"] != "queued":
+                return
+            if not state_db.cas_job_status(conn, job_id, "queued", "running"):
+                return
+
+            if job["card_id"]:
+                state_db.move_kanban_card(conn, job["card_id"], "executing", job_id)
+
             thread_id = job["thread_id"]
             instruction = job["instruction"]
             flow = job["flow"]
             scope = job["scope"]
             resume_value_raw = job["resume_value"]
             resume_value = json.loads(resume_value_raw) if resume_value_raw else None
-            state_db.update_job_status(conn, job_id, "running")
-            if resume_value is not None:
-                state_db.clear_job_resume_value(conn, job_id)
 
         try:
             await asyncio.to_thread(
@@ -114,14 +124,37 @@ class JobQueue:
                 resume_value=resume_value,
             )
             with closing(self._conn()) as conn:
-                # run_fn เองเป็นคนตั้ง status='awaiting_approval' ถ้าเจอ interrupt — อย่าทับด้วย
-                # 'done' ถ้ามันตั้งค่านั้นไว้แล้ว
                 current = state_db.get_job(conn, job_id)
-                if current is not None and current["status"] == "running":
-                    state_db.update_job_status(conn, job_id, "done")
+                if current is not None:
+                    if resume_value is not None:
+                        state_db.clear_job_resume_value(conn, job_id)
+
+                    if current["status"] == "running":
+                        state_db.update_job_status(conn, job_id, "done")
+                        if current["card_id"]:
+                            state_db.move_kanban_card(conn, current["card_id"], "done", job_id)
+                    elif current["status"] in ("done", "done_with_warnings", "done_with_errors", "error"):
+                        if current["card_id"]:
+                            col = "done" if current["status"] in ("done", "done_with_warnings", "done_with_errors") else "backlog"
+                            state_db.move_kanban_card(conn, current["card_id"], col, job_id)
+                    elif current["status"] == "awaiting_approval":
+                        if current["card_id"]:
+                            state_db.move_kanban_card(conn, current["card_id"], "approval", job_id)
         except Exception as e:
+            error_message = str(e) or e.__class__.__name__
             with closing(self._conn()) as conn:
-                state_db.update_job_status(conn, job_id, "error", error_message=str(e))
+                state_db.append_job_log(
+                    conn,
+                    job_id,
+                    "system_error",
+                    f"Job failed: {error_message}",
+                    role="reply",
+                    label="System Error",
+                )
+                state_db.update_job_status(conn, job_id, "error", error_message=error_message)
+                current = state_db.get_job(conn, job_id)
+                if current and current["card_id"]:
+                    state_db.move_kanban_card(conn, current["card_id"], "backlog", job_id)
 
     def reenqueue_pending(self) -> None:
         """เรียกตอน FastAPI startup — งานที่ยัง `queued` (ไม่ทันเริ่มรันตอน process ตาย)
@@ -138,6 +171,8 @@ class JobQueue:
                     conn, job["job_id"], "error",
                     error_message="ถูกขัดจังหวะเพราะ server restart กลางคัน — กรุณาสั่งงานใหม่อีกครั้ง",
                 )
+                if job["card_id"]:
+                    state_db.move_kanban_card(conn, job["card_id"], "backlog", job["job_id"])
             queued = state_db.list_jobs_by_status(conn, ["queued"])
         for job in queued:
             self._queue.put_nowait(job["job_id"])
@@ -223,6 +258,9 @@ def default_run_fn(
     from core.retry import with_retry
 
     with SqliteSaver.from_conn_string(get_checkpoint_db_path()) as checkpointer:
+        terminal_status: Optional[str] = None
+        terminal_error: Optional[str] = None
+
         if flow == "news_youtube":
             from agents.news_youtube_flow import build_news_youtube_graph
             graph = build_news_youtube_graph(checkpointer=checkpointer)
@@ -254,6 +292,7 @@ def default_run_fn(
             stream_input = fresh_inputs
 
         def _stream_and_log() -> None:
+            nonlocal terminal_status, terminal_error
             with closing(state_db.get_connection()) as log_conn:
                 for event in graph.stream(stream_input, config=config, stream_mode="updates"):
                     if "__interrupt__" in event:
@@ -263,6 +302,21 @@ def default_run_fn(
                         )
                         return
                     _log_manager_messages(log_conn, job_id, event)
+                    if flow == "youtube_pitch":
+                        synthesis_update = event.get("synthesize_notebooklm")
+                        if isinstance(synthesis_update, dict):
+                            status = synthesis_update.get("synthesis_status")
+                            if status == "partial_failure":
+                                failures = synthesis_update.get("synthesis_failures") or []
+                                terminal_status = "done_with_errors"
+                                terminal_error = "\n".join(str(item) for item in failures) or "Some approved pitches failed"
+                            elif status == "success_with_unverified_drafts":
+                                terminal_status = "done_with_warnings"
+                                terminal_error = "Completed with Unverified Drafts"
                 _append_manager_summary(log_conn, job_id, instruction, flow=flow)
 
         with_retry(_stream_and_log)
+
+        if terminal_status:
+            with closing(state_db.get_connection()) as log_conn:
+                state_db.update_job_status(log_conn, job_id, terminal_status, error_message=terminal_error)

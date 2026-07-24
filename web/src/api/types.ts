@@ -199,19 +199,42 @@ export interface YoutubePitchItemDTO {
   source_titles: string[]
   recommended_format: string
   estimated_impact: string
+  investigation_mode?: 'stock' | 'macro' | 'mixed'
+  counter_intuitive_lead?: string
+  analogy_generator?: string
+  source_readiness?: 'ready' | 'needs_refresh' | 'blocked' | 'unknown'
+  source_readiness_issues?: string[]
+  unverified_draft_issue_codes?: string[]
+  unverified_draft_eligible?: boolean
+  unverified_draft_eligibility_token?: string
 }
+
+export interface SourceOverrideAck {
+  acknowledged: true
+  policy_version: 'unverified-draft-v1'
+  eligibility_token: string
+  reason?: string
+}
+
+export interface UnverifiedDraftSelection {
+  pitch_id: string
+  ack: SourceOverrideAck
+}
+
 
 export interface YoutubePitchApprovalPayload {
   type: 'youtube_pitch_approval'
   pitches: YoutubePitchItemDTO[]
   instruction?: string
+  approval_revision?: number
+  source_refresh_attempts?: number
 }
 
 export type ApprovalPayload = NewsYoutubeApprovalPayload | NewsFunnelApprovalPayload | YoutubePitchApprovalPayload
 
 export interface JobStatusDTO {
   job_id: string
-  status: 'queued' | 'running' | 'done' | 'error' | 'awaiting_approval'
+  status: 'queued' | 'running' | 'done' | 'done_with_warnings' | 'done_with_errors' | 'error' | 'awaiting_approval'
   card_id: string | null
   error_message: string | null
   current_node: string | null
@@ -450,4 +473,3 @@ export interface UpsertGoalPayload {
 export interface AppendJournalPayload {
   entry: string
 }
-

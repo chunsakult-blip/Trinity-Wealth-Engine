@@ -115,8 +115,9 @@ describe('LiveTerminal', () => {
 
     render(<LiveTerminal jobId="job-2" onStatusChange={onStatusChange} />)
     source = MockEventSource.latest()
-    act(() => source.emitNamed('error', { detail: 'job not found' }))
+    act(() => source.emitNamed('error', { error_message: 'macro data remained stale after refresh' }))
     expect(onStatusChange).toHaveBeenLastCalledWith('error')
+    expect(screen.getByRole('alert')).toHaveTextContent('macro data remained stale after refresh')
   })
 
   it('payload ผิดรูปแบบ → ข้ามบรรทัดนั้น stream ไม่พัง', () => {

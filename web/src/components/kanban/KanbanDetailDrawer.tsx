@@ -107,36 +107,35 @@ export default function KanbanDetailDrawer({ card, onClose, onCardTransition }: 
     if (!card) return
     const targetColumn = columnForStatus(status)
     if (!targetColumn || card.column_name === targetColumn) return
-    api
-      .moveKanbanCard(card.card_id, targetColumn)
-      .then(onCardTransition)
-      .catch((e) => setError(e instanceof ApiError ? e.message : 'อัปเดตสถานะการ์ดไม่สำเร็จ'))
+    // The backend now moves the card. Trigger a refresh to pull the updated column.
+    onCardTransition()
   }
 
   function handleTerminalStatusChange(status: TerminalStatus) {
     if (status === 'done') setTerminalCollapsed(true)
-    if (status === 'error' || status === 'awaiting_approval') setTerminalCollapsed(false)
+    if (status === 'done_with_warnings' || status === 'done_with_errors' || status === 'error' || status === 'awaiting_approval') setTerminalCollapsed(false)
     handleStatusChange(status)
   }
 
   function handleOutputsStatusChange(status: JobOutputsDTO['status']) {
     if (status === 'done') setTerminalCollapsed(true)
-    if (status === 'error' || status === 'awaiting_approval') setTerminalCollapsed(false)
+    if (status === 'done_with_warnings' || status === 'done_with_errors' || status === 'error' || status === 'awaiting_approval') setTerminalCollapsed(false)
   }
 
   async function handleApprove(
     approvedNewsLinks: string[],
     approvedYoutubeLinks: string[],
     approvedEventIds?: string[],
-    approvedPitchIds?: string[]
+    approvedPitchIds?: string[],
+    action: 'approve' | 'refresh_sources' = 'approve',
+    unverifiedDraftSelections?: import('../../api/types').UnverifiedDraftSelection[]
   ) {
     if (!card?.job_id) return
     setApproving(true)
     setError(null)
     try {
-      await api.resumeJob(card.job_id, approvedNewsLinks, approvedYoutubeLinks, approvedEventIds, approvedPitchIds)
+      await api.resumeJob(card.job_id, approvedNewsLinks, approvedYoutubeLinks, approvedEventIds, approvedPitchIds, action, unverifiedDraftSelections)
       setApprovalPayload(null)
-      await api.moveKanbanCard(card.card_id, 'executing')
       onCardTransition()
       setTerminalKey((k) => k + 1)
       setTerminalCollapsed(false)
