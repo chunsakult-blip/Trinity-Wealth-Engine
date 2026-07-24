@@ -20,5 +20,18 @@ def _atomic_write_to(path: Path, content: Any) -> None:
     except Exception:
         tmp_path.unlink(missing_ok=True)
         raise
-
-
+def _stage_text(path: Path, content: Any) -> Path:
+    """Write text to a temporary file in the same directory and return its Path."""
+    if not isinstance(content, str):
+        content = normalize_content(content) if isinstance(content, list) else str(content)
+    parent = path.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=".tmp_", suffix=".tmp", dir=str(parent))
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
+            f.write(content)
+        return tmp_path
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
