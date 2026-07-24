@@ -6,7 +6,7 @@ FastAPI Server และ Background Workers พร้อมระบุ schema_v
 from datetime import datetime, timedelta
 import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 from filelock import FileLock
 
@@ -22,10 +22,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_STORE_PATH = str(PROJECT_ROOT / "data" / "news_funnel_state.json")
 
 
-def _get_paths(store_path: Optional[str] = None):
-    s_path = store_path or DEFAULT_STORE_PATH
+def _get_paths(store_path: Union[str, Path, None] = None):
+    s_path = str(store_path) if store_path is not None else DEFAULT_STORE_PATH
     l_path = s_path + ".lock"
     return s_path, l_path
+
 
 
 def _get_initial_store() -> Dict[str, Any]:
@@ -144,7 +145,7 @@ def save_store(state: Dict[str, Any], store_path: Optional[str] = None) -> None:
         _save_unlocked(state, s_path)
 
 
-def _normalize_url(url: str) -> str:
+def normalize_news_url(url: str) -> str:
     """ทำ Normalization กับ URL ตัดเฉพาะ tracking parameters, www., trailing slash เพื่อป้องกันการประเมินซ้ำ"""
     if not url or not isinstance(url, str):
         return ""
@@ -174,6 +175,10 @@ def _normalize_url(url: str) -> str:
         return urlunsplit((scheme, netloc, path, new_query, ""))
     except Exception:
         return url.strip().lower()
+
+
+_normalize_url = normalize_news_url
+
 
 
 def is_title_or_url_processed(
@@ -274,9 +279,10 @@ def update_events_status(
     synthesized_ids: Optional[List[str]] = None,
     skipped_error_ids: Optional[List[str]] = None,
     error_msgs: Optional[Dict[str, str]] = None,
+    synthesis_payloads: Optional[Dict[str, Dict[str, Any]]] = None,
     store_path: Optional[str] = None,
 ) -> None:
-    """เปลี่ยนสถานะรายการเหตุการณ์เป็น synthesized, rejected และ/หรือ skipped_error ใน Transaction เดียวภายใต้ FileLock"""
+    """เปลี่ยนสถานะรายการเหตุการณ์เป็น synthesized, rejected และ/หรือ skipped_error พร้อมเก็บบันทึก Layer 2 enrichment ใน Transaction เดียวภายใต้ FileLock"""
     if not rejected_ids and not synthesized_ids and not skipped_error_ids:
         return
     s_path, l_path = _get_paths(store_path)
@@ -295,6 +301,11 @@ def update_events_status(
             ev_id = ev.get("event_id")
             if ev_id in syn_set:
                 ev["status"] = "synthesized"
+                if synthesis_payloads and ev_id in synthesis_payloads:
+                    payload = synthesis_payloads[ev_id]
+                    for key, val in payload.items():
+                        if val is not None:
+                            ev[key] = val
             elif ev_id in rej_set:
                 ev["status"] = "rejected"
                 ev["rejected_at"] = now_iso
@@ -305,6 +316,26 @@ def update_events_status(
                     ev["error_msg"] = err_map[ev_id]
 
         _save_unlocked(state, s_path)
+
+
+def commit_event_synthesis_results(
+    synthesized_event_ids: List[str],
+    failed_event_ids: List[str],
+    error_messages: Optional[Dict[str, str]] = None,
+    synthesis_payloads: Optional[Dict[str, Dict[str, Any]]] = None,
+    store_path: Union[str, Path, None] = None,
+    rejected_event_ids: Optional[List[str]] = None,
+) -> None:
+    """บันทึกสถานะการสังเคราะห์ (synthesized, skipped_error, และ rejected) และ Layer 2 payloads ใน Transaction เดียวภายใต้ FileLock"""
+    update_events_status(
+        synthesized_ids=synthesized_event_ids,
+        skipped_error_ids=failed_event_ids,
+        rejected_ids=rejected_event_ids,
+        error_msgs=error_messages,
+        synthesis_payloads=synthesis_payloads,
+        store_path=str(store_path) if store_path is not None else None,
+    )
+
 
 
 def get_filtered_or_rejected_events(store_path: Optional[str] = None) -> List[Dict[str, Any]]:

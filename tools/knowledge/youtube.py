@@ -2,6 +2,7 @@ from langsmith import traceable
 import os
 import re
 import subprocess
+import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -31,6 +32,23 @@ class TranscriptUnavailable(Exception):
     """ไม่มี Transcript ในคลิป (ทั้งภาษาเป้าหมายและ fallback) — แยกจาก library exception เพื่อหลีกเลี่ยง constructor signature ของ v1.x"""
 
 
+import json
+from typing import Literal
+from pydantic import BaseModel, Field
+import yaml
+
+
+class YouTubeVideoMetadata(BaseModel):
+    video_id: str
+    original_title: str | None = None
+    channel: str | None = None
+    published_at: str | None = None
+    duration_seconds: int | None = None
+    source_url: str
+    metadata_source: Literal["yt-dlp", "oembed", "html", "unavailable"] = "unavailable"
+    verification_status: Literal["verified", "partial", "unverified"] = "unverified"
+
+
 def _extract_video_id(url_or_id: str) -> str | None:
     """สกัด Video ID (11 chars) จาก YouTube URL ทุกรูปแบบ หรือ ID ตรงๆ"""
     s = url_or_id.strip()
@@ -45,7 +63,18 @@ def _find_existing_insight(video_id: str) -> Path | None:
     if not _YOUTUBE_SUMMARIES_PATH.exists():
         return None
     matches = list(_YOUTUBE_SUMMARIES_PATH.rglob(f"YouTube_Insight_{video_id}_*.md"))
-    return matches[0] if matches else None
+    if matches:
+        return matches[0]
+
+    for md_file in _YOUTUBE_SUMMARIES_PATH.rglob("*.md"):
+        try:
+            with open(md_file, "r", encoding="utf-8") as f:
+                head = f.read(1024)
+                if video_id in head:
+                    return md_file
+        except Exception:
+            pass
+    return None
 
 
 def _entries_to_text(entries) -> str:
@@ -58,18 +87,114 @@ def _entries_to_text(entries) -> str:
     return " ".join(parts)
 
 
+def _fetch_youtube_metadata(video_id: str) -> YouTubeVideoMetadata:
+    """ดึง Metadata ที่ยืนยันได้ของวิดีโอ YouTube (yt-dlp -> oEmbed -> HTML)
+
+    แยก published_at ออกจาก ingested_at เด็ดขาด หากดึงไม่ได้ให้เป็น None และมาร์ก unverified
+    """
+    url = f"https://www.youtube.com/watch?v={video_id}"
+
+    # Tier 1: yt-dlp --dump-single-json --skip-download
+    cmd = [
+        sys.executable,
+        "-m",
+        "yt_dlp",
+        "--dump-single-json",
+        "--skip-download",
+        "--no-warnings",
+        url,
+    ]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
+        if res.returncode == 0 and res.stdout.strip():
+            info = json.loads(res.stdout)
+            title = info.get("title") or None
+            uploader = info.get("uploader") or info.get("channel") or None
+            upload_date_raw = info.get("upload_date")  # e.g. "20260715"
+            published_at = None
+            if upload_date_raw and len(upload_date_raw) == 8:
+                published_at = f"{upload_date_raw[:4]}-{upload_date_raw[4:6]}-{upload_date_raw[6:]}"
+            duration = info.get("duration")
+            if title:
+                return YouTubeVideoMetadata(
+                    video_id=video_id,
+                    original_title=title.strip(),
+                    channel=uploader.strip() if uploader else None,
+                    published_at=published_at,
+                    duration_seconds=int(duration) if duration else None,
+                    source_url=url,
+                    metadata_source="yt-dlp",
+                    verification_status="verified" if published_at else "partial",
+                )
+    except Exception as e:
+        log.warning("yt-dlp metadata fetch failed for %s: %s", video_id, e)
+
+    # Tier 2: oEmbed API
+    try:
+        import urllib.request
+        oembed_url = f"https://www.youtube.com/oembed?url={url}&format=json"
+        req = urllib.request.Request(oembed_url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            title = data.get("title")
+            channel = data.get("author_name")
+            if title:
+                return YouTubeVideoMetadata(
+                    video_id=video_id,
+                    original_title=title.strip(),
+                    channel=channel.strip() if channel else None,
+                    published_at=None,
+                    duration_seconds=None,
+                    source_url=url,
+                    metadata_source="oembed",
+                    verification_status="partial",
+                )
+    except Exception as e:
+        log.warning("oEmbed metadata fetch failed for %s: %s", video_id, e)
+
+    # Tier 3: HTML metadata fallback
+    try:
+        import urllib.request
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            html = resp.read().decode("utf-8", errors="ignore")
+            title_m = re.search(r'<meta property="og:title" content="([^"]+)">', html)
+            title = title_m.group(1).strip() if title_m else None
+            chan_m = re.search(r'<link itemprop="name" content="([^"]+)">', html)
+            channel = chan_m.group(1).strip() if chan_m else None
+            date_m = re.search(r'<meta itemprop="datePublished" content="([^"]+)">', html)
+            published_at = date_m.group(1).split("T")[0] if date_m else None
+            if title:
+                return YouTubeVideoMetadata(
+                    video_id=video_id,
+                    original_title=title,
+                    channel=channel,
+                    published_at=published_at,
+                    duration_seconds=None,
+                    source_url=url,
+                    metadata_source="html",
+                    verification_status="verified" if published_at else "partial",
+                )
+    except Exception as e:
+        log.warning("HTML metadata fetch failed for %s: %s", video_id, e)
+
+    # Final Fallback: unverified
+    return YouTubeVideoMetadata(
+        video_id=video_id,
+        original_title=None,
+        channel=None,
+        published_at=None,
+        duration_seconds=None,
+        source_url=url,
+        metadata_source="unavailable",
+        verification_status="unverified",
+    )
+
+
 def _get_channel_name(video_id: str) -> str:
     """สกัดชื่อช่องจากหน้าวิดีโอ"""
-    import urllib.request
-    url = f"https://www.youtube.com/watch?v={video_id}"
-    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-    try:
-        html = urllib.request.urlopen(req).read().decode('utf-8', errors='ignore')
-        import re
-        m = re.search(r'<link itemprop="name" content="([^"]+)">', html)
-        return m.group(1).strip() if m else "Unknown_Channel"
-    except Exception:
-        return "Unknown_Channel"
+    meta = _fetch_youtube_metadata(video_id)
+    return meta.channel or "Unknown_Channel"
 
 
 def _get_raw_transcript(video_id: str) -> str:
@@ -99,7 +224,9 @@ def _get_ytdlp_subtitles(video_id: str) -> str | None:
     url = f"https://www.youtube.com/watch?v={video_id}"
     with tempfile.TemporaryDirectory() as tmp_dir:
         cmd = [
-            "yt-dlp",
+            sys.executable,
+            "-m",
+            "yt_dlp",
             "--skip-download",
             "--write-sub",
             "--write-auto-sub",
@@ -146,8 +273,8 @@ def _extract_via_gemini_url_direct(url: str, video_id: str) -> str:
     if not api_key:
         raise ValueError("ไม่พบ GOOGLE_API_KEY หรือ GEMINI_API_KEY สำหรับใช้งาน Gemini Multimodal")
 
-    extractor_model = os.getenv("EXTRACTOR_MODEL", "gemini-2.0-flash")
-    model_name = extractor_model if "gemini" in extractor_model.lower() else "gemini-2.0-flash"
+    extractor_model = os.getenv("EXTRACTOR_MODEL", "gemini-3.1-flash-lite-preview")
+    model_name = extractor_model if "gemini" in extractor_model.lower() else "gemini-3.1-flash-lite-preview"
 
     client = genai.Client(api_key=api_key)
     prompt = f"Source: YouTube: {video_id}\n\nกรุณาดู/ฟังวิดีโอ YouTube นี้ และสกัดข้อมูลการลงทุนตามคำสั่งใน System Prompt"
@@ -248,25 +375,44 @@ def ingest_youtube_transcript(url: str) -> str:
     if not extracted or not extracted.strip():
         return f"ERROR: ไม่สามารถสกัดข้อมูลจากวิดีโอนี้ได้ (ID: {video_id})"
 
-    channel_name = _get_channel_name(video_id)
+    meta = _fetch_youtube_metadata(video_id)
+    channel_name = meta.channel or "Unknown_Channel"
+    title_display = meta.original_title or f"YouTube Insight {video_id}"
+    extracted_tickers = sorted(set(re.findall(r"\[\[([A-Z0-9.\-:^]+)\]\]", extracted)))
 
-    # 6. Build Markdown output พร้อม YAML frontmatter
+    # 6. Build Markdown output พร้อม YAML frontmatter ผ่าน yaml.safe_dump
     thumbnail = f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
+    fm_dict = {
+        "title": title_display,
+        "original_title": meta.original_title,
+        "channel": channel_name,
+        "video_id": video_id,
+        "source_url": url,
+        "image": thumbnail,
+        "published_at": meta.published_at,
+        "ingested_at": today,
+        # `date` remains an ingestion date for legacy consumers.  Publication
+        # provenance is represented only by `published_at` and must never be
+        # inferred from this compatibility field.
+        "date": today,
+        "entity_type": "youtube_insight",
+        "metadata_source": meta.metadata_source,
+        "verification_status": meta.verification_status,
+        "extracted_tickers": extracted_tickers,
+        "extracted_themes": [],
+        "key_metrics": "",
+        "financial_contradictions": "",
+        "tags": ["youtube", "transcript", "investment_insight"],
+    }
+    fm_str = yaml.safe_dump(fm_dict, allow_unicode=True, sort_keys=False).strip()
+
     content = "\n".join([
         "---",
-        f"title: YouTube Insight {video_id} {today}",
-        "entity_type: youtube_insight",
-        f"channel: {channel_name}",
-        f"video_id: {video_id}",
-        f"source_url: {url}",
-        f"image: {thumbnail}",
-        f"date: {today}",
-        f"last_updated: {now_time}",
-        "tags: [youtube, transcript, investment_insight]",
+        fm_str,
         "---",
         "",
-        f"# YouTube Investment Insight — `{video_id}`",
-        f"> แหล่งที่มา: {url} | ช่อง: {channel_name} | วิธีสกัดข้อมูล: {extraction_method}",
+        f"# {title_display}",
+        f"> แหล่งที่มา: {url} | ช่อง: {channel_name} | วิธีสกัดข้อมูล: {extraction_method} | สถานะการยืนยัน: {meta.verification_status}",
         "",
         f'<iframe width="560" height="315" src="https://www.youtube.com/embed/{video_id}" frameborder="0" allowfullscreen></iframe>',
         "",

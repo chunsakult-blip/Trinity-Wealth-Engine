@@ -69,7 +69,10 @@ Output ทั้งหมด เนื้อหาทั้งหมด แล�
 
 ## ตัวเลขสำคัญทางเศรษฐกิจ
 ตัวเลขเฉพาะเจาะจงที่ถูกกล่าวถึง เช่น GDP%, CPI%, อัตราดอกเบี้ย, Bond Yield, P/E, EPS
-รูปแบบ: `- ชื่อตัวเลข: ค่า (บริบทสั้นๆ)`"""
+รูปแบบ: `- ชื่อตัวเลข: ค่า (บริบทสั้นๆ)`
+
+### จุดขัดแย้งทางการเงิน
+ระบุจุดย้อนแย้งเชิงตัวเลขหรือนโยบาย (เช่น รายได้โตแต่ FCF ติดลบ หรือดอกเบี้ยสูงแต่มูลค่าหุ้น P/E สูง)"""
 
 
 def _call_extractor_llm(raw_content: str, source_label: str) -> str:
@@ -93,19 +96,55 @@ def _call_extractor_llm(raw_content: str, source_label: str) -> str:
     return str(content).strip()
 
 
-def _build_article_md(extracted: str, source_url: str, title: str, today: str, now_time: str, image: str | None = None) -> str:
+import yaml
+
+def _build_article_md(
+    extracted: str,
+    source_url: str,
+    title: str,
+    today: str,
+    now_time: str,
+    image: str | None = None,
+    *,
+    event_id: str | None = None,
+    extracted_tickers: list[str] | None = None,
+    extracted_themes: list[str] | None = None,
+    published_at: str | None = None,
+    canonical_publisher: str | None = None,
+    canonical_url: str | None = None,
+    verification_status: str | None = None,
+) -> str:
     safe_title = title.replace(":", " -").replace("/", "-")[:80]
-    image_line = [f"image: {image}"] if image else []
+    meta_dict = {
+        "title": safe_title,
+        "entity_type": "article_note",
+        "source_url": source_url,
+        "publisher": urlparse(source_url).netloc.replace("www.", ""),
+    }
+    if image:
+        meta_dict["image"] = image
+    meta_dict["date"] = today
+    meta_dict["last_updated"] = now_time
+    meta_dict["tags"] = ["article", "investment_insight"]
+    if event_id is not None:
+        meta_dict["event_id"] = event_id
+    if extracted_tickers is not None:
+        meta_dict["extracted_tickers"] = extracted_tickers
+    if extracted_themes is not None:
+        meta_dict["extracted_themes"] = extracted_themes
+    if published_at is not None:
+        meta_dict["published_at"] = published_at
+    if canonical_publisher is not None:
+        meta_dict["canonical_publisher"] = canonical_publisher
+    if canonical_url is not None:
+        meta_dict["canonical_url"] = canonical_url
+    if verification_status is not None:
+        meta_dict["verification_status"] = verification_status
+
+    yaml_block = yaml.safe_dump(meta_dict, allow_unicode=True, sort_keys=False).strip()
     return "\n".join([
         "---",
-        f"title: {safe_title}",
-        "entity_type: article_note",
-        f"source_url: {source_url}",
-        f"publisher: {urlparse(source_url).netloc.replace('www.', '')}",
-        *image_line,
-        f"date: {today}",
-        f"last_updated: {now_time}",
-        "tags: [article, investment_insight]",
+        yaml_block,
         "---",
         "",
         f"# {safe_title}",

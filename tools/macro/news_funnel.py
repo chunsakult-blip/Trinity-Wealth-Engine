@@ -13,6 +13,7 @@ import re
 import shutil
 import threading
 from typing import Any, Dict, List, Optional, Union
+from urllib.parse import urlsplit
 import uuid
 
 from core.logger import get_logger
@@ -36,10 +37,12 @@ from tools.macro.news_funnel_store import (
     load_store,
     save_triage_events,
     update_events_status,
+    commit_event_synthesis_results,
     save_raw_candidates,
     get_raw_candidates,
     remove_processed_raw_candidates,
 )
+
 
 logger = get_logger(__name__)
 
@@ -292,6 +295,15 @@ def _llm_triage_batch(items: List[Dict[str, Any]]) -> tuple[List[MacroImpactTria
     return all_results, all_sources, all_reasons
 
 
+def _extract_published_at(item: Dict[str, Any], fallback_iso: Optional[str] = None) -> Optional[str]:
+    pub = item.get("published_at") or item.get("published") or item.get("pubDate") or item.get("date")
+    if pub:
+        if hasattr(pub, "isoformat"):
+            return pub.isoformat()
+        return str(pub).strip()
+    return fallback_iso
+
+
 def _heuristic_prefilter_candidates(items: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """กรองหัวข้อข่าวก่อน Clustering โดยตรวจสอบ Blacklist พร้อม Finance-Keyword Override"""
     passed_items = []
@@ -344,6 +356,7 @@ def _heuristic_prefilter_candidates(items: List[Dict[str, Any]]) -> tuple[List[D
                 "triage_fallback_reason": None,
                 "status": "pending_synthesis",
                 "ingested_at": now_iso,
+                "published_at": _extract_published_at(item, None),
             }
             prefiltered_events.append(ev)
         else:
@@ -450,10 +463,25 @@ def run_news_funnel_ingest(
         title = rep.get("title", "").strip()
         link = rep.get("link", "")
         event_id = rep.get("event_id") or str(uuid.uuid4())
+        feed_name = rep.get("source") or rep.get("feed_name") or "RSS Feed"
+        source_host = urlsplit(link).netloc.replace("www.", "") if link else "N/A"
+        syndication_host = source_host
+        pub = rep.get("publisher") or rep.get("author")
+        publisher = pub.strip() if (pub and isinstance(pub, str) and pub.strip()) else "ไม่ยืนยัน"
+        published_at = _extract_published_at(rep, None)
+        has_direct_provenance = bool(link and pub and published_at)
+
         ev = {
             "event_id": event_id,
             "canonical_title": triage.thai_title or title,
             "original_title": title,
+            "feed_name": feed_name,
+            "publisher": publisher,
+            "canonical_publisher": publisher if pub else None,
+            "canonical_url": link or None,
+            "canonical_published_at": published_at,
+            "source_host": source_host,
+            "syndication_host": syndication_host,
             "comprehensive_summary": _clean_and_truncate_summary(triage.thai_summary or rep.get("summary", rep.get("freshness_reason", ""))),
             "source_count": rep.get("sources_count", 1),
             "sources": rep.get("sources", [rep.get("source", "RSS")]),
@@ -469,6 +497,11 @@ def run_news_funnel_ingest(
             "triage_fallback_reason": triage_reason,
             "status": "pending_synthesis",
             "ingested_at": now_iso,
+            "published_at": published_at,
+            # The RSS record supplied a direct link, publisher, and date.  Keep
+            # that tuple explicit so later synthesis can audit it rather than
+            # inventing provenance from a translated title or ingestion time.
+            "verification_status": "verified" if has_direct_provenance else ("partial" if pub else "unverified"),
         }
         new_events.append(ev)
 
@@ -536,6 +569,7 @@ def _synthesize_single_event(
     now_time: str,
     news_dir: Path,
     vault_root: Optional[Union[str, Path]] = None,
+    existing_notes_by_event_id: Optional[Dict[str, Path]] = None,
 ) -> tuple[Dict[str, Any], Optional[str], Optional[str], set[str], Optional[str]]:
     """ประมวลผลดึงและสกัดเนื้อหา 6 หัวข้อเชิงลึกของ 1 เหตุการณ์ (สำหรับรัน concurrent ใน ThreadPoolExecutor)"""
     links = ev.get("links") or []
@@ -549,6 +583,42 @@ def _synthesize_single_event(
     summary = ev.get("comprehensive_summary", "")
     tickers = ev.get("extracted_tickers") or []
     themes = ev.get("extracted_themes") or []
+
+    ev_id = ev.get("event_id")
+    if ev_id and existing_notes_by_event_id and ev_id in existing_notes_by_event_id:
+        existing_path = existing_notes_by_event_id[ev_id]
+        logger.info("Pre-scan recovery: event %s already has synthesized file %s", ev_id, existing_path)
+        try:
+            content = existing_path.read_text(encoding="utf-8")
+            from tools.archivist.parser import _strip_frontmatter, parse_frontmatter_metadata
+            body = _strip_frontmatter(content)
+            meta = parse_frontmatter_metadata(content)
+            wikilinks = set(re.findall(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]", body))
+            recovered_tickers = meta.get("tickers") or tickers
+            recovered_themes = meta.get("tags") or meta.get("themes") or themes
+            for t in recovered_tickers:
+                wikilinks.add(t)
+            for th in recovered_themes:
+                wikilinks.add(th)
+            ev["canonical_title"] = _ensure_thai_title(ev.get("canonical_title", "Untitled Event"))
+            ev["synthesized_note_path"] = str(existing_path)
+            ev["synthesized_content"] = body
+            ev["extracted_tickers"] = list(recovered_tickers)
+            ev["extracted_themes"] = list(recovered_themes)
+            ev["thematic_tags"] = list(recovered_themes)
+            if meta.get("key_metrics"):
+                ev["key_metrics"] = meta.get("key_metrics")
+            if meta.get("financial_contradictions"):
+                ev["financial_contradictions"] = meta.get("financial_contradictions")
+            if meta.get("macro_impact_score") is not None:
+                ev["macro_impact_score"] = meta.get("macro_impact_score")
+            if meta.get("asset_impact_score") is not None:
+                ev["asset_impact_score"] = meta.get("asset_impact_score")
+            ev["synthesis_completed_at"] = meta.get("synthesized_at") or meta.get("date") or now_time
+            ev["synthesized_at"] = ev["synthesis_completed_at"]
+            return ev, str(existing_path), body, wikilinks, None
+        except Exception as exc:
+            logger.warning("Could not recover existing note %s, will re-synthesize: %s", existing_path, exc)
 
     og_image = None
     err = None
@@ -565,6 +635,7 @@ def _synthesize_single_event(
     impact_banner = f"> **Macro Impact:** {macro_score}/10 | **Asset Impact:** {asset_score}/10\n\n"
     extracted_body = impact_banner + extracted_raw
 
+    published_at_val = ev.get("published_at")
     md_content = _build_article_md(
         extracted=extracted_body,
         source_url=link,
@@ -572,6 +643,13 @@ def _synthesize_single_event(
         today=date_str,
         now_time=now_time,
         image=og_image,
+        event_id=ev_id,
+        extracted_tickers=tickers,
+        extracted_themes=themes,
+        published_at=str(published_at_val) if published_at_val else None,
+        canonical_publisher=ev.get("canonical_publisher") or ev.get("publisher"),
+        canonical_url=ev.get("canonical_url") or link or None,
+        verification_status=ev.get("verification_status"),
     )
 
     safe_title = _sanitize_filename(canonical_title)
@@ -584,6 +662,7 @@ def _synthesize_single_event(
         _atomic_write_to(out_file, md_content)
         _index_upsert(out_file, vault_root=vault_root)
 
+
     # Union Wikilinks: ดึงจาก regex [[...]] ใน extracted_body มารวมกับ tickers และ themes เดิม
     wikilinks = set(re.findall(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]", extracted_body))
     for t in tickers:
@@ -592,6 +671,11 @@ def _synthesize_single_event(
         wikilinks.add(th)
 
     ev["canonical_title"] = canonical_title
+    ev["synthesized_note_path"] = str(out_file)
+    ev["synthesized_content"] = extracted_body
+    ev["extracted_tickers"] = list(tickers)
+    ev["extracted_themes"] = list(themes)
+    ev["synthesis_completed_at"] = now_time
 
     return ev, str(out_file), extracted_body, wikilinks, None
 
@@ -744,6 +828,19 @@ def run_news_funnel_synthesize(
     news_dir = Path(root) / "30_Knowledge_Base" / "News"
     news_dir.mkdir(parents=True, exist_ok=True)
 
+    # Pre-scan Recovery Flow: สแกน news_dir หนึ่งครั้งก่อนเปิด executor เพื่อหาไฟล์ที่มี event_id ตรงกันหรือหัวข้อตรงกัน
+    existing_notes_by_event_id: Dict[str, Path] = {}
+    from tools.archivist.parser import parse_frontmatter_metadata
+    for existing_file in news_dir.glob("*.md"):
+        try:
+            content = existing_file.read_text(encoding="utf-8")
+            meta = parse_frontmatter_metadata(content)
+            ev_id = meta.get("event_id")
+            if ev_id:
+                existing_notes_by_event_id[str(ev_id)] = existing_file
+        except Exception as exc:
+            logger.debug("Failed reading/parsing existing note %s during pre-scan: %s", existing_file, exc)
+
     created_files = []
     published_event_ids = []
     published_events = []
@@ -754,7 +851,7 @@ def run_news_funnel_synthesize(
     import concurrent.futures
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(3, len(events_to_synthesize))) as executor:
         futures_map = {
-            executor.submit(_synthesize_single_event, ev, date_str, now_time, news_dir, vault_root): ev
+            executor.submit(_synthesize_single_event, ev, date_str, now_time, news_dir, vault_root, existing_notes_by_event_id): ev
             for ev in events_to_synthesize
         }
         results = []
@@ -765,6 +862,7 @@ def run_news_funnel_synthesize(
                 logger.error("Error synthesizing single event %s: %s", ev.get("event_id"), exc)
                 results.append((ev, None, None, set(), f"สังเคราะห์ข้อมูลล้มเหลว: {exc}"))
 
+    synthesis_payloads = {}
     for ev, out_file, extracted_body, wikilinks, err in results:
         ev_id = ev.get("event_id")
         if err or not out_file:
@@ -776,6 +874,19 @@ def run_news_funnel_synthesize(
             published_events.append(ev)
             if ev_id:
                 published_event_ids.append(ev_id)
+                synthesis_payloads[ev_id] = {
+                    "synthesized_note_path": ev.get("synthesized_note_path") or str(out_file),
+                    "synthesized_content": ev.get("synthesized_content") or extracted_body,
+                    "extracted_tickers": ev.get("extracted_tickers", []),
+                    "extracted_themes": ev.get("extracted_themes", []),
+                    "thematic_tags": ev.get("thematic_tags") or ev.get("extracted_themes", []),
+                    "key_metrics": ev.get("key_metrics"),
+                    "financial_contradictions": ev.get("financial_contradictions"),
+                    "macro_impact_score": ev.get("macro_impact_score"),
+                    "asset_impact_score": ev.get("asset_impact_score"),
+                    "synthesized_at": ev.get("synthesized_at") or ev.get("synthesis_completed_at") or now_time,
+                    "synthesis_completed_at": ev.get("synthesis_completed_at") or now_time,
+                }
             for w in wikilinks:
                 all_extracted_concepts.add(w)
 
@@ -789,16 +900,18 @@ def run_news_funnel_synthesize(
         if concept_candidates:
             ensure_concept_stubs_exist(concept_candidates, vault_root=vault_root)
 
-    # มาร์คสถานะใน JSON Store เป็น synthesized, rejected, หรือ skipped_error ใน Transaction เดียว
-    update_events_status(
-        rejected_ids=rejected_event_ids,
-        synthesized_ids=published_event_ids,
-        skipped_error_ids=skipped_error_ids,
-        error_msgs=error_msgs,
+    # บันทึกสถานะใน JSON Store และ Layer 2 payloads ทั้งหมดใน Transaction เดียวภายใต้ FileLock
+    commit_event_synthesis_results(
+        synthesized_event_ids=published_event_ids,
+        failed_event_ids=skipped_error_ids,
+        error_messages=error_msgs,
+        synthesis_payloads=synthesis_payloads,
         store_path=store_path,
+        rejected_event_ids=rejected_event_ids,
     )
 
     flush_index_if_dirty(vault_root=vault_root)
+
 
     return {
         "status": "success",
