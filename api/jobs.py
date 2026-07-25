@@ -306,11 +306,11 @@ def default_run_fn(
                         synthesis_update = event.get("synthesize_notebooklm")
                         if isinstance(synthesis_update, dict):
                             status = synthesis_update.get("synthesis_status")
-                            if status == "partial_failure":
+                            if status == "done_with_errors":
                                 failures = synthesis_update.get("synthesis_failures") or []
                                 terminal_status = "done_with_errors"
                                 terminal_error = "\n".join(str(item) for item in failures) or "Some approved pitches failed"
-                            elif status == "success_with_unverified_drafts":
+                            elif status == "done_with_warnings":
                                 terminal_status = "done_with_warnings"
                                 terminal_error = "Completed with Unverified Drafts"
                 _append_manager_summary(log_conn, job_id, instruction, flow=flow)

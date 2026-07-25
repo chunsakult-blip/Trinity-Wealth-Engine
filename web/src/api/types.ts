@@ -199,6 +199,7 @@ export interface YoutubePitchItemDTO {
   source_titles: string[]
   recommended_format: string
   estimated_impact: string
+  presentation_style?: string
   investigation_mode?: 'stock' | 'macro' | 'mixed'
   counter_intuitive_lead?: string
   analogy_generator?: string

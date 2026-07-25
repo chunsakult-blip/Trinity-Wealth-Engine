@@ -20,7 +20,7 @@ import pytest  # noqa: E402
 @pytest.fixture(scope="session", autouse=True)
 def enforce_vault_isolation():
     """Safety check: ensure tests do not modify production vault"""
-    vault_dir = Path("memories/00_Inbox/NotebookLM")
+    vault_dir = Path("memories/30_Knowledge_Base/NotebookLM_Sources")
     if vault_dir.exists():
         initial_files = {f: f.stat().st_mtime for f in vault_dir.glob("**/*") if f.is_file()}
     else:

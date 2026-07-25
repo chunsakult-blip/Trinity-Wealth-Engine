@@ -87,6 +87,8 @@ def test_generate_youtube_pitches_success(mock_invoke):
         source_titles=["ข่าวธนาคารกลาง"],
         recommended_format="Deep Dive 15m",
         estimated_impact="Impact",
+        counter_intuitive_lead="เบาะแสสำคัญค้านสายตา: ตลาดหุ้นเติบโตแต่กระแสเงินสดติดลบ",
+        analogy_generator="คำเปรียบเปรย: เหมือนรถที่วิ่งด้วยความเร็วสูงแต่เชื้อเพลิงกำลังจะหมด",
     )
     mock_invoke.return_value = YouTubeContentPitchBatch(
         pitches=[mock_item],
@@ -180,8 +182,10 @@ def test_save_briefing_artifact_with_thai_filename(tmp_path):
     saved_path = saved_artifact.path
 
     assert saved_path.exists()
+    assert "30_Knowledge_Base" in str(saved_path) and "NotebookLM_Sources" in str(saved_path)
     assert "วิเคราะห์หุ้นเทคไทยและโลก" in saved_path.name
     assert "2026-07-18_" in saved_path.name
+    assert "_verified.md" in saved_path.name
     assert saved_path.read_text(encoding="utf-8") == content
 
     # ทดสอบ collision (_2) (Now tests idempotency)
@@ -274,21 +278,6 @@ def test_generate_pitches_internal_quota_and_truncation(mock_invoke):
         elif block.startswith("yt-") and "   สรุป: " in block:
             summary_part = block.split("   สรุป: ")[1].split("\n")[0]
             assert len(summary_part) == 550
-
-def test_visual_markers_by_act_parsing():
-    from tools.content.youtube_pitcher import _visual_markers_by_act
-    md = """
-## Act I
-[VISUAL_EVIDENCE id=V01 evidence=E01]
-[VISUAL_EVIDENCE id=V02 evidence=E02,E03,E04]
-## Act II
-[VISUAL_EVIDENCE id=V03 evidence=]
-[VISUAL_EVIDENCE id=V04]
-    """
-    res = _visual_markers_by_act(md)
-    assert res["Act I"] == [("V01", ("E01",)), ("V02", ("E02", "E03", "E04"))]
-    assert res["Act II"] == [("V03", ()), ("V04", ())]
-    assert res["Act III"] == []
 
 def test_visual_markers_validation_rules():
     from tools.content.briefing_quality import validate_briefing_book_quality
@@ -404,3 +393,232 @@ def test_visual_markers_validation_rules():
     md_good = RenderedBriefing(content="", section_names=["Act I", "Act II", "Act III"], visual_markers=[v1_act1, v2_act2, v3_act3], cited_evidence_ids=[], cited_source_ids=[])
     report5 = validate_briefing_book_quality(bundle, draft, md_good)
     assert not any(i.code in ("VISUAL_MISSING", "VISUAL_DUPLICATED", "VISUAL_WRONG_ACT", "VISUAL_EVIDENCE_MISMATCH") for i in report5.issues)
+
+
+def test_numeric_grounding_accepts_comma_formatted_numbers():
+    """Regression test: a citation next to a comma-grouped number like
+    '24,975.82' must not be flagged as ungrounded. The old regex
+    (`\\d+(?:\\.\\d+)?`) split on the comma into '24' and '975.82', neither of
+    which matched the evidence value, producing a false-positive
+    NUMERIC_GROUNDING_WARNING even though the LLM had narrated the number
+    correctly."""
+    from tools.content.briefing_quality import validate_briefing_book_quality
+    from tools.content.briefing_renderer import RenderedBriefing
+
+    bundle = MagicMock()
+    source = MagicMock()
+    source.source_id = "S1"
+    source.source_type = "news"
+    source.verification_status = "verified"
+    source.published_at = "2026-07-01"
+    source.independence_key = "K1"
+    source.publisher = "Pub1"
+    source.url = "http"
+    source.ingested_at = "2026-07-01"
+    bundle.sources = [source]
+
+    ev1 = MagicMock()
+    ev1.evidence_id = "E01"
+    ev1.source_ids = ["S1"]
+    ev1.classification = "verified_fact"
+    ev1.claim = "Nasdaq value"
+    ev1.metric_name = "Nasdaq"
+    ev1.value = 24975.82
+    ev1.observed_at = "2026-07-01"
+    bundle.evidence_items = [ev1]
+    bundle.investigation_mode = "macro"
+    bundle.macro_snapshot = None
+    bundle.financial_snapshots = []
+
+    draft = MagicMock()
+    draft.executive_summary = "ดัชนี Nasdaq Composite อยู่ที่ 24,975.82 จุด [E01]"
+    draft.bull_case = ""
+    draft.bear_case = ""
+    draft.act1_script = ""
+    draft.act2_script = ""
+    draft.act3_script = ""
+    draft.causality_scenarios = []
+    draft.asset_impacts = []
+    draft.notebooklm_prompts = []
+    draft.visual_directives = []
+
+    rendered = RenderedBriefing(content="", section_names=[], visual_markers=[], cited_evidence_ids=set(), cited_source_ids=set())
+
+    report = validate_briefing_book_quality(bundle, draft, rendered)
+    assert not any(i.code == "NUMERIC_GROUNDING_WARNING" for i in report.issues)
+
+
+@patch("tools.content.youtube_pitcher.invoke_structured_llm")
+@patch("tools.content.youtube_pitcher.normalize_visual_directives")
+@patch("tools.content.briefing_artifacts.save_briefing_artifact")
+@patch("tools.content.briefing_quality.validate_briefing_book_quality")
+@patch("tools.content.briefing_renderer.render_briefing_book")
+@patch("tools.content.provenance_enrichment.assess_pitch_source_readiness")
+@patch("tools.content.briefing_evidence.build_briefing_evidence")
+def test_synthesize_notebooklm_source_presentation_style_prompt_branching(
+    mock_build, mock_readiness, mock_render, mock_validate, mock_save, mock_normalize, mock_invoke
+):
+    from schemas.briefing_book_schemas import InvestigativeBriefingBookDraft
+    
+    mock_draft = InvestigativeBriefingBookDraft(
+        title="test", executive_summary="test", act1_script="test",
+        act2_script="test", act3_script="test", causality_scenarios=[],
+        asset_impacts=[], bull_case="bull", bear_case="bear",
+        falsification_triggers=[], notebooklm_prompts=[], visual_directives=[]
+    )
+    mock_invoke.return_value = mock_draft
+    mock_normalize.return_value = mock_draft
+    mock_render.return_value = MagicMock()
+    mock_validate.return_value = MagicMock(status="pass", blockers=[], issues=[])
+
+    mock_build.return_value = MagicMock(sources=[], evidence_items=[])
+    source_events = [{"event_id": "e1", "canonical_title": "t1"}]
+    mock_readiness.return_value = ("ready", [], [], source_events)
+    mock_render.side_effect = Exception("Stop Here!")
+    
+    import pytest
+    # 1. Test "narrative"
+    pitch_narrative = YouTubeContentPitchItem(
+        pitch_id="p1", working_titles=["1","2","3"], target_audience="a", core_hook="h",
+        key_questions_to_answer=["1","2","3"], research_hypotheses=["1","2"],
+        source_event_ids=["e1"], source_links=[], source_titles=["t1"], recommended_format="f",
+        estimated_impact="i", presentation_style="narrative"
+    )
+    with pytest.raises(Exception, match="Stop Here!"):
+        synthesize_notebooklm_source(pitch_narrative, source_events)
+    call_args_narrative = mock_invoke.call_args[1]["prompt_lines"]
+    assert any("บทความเชิงลึก (Narrative Deep Dive)" in line for line in call_args_narrative)
+    assert not any("บทสัมภาษณ์ (Interview Q&A)" in line for line in call_args_narrative)
+    
+    # 2. Test "interview_qa"
+    pitch_qa = YouTubeContentPitchItem(
+        pitch_id="p2", working_titles=["1","2","3"], target_audience="a", core_hook="h",
+        key_questions_to_answer=["1","2","3"], research_hypotheses=["1","2"],
+        source_event_ids=["e1"], source_links=[], source_titles=["t1"], recommended_format="f",
+        estimated_impact="i", presentation_style="interview_qa"
+    )
+    with pytest.raises(Exception, match="Stop Here!"):
+        synthesize_notebooklm_source(pitch_qa, source_events)
+    call_args_qa = mock_invoke.call_args[1]["prompt_lines"]
+    assert any("บทสัมภาษณ์ (Interview Q&A)" in line for line in call_args_qa)
+    assert not any("บทความเชิงลึก (Narrative Deep Dive)" in line for line in call_args_qa)
+
+
+@patch("tools.content.youtube_pitcher.invoke_structured_llm")
+@patch("tools.content.youtube_pitcher.normalize_visual_directives")
+@patch("tools.content.briefing_artifacts.save_briefing_artifact")
+@patch("tools.content.briefing_quality.validate_briefing_book_quality")
+@patch("tools.content.briefing_renderer.render_briefing_book")
+@patch("tools.content.provenance_enrichment.assess_pitch_source_readiness")
+@patch("tools.content.briefing_evidence.build_briefing_evidence")
+def test_synthesize_notebooklm_source_prompt_requires_grounded_citations(
+    mock_build, mock_readiness, mock_render, mock_validate, mock_save, mock_normalize, mock_invoke
+):
+    """Regression test for the Act III bug where an evidence ID was cited on a
+    purely qualitative claim ('อาจได้รับผลกระทบหนัก [E14]') with no number nearby —
+    the prompt must explicitly forbid that pattern."""
+    from schemas.briefing_book_schemas import InvestigativeBriefingBookDraft
+
+    mock_draft = InvestigativeBriefingBookDraft(
+        title="test", executive_summary="test", act1_script="test",
+        act2_script="test", act3_script="test", causality_scenarios=[],
+        asset_impacts=[], bull_case="bull", bear_case="bear",
+        falsification_triggers=[], notebooklm_prompts=[], visual_directives=[]
+    )
+    mock_invoke.return_value = mock_draft
+    mock_normalize.return_value = mock_draft
+    mock_build.return_value = MagicMock(sources=[], evidence_items=[])
+    source_events = [{"event_id": "e1", "canonical_title": "t1"}]
+    mock_readiness.return_value = ("ready", [], [], source_events)
+    mock_render.side_effect = Exception("Stop Here!")
+
+    import pytest
+    pitch = YouTubeContentPitchItem(
+        pitch_id="p1", working_titles=["1", "2", "3"], target_audience="a", core_hook="h",
+        key_questions_to_answer=["1", "2", "3"], research_hypotheses=["1", "2"],
+        source_event_ids=["e1"], source_links=[], source_titles=["t1"], recommended_format="f",
+        estimated_impact="i",
+    )
+    with pytest.raises(Exception, match="Stop Here!"):
+        synthesize_notebooklm_source(pitch, source_events)
+    prompt_lines = mock_invoke.call_args[1]["prompt_lines"]
+    prompt_text = "\n".join(prompt_lines)
+    assert "ประโยคเดียวกันหรือประโยคที่อยู่ติดกันเสมอ" in prompt_text
+    assert "ห้ามอ้างอิง Evidence ID ต่อท้ายข้อความเชิงคุณภาพโดยไม่ระบุตัวเลขประกอบเด็ดขาด" in prompt_text
+
+
+@patch("tools.content.youtube_pitcher.invoke_structured_llm")
+@patch("tools.content.youtube_pitcher.normalize_visual_directives")
+@patch("tools.content.briefing_quality.validate_briefing_book_quality")
+@patch("tools.content.briefing_renderer.render_briefing_book")
+@patch("tools.content.provenance_enrichment.assess_pitch_source_readiness")
+@patch("tools.content.briefing_evidence.build_briefing_evidence")
+def test_synthesize_notebooklm_source_unverified_draft_never_publishable(
+    mock_build, mock_readiness, mock_render, mock_validate, mock_normalize, mock_invoke
+):
+    """Regression test for #AG-33: a pitch that only reaches the Unverified
+    Draft path because of a bypassable SINGLE_INDEPENDENT_SOURCE cap can still
+    score >= 80 with no blocker in the content-level gate, which makes
+    validate_briefing_book_quality report publishable=True. Constructing
+    UnverifiedBriefingDraftResult with that report used to raise
+    'Draft result must not be publishable' and crash the whole job."""
+    from schemas.briefing_book_schemas import (
+        InvestigativeBriefingBookDraft,
+        ResearchQualityReport,
+        QualityIssueRecord,
+        UnverifiedBriefingDraftResult,
+        BriefingEvidenceBundle,
+    )
+
+    mock_draft = InvestigativeBriefingBookDraft(
+        title="test", executive_summary="test", act1_script="test",
+        act2_script="test", act3_script="test", causality_scenarios=[],
+        asset_impacts=[], bull_case="bull", bear_case="bear",
+        falsification_triggers=[], notebooklm_prompts=[], visual_directives=[]
+    )
+    mock_invoke.return_value = mock_draft
+    mock_normalize.return_value = mock_draft
+    mock_build.return_value = BriefingEvidenceBundle(pitch_id="p-002-oil-crisis")
+    mock_render.return_value = MagicMock(content="# Test Title\n\nBody")
+
+    # Reproduces the exact shape from #AG-33: a bypassable "cap" issue,
+    # score capped but still >= 80, no blockers -> publishable computes True.
+    mock_validate.return_value = ResearchQualityReport(
+        score=85,
+        status="degraded",
+        publishable=True,
+        issues=[
+            QualityIssueRecord(
+                code="SINGLE_INDEPENDENT_SOURCE",
+                category="provenance",
+                severity="cap",
+                description="Only one independent core source group is available",
+                bypassable=True,
+            )
+        ],
+    )
+
+    source_events = [{"event_id": "e1", "canonical_title": "t1"}]
+    # SINGLE_INDEPENDENT_SOURCE is allowlisted for the Unverified Draft bypass.
+    mock_readiness.return_value = ("blocked", ["ต้องมีอย่างน้อย 2 กลุ่มแหล่งข่าวอิสระ"], ["SINGLE_INDEPENDENT_SOURCE"], source_events)
+
+    pitch = YouTubeContentPitchItem(
+        pitch_id="p-002-oil-crisis", working_titles=["1", "2", "3"], target_audience="a", core_hook="h",
+        key_questions_to_answer=["1", "2", "3"], research_hypotheses=["1", "2"],
+        source_event_ids=["e1"], source_links=[], source_titles=["t1"], recommended_format="f",
+        estimated_impact="i", source_readiness_issues=["ต้องมีอย่างน้อย 2 กลุ่มแหล่งข่าวอิสระ"],
+    )
+    override_audit = {
+        "job_id": "job-1", "thread_id": "thread-1", "pitch_id": "p-002-oil-crisis",
+        "policy_version": "unverified-draft-v1", "reason": "User accepted single-source provenance",
+        "server_timestamp": "2026-07-25T00:00:00", "token_hash": "abc123",
+        "source_readiness_snapshot": ["SINGLE_INDEPENDENT_SOURCE"],
+    }
+
+    result = synthesize_notebooklm_source(
+        pitch, source_events, output_mode="unverified_draft", override_audit=override_audit
+    )
+
+    assert isinstance(result, UnverifiedBriefingDraftResult)
+    assert result.quality_report.publishable is False
+    assert "Unverified Draft" in result.content

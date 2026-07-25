@@ -243,8 +243,8 @@ def gate_node(state: YouTubePitchState, config: RunnableConfig) -> Command[Liter
             },
         )
 
-    requested_ids = [str(value) for value in (selection.get("approved_pitch_ids", []) if isinstance(selection, dict) else [])]
-    requested_drafts = selection.get("unverified_draft_selections", []) if isinstance(selection, dict) else []
+    requested_ids = [str(value) for value in ((selection.get("approved_pitch_ids") or []) if isinstance(selection, dict) else [])]
+    requested_drafts = (selection.get("unverified_draft_selections") or []) if isinstance(selection, dict) else []
 
     pitch_by_id = {str(pitch.get("pitch_id")): pitch for pitch in pitches if isinstance(pitch, dict)}
     readiness_by_id = {
@@ -308,11 +308,17 @@ def gate_node(state: YouTubePitchState, config: RunnableConfig) -> Command[Liter
         ):
             raise ValueError(f"Eligibility token for {pitch_id} is malformed or invalid")
 
+    requested_styles = (selection.get("pitch_presentation_styles") or {}) if isinstance(selection, dict) else {}
+    for pitch in pitches:
+        if isinstance(pitch, dict) and str(pitch.get("pitch_id")) in requested_styles:
+            pitch["presentation_style"] = requested_styles[str(pitch["pitch_id"])]
+
     return Command(
         goto="synthesize_notebooklm",
         update={
             "approved_pitch_ids": requested_ids,
             "unverified_draft_selections": requested_drafts,
+            "pitches": pitches,
         },
     )
 
@@ -338,12 +344,12 @@ def synthesize_notebooklm_node(state: YouTubePitchState, config: RunnableConfig)
     from tools.content.briefing_artifacts import save_briefing_artifact
     import hashlib
 
-    approved_ids = set(state.get("approved_pitch_ids", []))
-    draft_selections = state.get("unverified_draft_selections", [])
+    approved_ids = set(state.get("approved_pitch_ids") or [])
+    draft_selections = state.get("unverified_draft_selections") or []
     draft_ids = {str(d.get("pitch_id")) for d in draft_selections if isinstance(d, dict)}
 
-    pitches = state.get("pitches", [])
-    candidates = state.get("news_candidates", [])
+    pitches = state.get("pitches") or []
+    candidates = state.get("news_candidates") or []
     macro_str = state.get("macro_baselines", "")
 
     job_id = config.get("metadata", {}).get("job_id", "")
@@ -370,6 +376,7 @@ def synthesize_notebooklm_node(state: YouTubePitchState, config: RunnableConfig)
         if p_id not in approved_ids and p_id not in draft_ids:
             continue
 
+        main_title = p_id
         try:
             pitch_item = YouTubeContentPitchItem.model_validate(p_dict)
             main_title = pitch_item.working_titles[0] if pitch_item.working_titles else "untitled"

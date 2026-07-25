@@ -14,7 +14,11 @@ from core.logger import get_logger
 from core.nlp_utils import _jaccard_similarity
 from core.retry import with_retry
 from core.utils import normalize_content
-from schemas.youtube_pitch_schemas import YouTubeContentPitchBatch, YouTubeContentPitchItem
+from schemas.youtube_pitch_schemas import (
+    YouTubeContentPitchBatch,
+    YouTubeContentPitchItem,
+    validate_generated_pitch,
+)
 from tools._atomic_io import _atomic_write_to
 from tools.archivist.core import VAULT_PATH, _sanitize_filename
 from tools.archivist.parser import extract_yaml_frontmatter_value
@@ -308,9 +312,12 @@ def _generate_pitches_internal(
         "3. ในแต่ละหัวข้อ ต้องมี 'key_questions_to_answer' อย่างน้อย 3 ข้อ และ 'research_hypotheses' อย่างน้อย 2 ข้อ เพื่อให้ NotebookLM โหมด Research ไปค้นคว้าต่อได้อย่างเข้มข้น",
         "4. กรุณาระบุ 'source_event_ids', 'source_titles', และ 'source_links' จาก Candidates ต้นทางให้ถูกต้อง",
         "5. ผลลัพธ์ทั้งหมดต้องเป็นภาษาไทยสละสลวย เป็นมืออาชีพ ดึงดูดสายตา",
+        "6. ทุกหัวข้อต้องมี 'counter_intuitive_lead' (มุมมองเปิดเรื่องที่สวนสายตา/ค้านความเข้าใจทั่วไป อย่างน้อย 10 ตัวอักษร) และ "
+        "'analogy_generator' (คำเปรียบเปรยกับชีวิตประจำวันที่ช่วยให้เข้าใจง่าย อย่างน้อย 10 ตัวอักษร) ห้ามเว้นว่าง",
+        "7. กำหนด 'presentation_style' ของแต่ละหัวข้อให้เหมาะสมกับเรื่อง (เลือกระหว่าง 'narrative' สำหรับเจาะลึก/เล่าเรื่องยาว หรือ 'interview_qa' สำหรับบทสัมภาษณ์ถามตอบ/วิเคราะห์สองมุม)",
     ]
 
-    return invoke_structured_llm(
+    batch = invoke_structured_llm(
         schema=YouTubeContentPitchBatch,
         model_env="YOUTUBE_PITCH_MODEL",
         prompt_lines=prompt_lines,
@@ -318,6 +325,8 @@ def _generate_pitches_internal(
         default_model="gemini-3.1-flash-lite-preview",
         provider=os.getenv("YOUTUBE_PITCH_PROVIDER", "google"),
     )
+    validate_generated_pitch(batch)
+    return batch
 
 
 def generate_youtube_pitches(
@@ -470,17 +479,39 @@ def synthesize_notebooklm_source(
     for e in bundle.evidence_items:
         prompt_lines.append(f"Evidence [{e.evidence_id}] (Source: {', '.join(e.source_ids)}): {e.claim}")
 
+    presentation_style = getattr(pitch, "presentation_style", "narrative")
+    if presentation_style == "interview_qa":
+        style_prompt = (
+            "**สไตล์การนำเสนอ (Presentation Style): บทสัมภาษณ์ (Interview Q&A)**\n"
+            "เนื้อหาใน Act 1, 2, และ 3 ต้องเขียนในรูปแบบบทสนทนาถาม-ตอบระหว่างพิธีกรและนักวิเคราะห์ "
+            "เพื่อให้ NotebookLM สามารถเลียนแบบจังหวะการจัดรายการพอดแคสต์ได้อย่างเป็นธรรมชาติ"
+        )
+    else:
+        style_prompt = (
+            "**สไตล์การนำเสนอ (Presentation Style): บทความเชิงลึก (Narrative Deep Dive)**\n"
+            "เนื้อหาใน Act 1, 2, และ 3 ต้องเขียนในรูปแบบการบรรยายเล่าเรื่องที่ลึกซึ้ง น่าติดตาม "
+            "พร้อมใช้การเปรียบเปรย (Analogy) ให้เห็นภาพชัดเจน"
+        )
+
     prompt_lines.extend([
         "",
+        style_prompt,
+        "",
         "ข้อบังคับสำคัญ:",
-        "1. ห้ามสร้างตัวเลข วันที่ หรือชื่อสำนักข่าวใหม่ที่ไม่มีใน Evidence Bundle เด็ดขาด",
-        "2. ต้องสร้าง causality_scenarios อย่างน้อย 3 ฉากทัศน์",
-        "3. ต้องกำหนด invalidation_conditions และ risk_factors สำหรับทุก asset_impacts",
-        "4. ต้องกำหนด visual_directives ครบทั้ง Act I, Act II, Act III",
-        "5. ต้องกำหนด notebooklm_prompts จำนวน 5-8 ข้อ",
-        "6. ทุก scenario ต้องระบุ time_horizon; หาก trigger มีตัวเลขต้องระบุ threshold_basis และอ้าง evidence_ids ที่รองรับ",
-        "7. Visual directive ที่เป็นกราฟราคาต้องใช้ provider series identifier",
-        "8. ห้ามใส่ [VISUAL_EVIDENCE ...] ลงใน act scripts",
+        "1. **ห้ามสร้างตัวเลข วันที่ หรือชื่อสำนักข่าวใหม่ที่ไม่มีใน Evidence Bundle เด็ดขาด**",
+        "2. **ใช้ภาษาไทยเท่านั้น (Thai Language Only)**: ชื่อเรื่อง บทพูด บทสรุป คำบรรยาย สมมติฐาน ฉากทัศน์ รวมถึงคำสั่ง NotebookLM ทั้งหมด ต้องเขียนเป็นภาษาไทยอย่างสละสลวย เป็นทางการและดึงดูดใจผู้ฟัง (ยกเว้นชื่อเฉพาะหรือสัญลักษณ์หุ้นให้เป็นภาษาอังกฤษได้)",
+        "3. ต้องสร้าง causality_scenarios อย่างน้อย 3 ฉากทัศน์",
+        "4. ต้องกำหนด invalidation_conditions และ risk_factors สำหรับทุก asset_impacts",
+        "5. ต้องกำหนด visual_directives ครบทั้ง Act I, Act II, Act III",
+        "6. ต้องกำหนด notebooklm_prompts จำนวน 5-8 ข้อ",
+        "7. ทุก scenario ต้องระบุ time_horizon; หาก trigger มีตัวเลขต้องระบุ threshold_basis และอ้าง evidence_ids ที่รองรับ",
+        "8. Visual directive ที่เป็นกราฟราคาต้องใช้ provider series identifier",
+        "9. ห้ามใส่ [VISUAL_EVIDENCE ...] ลงใน act scripts",
+        "10. **ข้อมูลตัวเลขและกราฟ (Natural Data Narration)**: ข้อมูลตัวเลขและเนื้อหาสำคัญจากตารางทั้งหมด ต้องถูกเขียนบรรยายเป็นประโยคคำพูดที่ลื่นไหลสอดแทรกไปในเนื้อหาของ Act Scripts (เช่น 'จากกราฟจะเห็นได้ว่าอัตราเงินเฟ้อพุ่งสูงกว่า 3%...') ห้ามทิ้งข้อมูลไว้เป็นตารางหรือ Bullet เปล่าๆ เด็ดขาด เพื่อให้ NotebookLM นำไปอ่านออกเสียงได้อย่างเป็นธรรมชาติ "
+        "**ทุกครั้งที่อ้างอิง Evidence ID (เช่น [E01]) ในเนื้อหา Act Script ต้องมีตัวเลขหรือค่าที่ตรงกับ evidence นั้นปรากฏอยู่ในประโยคเดียวกันหรือประโยคที่อยู่ติดกันเสมอ "
+        "ห้ามอ้างอิง Evidence ID ต่อท้ายข้อความเชิงคุณภาพโดยไม่ระบุตัวเลขประกอบเด็ดขาด "
+        "(ตัวอย่างที่ห้ามทำ: 'หุ้นกลุ่มเทคโนโลยีอาจได้รับผลกระทบหนัก [E14]' — ผิด เพราะไม่มีตัวเลข; "
+        "ตัวอย่างที่ถูกต้อง: 'หุ้นกลุ่มเทคโนโลยีอย่าง XLK ที่ปัจจุบันอยู่ที่ 175.88 ดอลลาร์ อาจได้รับผลกระทบหนัก [E14]')",
     ])
 
     draft = invoke_structured_llm(
@@ -494,7 +525,11 @@ def synthesize_notebooklm_source(
     )
     draft = normalize_visual_directives(draft)
 
-    from tools.content.briefing_renderer import render_briefing_book
+    from tools.content.briefing_renderer import (
+        render_briefing_book,
+        append_data_gap_notes,
+        prepend_unverified_draft_banner,
+    )
     from tools.content.briefing_quality import validate_briefing_book_quality
     from tools.content.briefing_artifacts import save_briefing_artifact
 
@@ -504,9 +539,9 @@ def synthesize_notebooklm_source(
     # Validation step
     report = validate_briefing_book_quality(bundle, draft, rendered_briefing)
     if output_mode != "unverified_draft":
-        if report.score < 100 or report.status != "pass":
-            critical = [i.description for i in getattr(report, "issues", []) if getattr(i, "severity", "") == "blocker"]
-            raise ValueError(f"Briefing book failed quality gate with score {report.score}: {critical}")
+        blockers = [i.description for i in getattr(report, "issues", []) if getattr(i, "severity", "") == "blocker"]
+        if blockers or not getattr(report, "publishable", True):
+            raise ValueError(f"Briefing book failed quality gate with score {report.score}: {blockers}")
     else:
         critical_unbypassable = [
             i.description for i in getattr(report, "issues", [])
@@ -515,7 +550,37 @@ def synthesize_notebooklm_source(
         if critical_unbypassable:
             raise ValueError(f"Briefing book (Unverified Draft) failed quality gate on UNBYPASSABLE issues: {critical_unbypassable}")
 
+    # Surface known data-completeness gaps directly in the document — the
+    # quality gate already knows about these but they used to stay sidecar-only
+    # in the .quality.json, invisible to whatever reads the .md (NotebookLM included).
+    numeric_warnings = [
+        issue.description for issue in getattr(report, "issues", [])
+        if getattr(issue, "code", "") == "NUMERIC_GROUNDING_WARNING"
+    ]
+    macro_unavailable_reasons = []
+    if bundle.macro_snapshot and not bundle.macro_snapshot.is_complete:
+        macro_unavailable_reasons = list(bundle.macro_snapshot.unavailable_reasons)
+    md_content = append_data_gap_notes(
+        md_content,
+        numeric_warnings=numeric_warnings,
+        macro_unavailable_reasons=macro_unavailable_reasons,
+    )
+
     if output_mode == "unverified_draft":
+        draft_reason = (override_audit or {}).get("reason", "Unverified Draft fallback requested by user")
+        md_content = prepend_unverified_draft_banner(
+            md_content,
+            reason=draft_reason,
+            issues=list(getattr(pitch, "source_readiness_issues", []) or []),
+        )
+        # An Unverified Draft is, by definition in this system, never
+        # publishable — the content-level score/blocker check above can pass
+        # (e.g. a bypassable SINGLE_INDEPENDENT_SOURCE cap still leaves score
+        # >= 80 with no blocker) even though the source-readiness gate is the
+        # one that actually decided this pitch needed the draft path. Force
+        # this here rather than trusting validate_briefing_book_quality's
+        # generic score, which has no knowledge of that outer decision.
+        report.publishable = False
         return UnverifiedBriefingDraftResult(
             content=md_content,
             draft=draft,
@@ -553,29 +618,6 @@ def normalize_visual_directives(draft: Any) -> Any:
             new_directives.append(d)
     draft.visual_directives = new_directives
     return draft
-
-def _years_in_text(value: Any) -> set[int]:
-    import re
-    if not isinstance(value, str): return set()
-    return {int(m) for m in re.findall(r'\b(20\d{2})\b', value)}
-
-def _visual_markers_by_act(rendered_markdown: str) -> dict:
-    import re
-    result = {"Act I": [], "Act II": [], "Act III": []}
-    acts_regex = re.split(r'##\s+(Act\s+[IV]+)', rendered_markdown)
-    current_act = None
-    for part in acts_regex:
-        if part.strip() in result:
-            current_act = part.strip()
-        elif current_act:
-            markers = re.findall(r'\[VISUAL_EVIDENCE\s+id=([^\s\]]+)(?:\s+evidence=([^\]]*))?\]', part)
-            for vid, ev_str in markers:
-                if ev_str and ev_str.strip():
-                    ev_ids = tuple(e.strip() for e in ev_str.split(","))
-                else:
-                    ev_ids = ()
-                result[current_act].append((vid, ev_ids))
-    return result
 
 def select_financial_autopsy_assets(pitch: Any, events: Any) -> list:
     from tools.market.asset_resolver import resolve_asset

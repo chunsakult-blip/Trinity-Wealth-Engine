@@ -53,6 +53,13 @@ def render_briefing_book(
             vid = getattr(d, 'visual_id', '')
             ev_str = ",".join(ev_ids) if ev_ids else "UNKNOWN"
             lines.append(f"[VISUAL_EVIDENCE id={vid} evidence={ev_str}]")
+            lines.append(
+                f"Chart: {getattr(d, 'title', '')} ({getattr(d, 'chart_type', '')})\n"
+                f"Period: {getattr(d, 'date_range', '')}\n"
+                f"Series: {', '.join(getattr(d, 'series_keys', []))}\n"
+                f"Sources: {', '.join(getattr(d, 'sources', []))}\n"
+                f"Annotation: {getattr(d, 'annotation', '')}"
+            )
             visual_markers.append(RenderedVisualMarker(id=vid, evidence_ids=ev_ids, act=act_name))
             
     if draft.causality_scenarios:
@@ -62,6 +69,19 @@ def render_briefing_book(
             lines.append(f"### {sc.name}")
             lines.append(sc.description)
             lines.append(f"Time Horizon: {sc.time_horizon}")
+            lines.append(f"Probability: {sc.probability_pct:.0f}%")
+            if sc.trigger_conditions:
+                lines.append("Trigger Conditions:")
+                for condition in sc.trigger_conditions:
+                    lines.append(f"- {condition}")
+            if sc.falsification_triggers:
+                lines.append("Falsification Triggers:")
+                for trigger in sc.falsification_triggers:
+                    lines.append(f"- {trigger}")
+            if sc.evidence_ids:
+                lines.append(f"Evidence: {', '.join(f'[{eid}]' for eid in sc.evidence_ids)}")
+            if sc.threshold_basis:
+                lines.append(f"Threshold Basis: {sc.threshold_basis}")
 
     if draft.asset_impacts:
         lines.append("## Asset Impacts")
@@ -69,7 +89,14 @@ def render_briefing_book(
         for imp in draft.asset_impacts:
             lines.append(f"### {imp.symbol_or_name}")
             lines.append(f"Direction: {imp.impact_type}")
+            lines.append(f"Reasoning: {imp.reasoning}")
+            if imp.risk_factors:
+                lines.append("Risk Factors:")
+                for factor in imp.risk_factors:
+                    lines.append(f"- {factor}")
             lines.append(f"Invalidation: {', '.join(imp.invalidation_conditions)}")
+            if imp.evidence_ids:
+                lines.append(f"Evidence: {', '.join(f'[{eid}]' for eid in imp.evidence_ids)}")
 
     if draft.bull_case or draft.bear_case:
         lines.append("## Bull & Bear Cases")
@@ -143,6 +170,50 @@ def render_briefing_book(
         cited_source_ids=cited_source_ids,
     )
 
-def render_briefing_book_markdown(draft: InvestigativeBriefingBookDraft, bundle: BriefingEvidenceBundle) -> str:
-    # Forward-compatibility wrapper for any remaining legacy callers
-    return render_briefing_book(draft, bundle).content
+
+def append_data_gap_notes(
+    content: str,
+    *,
+    numeric_warnings: List[str],
+    macro_unavailable_reasons: List[str],
+) -> str:
+    """Write known data-completeness gaps into the markdown itself.
+
+    The quality gate can already detect these (e.g. a narrated citation whose
+    number never appears nearby, or a macro snapshot that failed to fetch)
+    but as non-blocking warnings that only ever reached the ``.quality.json``
+    sidecar. NotebookLM only ever ingests this ``.md`` file, so a gap that
+    stays sidecar-only is invisible to it — this makes the gap part of the
+    text it actually reads.
+    """
+    if not numeric_warnings and not macro_unavailable_reasons:
+        return content
+
+    lines = ["## Data Gaps"]
+    for warning in numeric_warnings:
+        lines.append(f"- {warning} — ควรถือว่าตัวเลขนี้ยังไม่ได้ยืนยันในเนื้อหา เมื่อสรุปควรระบุว่าเป็นข้อมูลที่ยังไม่สมบูรณ์")
+    for reason in macro_unavailable_reasons:
+        lines.append(f"- ข้อมูลเศรษฐกิจมหภาคบางส่วนดึงไม่สำเร็จ: {reason}")
+
+    return content + "\n\n" + "\n\n".join(lines)
+
+
+def prepend_unverified_draft_banner(content: str, *, reason: str, issues: List[str]) -> str:
+    """Mark an Unverified Draft as such inside the document body itself.
+
+    Without this, the "unverified" trust tier only exists in the filename
+    suffix and the ``.quality.json`` sidecar — a reader (or NotebookLM) that
+    only opens the ``.md`` has no way to know the provenance was overridden.
+    """
+    banner_lines = [
+        "> [!WARNING] Unverified Draft",
+        f"> เอกสารนี้ถูกสร้างโดยข้ามเกณฑ์ provenance บางส่วน เหตุผล: {reason}",
+    ]
+    for issue in issues:
+        banner_lines.append(f"> - {issue}")
+
+    banner = "\n".join(banner_lines)
+    if "\n\n" in content:
+        title_line, rest = content.split("\n\n", 1)
+        return f"{title_line}\n\n{banner}\n\n{rest}"
+    return f"{content}\n\n{banner}"

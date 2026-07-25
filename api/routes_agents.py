@@ -75,6 +75,7 @@ class ResumeRequest(BaseModel):
     approved_event_ids: Optional[list[str]] = None
     approved_pitch_ids: Optional[list[str]] = None
     unverified_draft_selections: Optional[list[UnverifiedDraftSelection]] = None
+    pitch_presentation_styles: dict[str, str] = {}
     action: Literal["approve", "refresh_sources"] = "approve"
 
 
@@ -224,11 +225,12 @@ def resume_job(job_id: str, payload: ResumeRequest, request: Request) -> JobStat
                 })
 
         resume_value: dict[str, Any] = {
-            "approved_news_links": payload.approved_news_links,
-            "approved_youtube_links": payload.approved_youtube_links,
-            "approved_event_ids": payload.approved_event_ids,
-            "approved_pitch_ids": payload.approved_pitch_ids,
-            "unverified_draft_selections": [selection.model_dump() for selection in draft_selections] or None,
+            "approved_news_links": payload.approved_news_links or [],
+            "approved_youtube_links": payload.approved_youtube_links or [],
+            "approved_event_ids": payload.approved_event_ids or [],
+            "approved_pitch_ids": payload.approved_pitch_ids or [],
+            "unverified_draft_selections": [selection.model_dump() for selection in draft_selections] or [],
+            "pitch_presentation_styles": payload.pitch_presentation_styles or {},
             "action": payload.action,
         }
         try:

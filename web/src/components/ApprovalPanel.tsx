@@ -14,7 +14,8 @@ interface Props {
     approvedEventIds?: string[],
     approvedPitchIds?: string[],
     action?: 'approve' | 'refresh_sources',
-    unverifiedDraftSelections?: import('../api/types').UnverifiedDraftSelection[]
+    unverifiedDraftSelections?: import('../api/types').UnverifiedDraftSelection[],
+    pitchPresentationStyles?: Record<string, string>
   ) => void
   submitting?: boolean
 }
@@ -400,6 +401,7 @@ function YoutubePitchApprovalView({
   const [draftSelections, setDraftSelections] = useState<import('../api/types').UnverifiedDraftSelection[]>([])
   const [draftModalTarget, setDraftModalTarget] = useState<(typeof payload.pitches)[0] | null>(null)
   const [draftAcknowledge, setDraftAcknowledge] = useState(false)
+  const [pitchStyles, setPitchStyles] = useState<Record<string, string>>({})
 
   const pitches = payload.pitches || []
   const selectablePitches = pitches.filter((pitch) => pitch.source_readiness === 'ready')
@@ -566,6 +568,18 @@ function YoutubePitchApprovalView({
                         ⚡ Impact: {p.estimated_impact}
                       </span>
                     )}
+                    <div className="flex items-center gap-1.5 ml-auto">
+                      <span className="text-[11px] font-medium text-zinc-500">Style:</span>
+                      <select
+                        value={pitchStyles[p.pitch_id] || p.presentation_style || 'narrative'}
+                        onChange={(e) => setPitchStyles(prev => ({ ...prev, [p.pitch_id]: e.target.value }))}
+                        onClick={(e) => e.stopPropagation()}
+                        className="rounded border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-700 shadow-2xs hover:border-sky-300 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                      >
+                        <option value="narrative">บทบรรยาย (Narrative)</option>
+                        <option value="interview_qa">สัมภาษณ์ (Interview Q&A)</option>
+                      </select>
+                    </div>
                   </div>
 
                   <div className="space-y-1">
@@ -678,7 +692,7 @@ function YoutubePitchApprovalView({
 
       {(selectablePitches.length > 0 || draftSelections.length > 0) && (
         <button
-          onClick={() => onApprove([], [], [], Array.from(selectedPitchIds), 'approve', draftSelections)}
+          onClick={() => onApprove([], [], [], Array.from(selectedPitchIds), 'approve', draftSelections, pitchStyles)}
           disabled={submitting}
           className={`rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors disabled:opacity-50 ${
             (selectedPitchIds.size === 0 && draftSelections.length === 0) ? 'bg-zinc-600 hover:bg-zinc-700' : 'bg-sky-500 hover:bg-sky-600'

@@ -12,7 +12,11 @@ from tests.fixtures.briefing_fixtures import (
     make_valid_briefing_draft,
     make_valid_macro_observation,
 )
-from tools.content.briefing_renderer import render_briefing_book
+from tools.content.briefing_renderer import (
+    render_briefing_book,
+    append_data_gap_notes,
+    prepend_unverified_draft_banner,
+)
 from tools.content.briefing_quality import validate_briefing_book_quality
 from tools.content.briefing_artifacts import save_briefing_artifact
 from schemas.briefing_book_schemas import PublishableBriefingResult
@@ -177,3 +181,46 @@ def test_golden_path_draft_visual_defect_rejects(mock_pitch):
     assert report.publishable is False
     has_non_bypassable = any(issue.severity == "blocker" and not issue.bypassable for issue in report.issues)
     assert has_non_bypassable is True
+
+
+def test_append_data_gap_notes_no_gaps_leaves_content_unchanged():
+    content = "# Title\n\nBody"
+    assert append_data_gap_notes(content, numeric_warnings=[], macro_unavailable_reasons=[]) == content
+
+
+def test_append_data_gap_notes_numeric_warning_is_visible_in_markdown():
+    content = "# Title\n\nBody"
+    result = append_data_gap_notes(
+        content,
+        numeric_warnings=["Narrative cites E14 but its numeric value (175.88) is not found nearby"],
+        macro_unavailable_reasons=[],
+    )
+    assert content in result
+    assert "## Data Gaps" in result
+    assert "E14" in result
+    assert "175.88" in result
+
+
+def test_append_data_gap_notes_macro_unavailable_is_visible_in_markdown():
+    content = "# Title\n\nBody"
+    result = append_data_gap_notes(
+        content,
+        numeric_warnings=[],
+        macro_unavailable_reasons=["FRED API timeout"],
+    )
+    assert "## Data Gaps" in result
+    assert "FRED API timeout" in result
+
+
+def test_prepend_unverified_draft_banner_appears_right_after_title():
+    content = "# Title\n\nBody"
+    result = prepend_unverified_draft_banner(
+        content,
+        reason="User accepted incomplete provenance",
+        issues=["ไม่พบสำนักข่าวจากหน้าแหล่งข้อมูล"],
+    )
+    assert result.startswith("# Title")
+    assert "Unverified Draft" in result
+    assert "User accepted incomplete provenance" in result
+    assert "ไม่พบสำนักข่าวจากหน้าแหล่งข้อมูล" in result
+    assert result.index("Unverified Draft") < result.index("Body")

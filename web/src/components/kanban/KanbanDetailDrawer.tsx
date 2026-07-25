@@ -128,13 +128,14 @@ export default function KanbanDetailDrawer({ card, onClose, onCardTransition }: 
     approvedEventIds?: string[],
     approvedPitchIds?: string[],
     action: 'approve' | 'refresh_sources' = 'approve',
-    unverifiedDraftSelections?: import('../../api/types').UnverifiedDraftSelection[]
+    unverifiedDraftSelections?: import('../../api/types').UnverifiedDraftSelection[],
+    pitchPresentationStyles?: Record<string, string>
   ) {
     if (!card?.job_id) return
     setApproving(true)
     setError(null)
     try {
-      await api.resumeJob(card.job_id, approvedNewsLinks, approvedYoutubeLinks, approvedEventIds, approvedPitchIds, action, unverifiedDraftSelections)
+      await api.resumeJob(card.job_id, approvedNewsLinks, approvedYoutubeLinks, approvedEventIds, approvedPitchIds, action, unverifiedDraftSelections, pitchPresentationStyles)
       setApprovalPayload(null)
       onCardTransition()
       setTerminalKey((k) => k + 1)

@@ -62,11 +62,6 @@ def _get_independence_key(publisher: str, host: str) -> str:
     return f"{pub_clean or host_clean}_group"
 
 
-def _is_placeholder_publisher(value: Any) -> bool:
-    clean = str(value or "").strip().casefold().replace(" ", "")
-    return clean in {"", "unverified", "unknown", "ไม่ยืนยัน", "ไม่ระบุ"}
-
-
 def _metric_name_from_line(line: str) -> Optional[str]:
     """Extract a stable label from bullet-style key metrics without guessing values."""
     clean = line.strip().lstrip("-• ")
@@ -355,6 +350,10 @@ def build_briefing_evidence(
             classification = "source_reported_fact"
             if "คาด" in line or "ประมาณ" in line or "consensus" in line.lower():
                 # A single source mentioning an expectation is not a consensus.
+                # This branch's assignment is redundant with the default above —
+                # it exists to take precedence over the "สมมติฐาน"/"อาจ" elif
+                # below for lines that match both keyword sets, so do not
+                # collapse it into the elif.
                 classification = "source_reported_fact"
             elif "สมมติฐาน" in line or "อาจ" in line:
                 classification = "hypothesis"

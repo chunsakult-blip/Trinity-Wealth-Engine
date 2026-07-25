@@ -199,23 +199,32 @@ def _parse_page_provenance(html: str, response_url: str) -> ProvenanceRefresh:
     return ProvenanceRefresh(normalize_provenance_url(canonical_url), publisher, published_at, title)
 
 
+def _is_public_web_url(url: str) -> bool:
+    """Reject anything that is not a plain http(s) URL resolving to a routable public IP.
+
+    Shared by the requests-based fetch and the Playwright fallback so neither
+    path can be used to reach loopback/private/link-local/metadata endpoints.
+    """
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return False
+    try:
+        addrinfo = socket.getaddrinfo(parsed.hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+    except OSError:
+        return False
+    for res in addrinfo:
+        ip = ipaddress.ip_address(res[4][0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
+            return False
+    return True
+
+
 def _safe_fetch(url: str, timeout_seconds: float) -> Tuple[str, str]:
     current_url = url
     for _ in range(5):
-        parsed = urlsplit(current_url)
-        if parsed.scheme not in {"http", "https"}:
-            raise requests.RequestException("invalid scheme")
-        
-        try:
-            addrinfo = socket.getaddrinfo(parsed.hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
-        except OSError as e:
-            raise requests.RequestException("DNS resolution failed") from e
-            
-        for res in addrinfo:
-            ip = ipaddress.ip_address(res[4][0])
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
-                raise requests.RequestException("URL resolves to restricted IP")
-                
+        if not _is_public_web_url(current_url):
+            raise requests.RequestException("URL is missing, has an invalid scheme, or resolves to a restricted IP")
+
         resp = requests.get(current_url, headers={"User-Agent": _USER_AGENT}, timeout=timeout_seconds, allow_redirects=False, stream=True)
         if 300 <= resp.status_code < 400:
             location = resp.headers.get("Location")
@@ -249,12 +258,48 @@ def refresh_url_provenance(
     cached = _CACHE.get(clean_url)
     if cached and not force_refresh and now < cached[1]:
         return cached[0]
+    result = None
     try:
         text, final_url = _safe_fetch(clean_url, timeout_seconds)
         result = _parse_page_provenance(text, final_url)
-    except requests.RequestException as exc:
-        logger.info("Provenance refresh failed for %s: %s", clean_url, exc)
-        result = ProvenanceRefresh(fetch_error=str(exc))
+        if not result.is_complete:
+            raise ValueError("Incomplete metadata via standard fetch")
+    except (requests.RequestException, ValueError) as exc:
+        logger.info("Tier 1 provenance refresh failed/incomplete for %s: %s, falling back to Playwright", clean_url, exc)
+        try:
+            if not _is_public_web_url(clean_url):
+                raise requests.RequestException("URL is missing, has an invalid scheme, or resolves to a restricted IP")
+
+            import os
+            from playwright.sync_api import sync_playwright
+            from playwright_stealth.stealth import Stealth
+
+            def _guard_route(route):
+                # Applies to the main navigation *and* every redirect/sub-resource
+                # it triggers, so a page cannot pivot the browser onto an
+                # internal host after the initial URL passed the check above.
+                if _is_public_web_url(route.request.url):
+                    route.continue_()
+                else:
+                    route.abort()
+
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=os.getenv("PLAYWRIGHT_HEADLESS", "true").lower() == "true")
+                page = browser.new_page()
+                Stealth().apply_stealth_sync(page)
+                page.route("**/*", _guard_route)
+                page.goto(clean_url, wait_until="domcontentloaded", timeout=15000)
+                time.sleep(3)
+                pw_text = page.content()
+                pw_url = page.url
+                browser.close()
+            pw_result = _parse_page_provenance(pw_text, pw_url)
+            if result is None or pw_result.is_complete or (not result.published_at and pw_result.published_at):
+                result = pw_result
+        except Exception as pw_exc:
+            logger.info("Playwright provenance fallback failed for %s: %s", clean_url, pw_exc)
+            if result is None:
+                result = ProvenanceRefresh(fetch_error=f"Playwright fallback failed: {pw_exc} (Original: {exc})")
     ttl = _CACHE_TTL_SECONDS if result.is_complete else _FAILURE_CACHE_TTL_SECONDS
     _CACHE[clean_url] = (result, now + ttl)
     return result
@@ -444,26 +489,6 @@ def prepare_verified_candidate_pool(
     return copied, verified, summary
 
 
-SOURCE_READINESS_ISSUE_CODES = {
-    "MISSING_SOURCE_URL": "ไม่มี URL ต้นทาง",
-    "MISSING_PUBLISHER": "ไม่พบสำนักข่าวจากหน้าแหล่งข้อมูล",
-    "MISSING_PUBLICATION_DATE": "ไม่พบวันเผยแพร่จากหน้าแหล่งข้อมูล",
-    "TEMPORARY_METADATA_FAILURE": "ตรวจ metadata ไม่สำเร็จ",
-    "METADATA_MISSING": "provenance ยังไม่ครบ",
-    "SINGLE_INDEPENDENT_SOURCE": "ต้องมีอย่างน้อย 2 กลุ่มแหล่งข่าวอิสระเพื่อผ่าน Research Quality Gate",
-    "SOURCE_NOT_FOUND": "ไม่พบข่าวต้นทางของ Pitch นี้ใน candidate pool",
-    "MOCK_SOURCE": "Mock Source",
-}
-
-
-QUALITY_HARD_BLOCKER_CODES = {
-    "MACRO_COVERAGE_FAILURE": "ข้อมูล Macro ไม่เพียงพอ",
-    "PROVIDER_DATA_FAILURE": "Financial provider API ล้มเหลว",
-    "MOCK_SOURCE": "Mock Source ไม่อนุญาต",
-    "UNVERIFIED_FACT": "สร้าง Verified Fact จาก Unverified Source",
-}
-
-
 ALLOWLISTED_UNVERIFIED_DRAFT_CODES = {
     "MISSING_PUBLISHER",
     "MISSING_PUBLICATION_DATE",
@@ -573,35 +598,6 @@ def verify_eligibility_token(
         )
     except Exception:
         return None
-
-
-def verify_eligibility_token_format(
-    token: str,
-    expected_job_id: str,
-    expected_thread_id: str,
-    expected_pitch_id: str,
-    current_revision: int,
-) -> bool:
-    """Compatibility wrapper for callers that only need a boolean."""
-    return verify_eligibility_token(
-        token,
-        expected_job_id=expected_job_id,
-        expected_thread_id=expected_thread_id,
-        expected_pitch_id=expected_pitch_id,
-        expected_revision=current_revision,
-    ) is not None
-
-
-def decode_eligibility_token(token: str) -> Optional[Dict[str, Any]]:
-    try:
-        parts = token.split(".")
-        if len(parts) != 2:
-            return None
-        payload_b64 = parts[0]
-        return json.loads(base64.urlsafe_b64decode(payload_b64).decode("utf-8"))
-    except Exception:
-        return None
-
 
 def assess_pitch_source_readiness(
     pitch: YouTubeContentPitchItem,

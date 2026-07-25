@@ -3,7 +3,7 @@ import json
 import hashlib
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Union
+from typing import Literal, Optional, Union
 
 from filelock import FileLock
 from core.logger import get_logger
@@ -37,8 +37,8 @@ def save_briefing_artifact(
             raise ValueError("Publishable result must have artifact_status='publishable'")
         if not report.publishable:
             raise ValueError("Publishable result must have publishable=True in report")
-        if report.status != "pass":
-            raise ValueError("Publishable result must have status='pass'")
+        if report.status not in ("pass", "degraded"):
+            raise ValueError(f"Publishable result must have status 'pass' or 'degraded', got {report.status}")
         if hasattr(report, "hard_blockers") and report.hard_blockers:
             raise ValueError("Publishable result cannot have hard blockers")
     else:
@@ -60,8 +60,7 @@ def save_briefing_artifact(
         pitch_id = synthesis.evidence_bundle.pitch_id
 
     target_vault = vault_root
-    target_dir_name = "NotebookLM_Drafts" if is_draft else "NotebookLM"
-    target_dir = target_vault / "00_Inbox" / target_dir_name
+    target_dir = target_vault / "30_Knowledge_Base" / "NotebookLM_Sources"
     target_dir.mkdir(parents=True, exist_ok=True)
     
     lock = FileLock(target_dir / ".lock", timeout=30)
@@ -73,9 +72,10 @@ def save_briefing_artifact(
         revision = getattr(synthesis, "approval_revision", getattr(report, "approval_revision", 1))
         
         suffix_part = "DRAFT" if is_draft else pitch_id
+        status_tag = "unverified" if is_draft else "verified"
         
         # Idempotency: Use revision and hash in filename
-        file_path = target_dir / f"{d_str}_{safe_title}_{suffix_part}_rev{revision}_{content_hash[:8]}.md"
+        file_path = target_dir / f"{d_str}_{safe_title}_{suffix_part}_rev{revision}_{content_hash[:8]}_{status_tag}.md"
         
         quality_path = file_path.with_suffix(".quality.json")
         

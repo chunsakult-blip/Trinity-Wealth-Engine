@@ -41,6 +41,9 @@ class YouTubeContentPitchItem(BaseModel):
     analogy_generator: str = Field(
         default="", description="คำเปรียบเปรยเปรียบเทียบกับชีวิตประจำวัน"
     )
+    presentation_style: Literal["narrative", "interview_qa"] = Field(
+        default="narrative", description="สไตล์การนำเสนอเนื้อหาที่ส่งผลต่อการสร้าง Script (narrative/interview_qa)"
+    )
     # This is deliberately advisory and backward-compatible.  It is populated
     # from the actual selected source records before the approval interrupt, so
     # a user never has to approve a pitch whose evidence cannot pass the hard

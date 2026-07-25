@@ -132,7 +132,8 @@ export const api = {
     approvedEventIds?: string[],
     approvedPitchIds?: string[],
     action: 'approve' | 'refresh_sources' = 'approve',
-    unverifiedDraftSelections?: import('./types').UnverifiedDraftSelection[]
+    unverifiedDraftSelections?: import('./types').UnverifiedDraftSelection[],
+    pitchPresentationStyles?: Record<string, string>
   ) =>
     request<JobStatusDTO>(`/api/agents/jobs/${jobId}/resume`, {
       method: 'POST',
@@ -142,6 +143,7 @@ export const api = {
         approved_event_ids: approvedEventIds,
         approved_pitch_ids: approvedPitchIds,
         unverified_draft_selections: unverifiedDraftSelections,
+        pitch_presentation_styles: pitchPresentationStyles || {},
         action,
       }),
     }),

@@ -139,3 +139,54 @@ def test_validate_generated_pitch_failure_when_empty_or_short():
     batch = YouTubeContentPitchBatch(pitches=[item], date_range_summary="summary", total_source_events=1)
     with pytest.raises(ValueError, match="missing or insufficient counter_intuitive_lead"):
         validate_generated_pitch(batch)
+
+def test_youtube_pitch_item_presentation_style():
+    # 1. Default should be narrative
+    item_default = YouTubeContentPitchItem(
+        pitch_id="uuid-default",
+        working_titles=["1", "2", "3"],
+        target_audience="aud",
+        core_hook="hook",
+        key_questions_to_answer=["q1", "q2", "q3"],
+        research_hypotheses=["h1", "h2"],
+        source_event_ids=["ev-1"],
+        source_links=["http://example.com/1"],
+        source_titles=["news 1"],
+        recommended_format="format",
+        estimated_impact="impact",
+    )
+    assert item_default.presentation_style == "narrative"
+
+    # 2. Should accept interview_qa
+    item_qa = YouTubeContentPitchItem(
+        pitch_id="uuid-qa",
+        working_titles=["1", "2", "3"],
+        target_audience="aud",
+        core_hook="hook",
+        key_questions_to_answer=["q1", "q2", "q3"],
+        research_hypotheses=["h1", "h2"],
+        source_event_ids=["ev-1"],
+        source_links=["http://example.com/1"],
+        source_titles=["news 1"],
+        recommended_format="format",
+        estimated_impact="impact",
+        presentation_style="interview_qa"
+    )
+    assert item_qa.presentation_style == "interview_qa"
+
+    # 3. Should reject invalid literal
+    with pytest.raises(ValidationError):
+        YouTubeContentPitchItem(
+            pitch_id="uuid-invalid",
+            working_titles=["1", "2", "3"],
+            target_audience="aud",
+            core_hook="hook",
+            key_questions_to_answer=["q1", "q2", "q3"],
+            research_hypotheses=["h1", "h2"],
+            source_event_ids=["ev-1"],
+            source_links=["http://example.com/1"],
+            source_titles=["news 1"],
+            recommended_format="format",
+            estimated_impact="impact",
+            presentation_style="invalid_style"
+        )
