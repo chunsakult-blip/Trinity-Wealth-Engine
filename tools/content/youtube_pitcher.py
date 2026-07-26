@@ -555,7 +555,14 @@ def synthesize_notebooklm_source(
     # in the .quality.json, invisible to whatever reads the .md (NotebookLM included).
     numeric_warnings = [
         issue.description for issue in getattr(report, "issues", [])
-        if getattr(issue, "code", "") == "NUMERIC_GROUNDING_WARNING"
+        if getattr(issue, "code", "") in {
+            "NUMERIC_GROUNDING_WARNING",
+            "FINANCIAL_PROVIDER_UNAVAILABLE",
+            "MACRO_MISSING_INFLATION",
+            "MACRO_MISSING_RATES",
+            "MISSING_MACRO_SNAPSHOT",
+            "STALE_MACRO_SNAPSHOT"
+        }
     ]
     macro_unavailable_reasons = []
     if bundle.macro_snapshot and not bundle.macro_snapshot.is_complete:

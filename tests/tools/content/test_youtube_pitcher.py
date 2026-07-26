@@ -622,3 +622,204 @@ def test_synthesize_notebooklm_source_unverified_draft_never_publishable(
     assert isinstance(result, UnverifiedBriefingDraftResult)
     assert result.quality_report.publishable is False
     assert "Unverified Draft" in result.content
+
+@patch("tools.content.youtube_pitcher.invoke_structured_llm")
+@patch("tools.content.youtube_pitcher.normalize_visual_directives")
+@patch("tools.content.briefing_quality.validate_briefing_book_quality")
+@patch("tools.content.briefing_renderer.render_briefing_book")
+@patch("tools.content.provenance_enrichment.assess_pitch_source_readiness")
+@patch("tools.content.briefing_evidence.build_briefing_evidence")
+def test_synthesize_notebooklm_source_unverified_draft_financial_provider_bypass(
+    mock_build, mock_readiness, mock_render, mock_validate, mock_normalize, mock_invoke
+):
+    from schemas.briefing_book_schemas import (
+        InvestigativeBriefingBookDraft,
+        ResearchQualityReport,
+        QualityIssueRecord,
+        UnverifiedBriefingDraftResult,
+        BriefingEvidenceBundle,
+    )
+
+    mock_draft = InvestigativeBriefingBookDraft(
+        title="test", executive_summary="test", act1_script="test",
+        act2_script="test", act3_script="test", causality_scenarios=[],
+        asset_impacts=[], bull_case="bull", bear_case="bear",
+        falsification_triggers=[], notebooklm_prompts=[], visual_directives=[]
+    )
+    mock_invoke.return_value = mock_draft
+    mock_normalize.return_value = mock_draft
+    mock_build.return_value = BriefingEvidenceBundle(pitch_id="p-002")
+    mock_render.return_value = MagicMock(content="# Test Title\n\nBody")
+
+    mock_validate.return_value = ResearchQualityReport(
+        score=75,
+        status="degraded",
+        publishable=True,
+        issues=[
+            QualityIssueRecord(
+                code="FINANCIAL_PROVIDER_UNAVAILABLE",
+                category="financial",
+                severity="blocker",
+                description="No usable financial statement was returned",
+                bypassable=True,
+            )
+        ],
+    )
+
+    source_events = [{"event_id": "e1", "canonical_title": "t1"}]
+    mock_readiness.return_value = ("ready", [], [], source_events)
+
+    pitch = YouTubeContentPitchItem(
+        pitch_id="p-002", working_titles=["1", "2", "3"], target_audience="a", core_hook="h",
+        key_questions_to_answer=["1", "2", "3"], research_hypotheses=["1", "2"],
+        source_event_ids=["e1"], source_links=[], source_titles=["t1"], recommended_format="f",
+        estimated_impact="i", source_readiness_issues=[],
+    )
+
+    result = synthesize_notebooklm_source(
+        pitch, source_events, output_mode="unverified_draft",
+        override_audit={
+            "job_id": "job-1", "thread_id": "thread-1", "pitch_id": "p-00x",
+            "policy_version": "test", "reason": "test",
+            "server_timestamp": "2026-07-25T00:00:00", "token_hash": "hash",
+            "source_readiness_snapshot": ["SINGLE_INDEPENDENT_SOURCE"]
+        }
+    )
+
+    assert isinstance(result, UnverifiedBriefingDraftResult)
+    assert result.quality_report.publishable is False
+    assert "No usable financial statement was returned" in result.content
+
+@patch("tools.content.youtube_pitcher.invoke_structured_llm")
+@patch("tools.content.youtube_pitcher.normalize_visual_directives")
+@patch("tools.content.briefing_quality.validate_briefing_book_quality")
+@patch("tools.content.briefing_renderer.render_briefing_book")
+@patch("tools.content.provenance_enrichment.assess_pitch_source_readiness")
+@patch("tools.content.briefing_evidence.build_briefing_evidence")
+def test_synthesize_notebooklm_source_unverified_draft_missing_macro_bypass(
+    mock_build, mock_readiness, mock_render, mock_validate, mock_normalize, mock_invoke
+):
+    from schemas.briefing_book_schemas import (
+        InvestigativeBriefingBookDraft,
+        ResearchQualityReport,
+        QualityIssueRecord,
+        UnverifiedBriefingDraftResult,
+        BriefingEvidenceBundle,
+    )
+
+    mock_draft = InvestigativeBriefingBookDraft(
+        title="test", executive_summary="test", act1_script="test",
+        act2_script="test", act3_script="test", causality_scenarios=[],
+        asset_impacts=[], bull_case="bull", bear_case="bear",
+        falsification_triggers=[], notebooklm_prompts=[], visual_directives=[]
+    )
+    mock_invoke.return_value = mock_draft
+    mock_normalize.return_value = mock_draft
+    mock_build.return_value = BriefingEvidenceBundle(pitch_id="p-003")
+    mock_render.return_value = MagicMock(content="# Test Title\n\nBody")
+
+    mock_validate.return_value = ResearchQualityReport(
+        score=70,
+        status="degraded",
+        publishable=True,
+        issues=[
+            QualityIssueRecord(
+                code="MISSING_MACRO_SNAPSHOT",
+                category="macro",
+                severity="cap",
+                description="Macro/mixed briefing has no provider macro snapshot",
+                bypassable=True,
+            )
+        ],
+    )
+
+    source_events = [{"event_id": "e1", "canonical_title": "t1"}]
+    mock_readiness.return_value = ("ready", [], [], source_events)
+
+    pitch = YouTubeContentPitchItem(
+        pitch_id="p-003", working_titles=["1", "2", "3"], target_audience="a", core_hook="h",
+        key_questions_to_answer=["1", "2", "3"], research_hypotheses=["1", "2"],
+        source_event_ids=["e1"], source_links=[], source_titles=["t1"], recommended_format="f",
+        estimated_impact="i", source_readiness_issues=[],
+    )
+
+    result = synthesize_notebooklm_source(
+        pitch, source_events, output_mode="unverified_draft",
+        override_audit={
+            "job_id": "job-1", "thread_id": "thread-1", "pitch_id": "p-00x",
+            "policy_version": "test", "reason": "test",
+            "server_timestamp": "2026-07-25T00:00:00", "token_hash": "hash",
+            "source_readiness_snapshot": ["SINGLE_INDEPENDENT_SOURCE"]
+        }
+    )
+
+    assert isinstance(result, UnverifiedBriefingDraftResult)
+    assert result.quality_report.publishable is False
+    assert "Macro/mixed briefing has no provider macro snapshot" in result.content
+
+@patch("tools.content.youtube_pitcher.invoke_structured_llm")
+@patch("tools.content.youtube_pitcher.normalize_visual_directives")
+@patch("tools.content.briefing_quality.validate_briefing_book_quality")
+@patch("tools.content.briefing_renderer.render_briefing_book")
+@patch("tools.content.provenance_enrichment.assess_pitch_source_readiness")
+@patch("tools.content.briefing_evidence.build_briefing_evidence")
+def test_synthesize_notebooklm_source_unverified_draft_stale_macro_bypass(
+    mock_build, mock_readiness, mock_render, mock_validate, mock_normalize, mock_invoke
+):
+    from schemas.briefing_book_schemas import (
+        InvestigativeBriefingBookDraft,
+        ResearchQualityReport,
+        QualityIssueRecord,
+        UnverifiedBriefingDraftResult,
+        BriefingEvidenceBundle,
+    )
+
+    mock_draft = InvestigativeBriefingBookDraft(
+        title="test", executive_summary="test", act1_script="test",
+        act2_script="test", act3_script="test", causality_scenarios=[],
+        asset_impacts=[], bull_case="bull", bear_case="bear",
+        falsification_triggers=[], notebooklm_prompts=[], visual_directives=[]
+    )
+    mock_invoke.return_value = mock_draft
+    mock_normalize.return_value = mock_draft
+    mock_build.return_value = BriefingEvidenceBundle(pitch_id="p-004")
+    mock_render.return_value = MagicMock(content="# Test Title\n\nBody")
+
+    mock_validate.return_value = ResearchQualityReport(
+        score=85,
+        status="degraded",
+        publishable=True,
+        issues=[
+            QualityIssueRecord(
+                code="STALE_MACRO_SNAPSHOT",
+                category="macro",
+                severity="cap",
+                description="All macro observations are stale",
+                bypassable=True,
+            )
+        ],
+    )
+
+    source_events = [{"event_id": "e1", "canonical_title": "t1"}]
+    mock_readiness.return_value = ("ready", [], [], source_events)
+
+    pitch = YouTubeContentPitchItem(
+        pitch_id="p-004", working_titles=["1", "2", "3"], target_audience="a", core_hook="h",
+        key_questions_to_answer=["1", "2", "3"], research_hypotheses=["1", "2"],
+        source_event_ids=["e1"], source_links=[], source_titles=["t1"], recommended_format="f",
+        estimated_impact="i", source_readiness_issues=[],
+    )
+
+    result = synthesize_notebooklm_source(
+        pitch, source_events, output_mode="unverified_draft",
+        override_audit={
+            "job_id": "job-1", "thread_id": "thread-1", "pitch_id": "p-00x",
+            "policy_version": "test", "reason": "test",
+            "server_timestamp": "2026-07-25T00:00:00", "token_hash": "hash",
+            "source_readiness_snapshot": ["SINGLE_INDEPENDENT_SOURCE"]
+        }
+    )
+
+    assert isinstance(result, UnverifiedBriefingDraftResult)
+    assert result.quality_report.publishable is False
+    assert "All macro observations are stale" in result.content

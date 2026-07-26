@@ -229,12 +229,12 @@ def validate_briefing_book_quality(
     
     if mode in {"stock", "mixed"}:
         if not financials or not any(getattr(snapshot, "status", "") == "success" and getattr(snapshot, "periods", []) for snapshot in financials):
-            add_issue("FINANCIAL_PROVIDER_UNAVAILABLE", "financial", "blocker", "No usable financial statement was returned for the selected stock (required for stock/mixed modes)")
+            add_issue("FINANCIAL_PROVIDER_UNAVAILABLE", "financial", "blocker", "No usable financial statement was returned for the selected stock (required for stock/mixed modes)", bypassable=True)
             quantitative_problem = True
 
     if mode in {"macro", "mixed"}:
         if not (macro and getattr(macro, "observations", [])):
-            apply_cap(70, "MISSING_MACRO_SNAPSHOT", "Macro/mixed briefing has no provider macro snapshot")
+            apply_cap(70, "MISSING_MACRO_SNAPSHOT", "Macro/mixed briefing has no provider macro snapshot", bypassable=True)
         else:
             sectors = {getattr(obs, "category", "") for obs in macro.observations if getattr(obs, "category", None)}
             has_inflation = any("inflation" in s.lower() or "cpi" in s.lower() for s in sectors)
@@ -242,15 +242,15 @@ def validate_briefing_book_quality(
             has_energy = any("oil" in s.lower() or "energy" in s.lower() for s in sectors)
             
             if not has_inflation:
-                add_issue("MACRO_MISSING_INFLATION", "macro", "blocker", "Macro data missing inflation sector coverage")
+                add_issue("MACRO_MISSING_INFLATION", "macro", "blocker", "Macro data missing inflation sector coverage", bypassable=True)
                 quantitative_problem = True
             if not has_rates:
-                add_issue("MACRO_MISSING_RATES", "macro", "blocker", "Macro data missing rates sector coverage")
+                add_issue("MACRO_MISSING_RATES", "macro", "blocker", "Macro data missing rates sector coverage", bypassable=True)
                 quantitative_problem = True
             
             stale_count = sum(1 for observation in macro.observations if getattr(observation, "is_stale", False))
             if stale_count == len(macro.observations):
-                apply_cap(85, "STALE_MACRO_SNAPSHOT", "All macro observations are stale")
+                apply_cap(85, "STALE_MACRO_SNAPSHOT", "All macro observations are stale", bypassable=True)
             elif stale_count:
                 advisories.append(f"{stale_count} optional macro observations are stale and must not support current claims")
 

@@ -142,9 +142,9 @@ def test_golden_path_mixed_mode_financial_unavailable(mock_pitch):
     report = validate_briefing_book_quality(bundle, draft, rendered)
     
     assert report.publishable is False
-    # Non-bypassable fail
+    # Data gaps are now bypassable for Unverified Draft fallback
     has_non_bypassable = any(issue.severity == "blocker" and not issue.bypassable for issue in report.issues)
-    assert has_non_bypassable is True
+    assert has_non_bypassable is False
 
 
 def test_golden_path_draft_metadata_missing_allowlist(mock_pitch):
