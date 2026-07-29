@@ -73,7 +73,7 @@ def login(payload: LoginRequest, request: Request, response: Response) -> dict:
     expected = get_webui_password()
     if not expected:
         raise HTTPException(status_code=500, detail="WEBUI_PASSWORD ยังไม่ได้ตั้งค่าใน .env")
-    if not hmac.compare_digest(payload.password, expected):
+    if not hmac.compare_digest(payload.password.encode("utf-8"), expected.encode("utf-8")):
         raise HTTPException(status_code=401, detail="รหัสผ่านไม่ถูกต้อง")
     _set_session_cookie(response)
     return {"ok": True}
