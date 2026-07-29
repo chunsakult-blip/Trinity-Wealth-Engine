@@ -396,6 +396,7 @@ class KanbanCardDTO(BaseModel):
     flow: str = "manager"
     scope: str = "both"
     display_seq: Optional[int] = None
+    discord_notify: bool = True
     created_at: float
     updated_at: float
 

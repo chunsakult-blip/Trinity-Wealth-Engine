@@ -912,6 +912,12 @@ def run_news_funnel_synthesize(
 
     flush_index_if_dirty(vault_root=vault_root)
 
+    if published_events:
+        try:
+            from core.discord_notifier import send_synthesized_news_discord
+            send_synthesized_news_discord(published_events, period=period)
+        except Exception as e:
+            logger.warning("ส่งข่าวสังเคราะห์ไป Discord ไม่สำเร็จ (ไม่กระทบไฟล์ที่บันทึกไปแล้ว): %s", e)
 
     return {
         "status": "success",

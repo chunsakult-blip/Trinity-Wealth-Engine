@@ -279,6 +279,7 @@ export interface KanbanCardDTO {
   flow: string
   scope: string
   display_seq: number | null
+  discord_notify: boolean
   created_at: number
   updated_at: number
 }

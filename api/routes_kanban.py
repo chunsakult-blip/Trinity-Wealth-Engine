@@ -37,6 +37,10 @@ class MoveCardRequest(BaseModel):
     job_id: Optional[str] = None
 
 
+class ToggleDiscordRequest(BaseModel):
+    enabled: bool
+
+
 class CreateCardResponse(BaseModel):
     card: KanbanCardDTO
     created: bool
@@ -52,6 +56,7 @@ def _card_to_dto(row) -> KanbanCardDTO:
         flow=row["flow"],
         scope=row["scope"],
         display_seq=row["display_seq"],
+        discord_notify=bool(row["discord_notify"]) if row["discord_notify"] is not None else True,
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
@@ -114,6 +119,17 @@ def move_card(payload: MoveCardRequest) -> KanbanCardDTO:
             raise HTTPException(status_code=404, detail="ไม่พบการ์ดนี้")
         state_db.move_kanban_card(conn, payload.card_id, payload.column_name, job_id=payload.job_id)
         row = state_db.get_kanban_card(conn, payload.card_id)
+    return _card_to_dto(row)
+
+
+@router.patch("/api/kanban/cards/{card_id}/discord", response_model=KanbanCardDTO)
+def toggle_card_discord(card_id: str, payload: ToggleDiscordRequest) -> KanbanCardDTO:
+    with closing(state_db.get_connection()) as conn:
+        existing = state_db.get_kanban_card(conn, card_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="ไม่พบการ์ดนี้")
+        state_db.toggle_kanban_card_discord(conn, card_id, payload.enabled)
+        row = state_db.get_kanban_card(conn, card_id)
     return _card_to_dto(row)
 
 

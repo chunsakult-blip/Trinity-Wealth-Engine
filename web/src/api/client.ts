@@ -113,6 +113,12 @@ export const api = {
   deleteKanbanCard: (cardId: string) =>
     request<{ ok: boolean }>(`/api/kanban/cards/${cardId}`, { method: 'DELETE' }),
 
+  toggleCardDiscord: (cardId: string, enabled: boolean) =>
+    request<KanbanCardDTO>(`/api/kanban/cards/${cardId}/discord`, {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled }),
+    }),
+
   dispatchJob: (instruction: string, cardId?: string, flow: string = 'manager', scope: string = 'both') =>
     request<JobStatusDTO>('/api/agents/dispatch', {
       method: 'POST',

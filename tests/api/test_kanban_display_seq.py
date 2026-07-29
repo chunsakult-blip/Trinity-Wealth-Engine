@@ -64,6 +64,35 @@ def test_backfill_assigns_display_seq_to_old_cards_by_created_at(tmp_path):
     conn.close()
 
 
+def test_mark_discord_events_sent_accumulates_across_calls(tmp_path):
+    """upsert_news_funnel_card เรียกฟังก์ชันนี้ทุกรอบที่มีข่าวใหม่เข้าการ์ดเดิม — event_ids ต้อง
+    สะสมต่อกัน ไม่ใช่ถูกเขียนทับ ไม่งั้นระบบ diff กันแจ้งซ้ำจะไม่ทำงานข้ามรอบ"""
+    db_path = str(tmp_path / "state.sqlite")
+    conn = state_db.get_connection(db_path)
+    state_db.create_kanban_card(conn, "c1", "การ์ดข่าว", flow="news_funnel")
+
+    state_db.mark_discord_events_sent(conn, "c1", ["ev-1", "ev-2"])
+    state_db.mark_discord_events_sent(conn, "c1", ["ev-2", "ev-3"])
+
+    card = state_db.get_kanban_card(conn, "c1")
+    import json
+    assert json.loads(card["discord_sent_events"]) == ["ev-1", "ev-2", "ev-3"]
+    conn.close()
+
+
+def test_toggle_kanban_card_discord_does_not_touch_other_columns(tmp_path):
+    db_path = str(tmp_path / "state.sqlite")
+    conn = state_db.get_connection(db_path)
+    state_db.create_kanban_card(conn, "c1", "การ์ดข่าว", flow="news_funnel", prompt="prompt เดิม")
+
+    state_db.toggle_kanban_card_discord(conn, "c1", False)
+    card = state_db.get_kanban_card(conn, "c1")
+    assert card["discord_notify"] == 0
+    assert card["title"] == "การ์ดข่าว"
+    assert card["prompt"] == "prompt เดิม"
+    conn.close()
+
+
 def test_job_status_dto_includes_log_count_and_timestamps(tmp_path):
     db_path = str(tmp_path / "state.sqlite")
     conn = state_db.get_connection(db_path)

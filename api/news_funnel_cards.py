@@ -3,6 +3,10 @@
 ชั้น API เป็นเจ้าของ state_db และ column vocabulary ของ Kanban — เดิม logic นี้อยู่ใน
 tools/macro/news_funnel.py ซึ่งทำให้ชั้น tools ผูกกับ SQLite ของ Web UI
 caller ที่รัน synthesize แบบ scheduled (CLI) เรียกฟังก์ชันนี้เมื่อได้ status = require_kanban_approval
+
+หมายเหตุ: Discord notification ของ News Funnel ไม่ได้ยิงจากจุดนี้อีกต่อไป — ย้ายไปส่งตอน
+synthesize เสร็จ (ดู tools/macro/news_funnel.py + core/discord_notifier.send_synthesized_news_discord)
+เพื่อให้ส่งได้เนื้อหาสังเคราะห์เต็มแทนที่จะเป็นแค่สรุปสั้นตอนรออนุมัติ และลด double-notification
 """
 import uuid
 from contextlib import closing

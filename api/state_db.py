@@ -1,6 +1,7 @@
 """SQLite store สำหรับ job log + kanban state — แยกไฟล์จาก LangGraph checkpoint DB โดยตั้งใจ
 กัน agent run ที่กำลังรันหนักๆ ไป lock หน้า Kanban/Portfolio ที่ไม่เกี่ยวข้องกัน (ดู Rev.5 ข้อ 6)
 """
+import json
 import os
 import sqlite3
 import time
@@ -92,6 +93,8 @@ _COLUMN_MIGRATIONS: dict[str, dict[str, str]] = {
         "display_seq": "display_seq INTEGER",
         "prompt": "prompt TEXT",
         "scope": "scope TEXT NOT NULL DEFAULT 'both'",
+        "discord_notify": "discord_notify INTEGER NOT NULL DEFAULT 1",
+        "discord_sent_events": "discord_sent_events TEXT",
     },
 }
 
@@ -350,6 +353,38 @@ def update_kanban_card(
     conn.execute(
         "UPDATE kanban_cards SET title = ?, prompt = ?, flow = ?, scope = ?, updated_at = ? WHERE card_id = ?",
         (title, prompt, flow, scope, now, card_id),
+    )
+    conn.commit()
+
+
+def toggle_kanban_card_discord(conn: sqlite3.Connection, card_id: str, enabled: bool) -> None:
+    """UPDATE เฉพาะคอลัมน์ discord_notify — partial patch โดยตั้งใจ ไม่แตะ title/prompt/flow/scope
+    เพื่อไม่ให้ toggle ถูก reset ทุกครั้งที่ upsert_news_funnel_card เรียก update_kanban_card
+    """
+    now = time.time()
+    conn.execute(
+        "UPDATE kanban_cards SET discord_notify = ?, updated_at = ? WHERE card_id = ?",
+        (1 if enabled else 0, now, card_id),
+    )
+    conn.commit()
+
+
+def mark_discord_events_sent(conn: sqlite3.Connection, card_id: str, event_ids: list[str]) -> None:
+    """เพิ่ม event_ids ที่เพิ่งส่ง Discord สำเร็จเข้า discord_sent_events (JSON array) — อ่านค่าเก่า
+    มารวมกับใหม่แล้ว UPDATE เฉพาะคอลัมน์นี้ ป้องกันแจ้งซ้ำเมื่อการ์ดถูก upsert รอบถัดไป
+    """
+    row = conn.execute("SELECT discord_sent_events FROM kanban_cards WHERE card_id = ?", (card_id,)).fetchone()
+    if row is None:
+        return
+    try:
+        existing_ids = json.loads(row["discord_sent_events"]) if row["discord_sent_events"] else []
+    except (TypeError, ValueError):
+        existing_ids = []
+    merged_ids = list(dict.fromkeys(existing_ids + list(event_ids)))
+    now = time.time()
+    conn.execute(
+        "UPDATE kanban_cards SET discord_sent_events = ?, updated_at = ? WHERE card_id = ?",
+        (json.dumps(merged_ids), now, card_id),
     )
     conn.commit()
 

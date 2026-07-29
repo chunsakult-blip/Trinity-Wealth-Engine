@@ -185,7 +185,12 @@ def write_raw_markdown(content: str, folder_path: str, filename: str) -> str:
     safe_name = re.sub(r'[,()\[\].—–]', '', safe_name)
     safe_name = re.sub(r'_{2,}', '_', safe_name).strip('_') or "untitled"
 
-    if (entity_type_val == "youtube_insight" or str(resolved_path).rstrip("/").endswith("YouTube_Summaries")) and not re.match(r"^\d{4}-\d{2}-\d{2}", safe_name) and not re.match(r"^YT\d+$", safe_name):
+    # ครอบทั้ง youtube_insight และ article_note — เดิมมีแค่ youtube_insight ทำให้ข่าวที่ agent
+    # เรียก write_raw_markdown ตรง ๆ (ไม่ผ่าน agents/news_youtube_flow.py::_save_ingested_content)
+    # ไม่มี date prefix ในชื่อไฟล์เลย ต่างจาก News Funnel ที่มี {date}_{title} เสมอ — เช็คเฉพาะ
+    # entity_type_val == "article_note" ตรง ๆ (ไม่ fallback ไปเช็คด้วยชื่อ folder แบบ youtube_insight)
+    # เพราะโฟลเดอร์ 'News' ยังถูกใช้ generic โดยเนื้อหาที่ไม่มี entity_type อยู่ (ดู test_writer.py)
+    if (entity_type_val == "youtube_insight" or str(resolved_path).rstrip("/").endswith("YouTube_Summaries") or entity_type_val == "article_note") and not re.match(r"^\d{4}-\d{2}-\d{2}", safe_name) and not re.match(r"^YT\d+$", safe_name):
         date_val = extract_yaml_frontmatter_value(content, "published_at") or extract_yaml_frontmatter_value(content, "date")
         if not date_val:
             m_date = _DATE_FRONTMATTER_RE.search(content)

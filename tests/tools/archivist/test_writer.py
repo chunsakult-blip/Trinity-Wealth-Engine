@@ -93,11 +93,27 @@ def test_write_raw_markdown_news_and_youtube_flattened(test_vault):
     raw_news = "---\npublisher: Reuters\n---\n# Content"
     write_raw_markdown.func(content=raw_news, folder_path="30_Knowledge_Base/News", filename="News1")
     assert (test_vault / "30_Knowledge_Base" / "News" / "News1.md").exists()
-    
+
     # YouTube shouldn't create channel folder
     raw_yt = "---\nchannel: FINNOMENA\n---\n# Content"
     write_raw_markdown.func(content=raw_yt, folder_path="30_Knowledge_Base/YouTube_Summaries", filename="YT1")
     assert (test_vault / "30_Knowledge_Base" / "YouTube_Summaries" / "YT1.md").exists()
+
+def test_write_raw_markdown_article_note_gets_date_prefix(test_vault):
+    """entity_type: article_note ต้องได้ date prefix เหมือน youtube_insight — เดิมมีแค่ youtube
+    ทำให้ข่าวที่ agent เรียก write_raw_markdown ตรง ๆ (ไม่ผ่าน news_youtube_flow) ไม่มีวันที่ในชื่อไฟล์"""
+    raw_article = "---\nentity_type: article_note\ndate: 2026-07-28\npublisher: Reuters\n---\n# Content"
+    write_raw_markdown.func(content=raw_article, folder_path="30_Knowledge_Base/News", filename="Some Article Title")
+    assert (test_vault / "30_Knowledge_Base" / "News" / "2026-07-28 Some Article Title.md").exists()
+
+def test_write_raw_markdown_article_note_not_double_prefixed(test_vault):
+    """ถ้า filename มี date prefix มาแล้ว (เช่นมาจาก _save_ingested_content) ไม่ควรเติมซ้ำ"""
+    raw_article = "---\nentity_type: article_note\ndate: 2026-07-28\n---\n# Content"
+    write_raw_markdown.func(
+        content=raw_article, folder_path="30_Knowledge_Base/News", filename="2026-07-28 Some Article Title"
+    )
+    assert (test_vault / "30_Knowledge_Base" / "News" / "2026-07-28 Some Article Title.md").exists()
+    assert not (test_vault / "30_Knowledge_Base" / "News" / "2026-07-28 2026-07-28 Some Article Title.md").exists()
 
 import pytest
 

@@ -93,11 +93,13 @@ def _save_ingested_content(content: str) -> str:
     entity_type = extract_yaml_frontmatter_value(content, "entity_type") or ""
     title = extract_yaml_frontmatter_value(content, "title") or datetime.now().strftime("news_youtube_%Y%m%d_%H%M%S")
 
-    if entity_type == "youtube_insight":
-        date_str = extract_yaml_frontmatter_value(content, "published_at") or extract_yaml_frontmatter_value(content, "date") or datetime.now().strftime("%Y-%m-%d")
-        date_prefix = date_str[:10] if date_str and len(date_str) >= 10 else datetime.now().strftime("%Y-%m-%d")
-        if re.match(r"^\d{4}-\d{2}-\d{2}$", date_prefix) and not re.match(r"^\d{4}-\d{2}-\d{2}", title):
-            title = f"{date_prefix} {title}"
+    # เติม date prefix ให้ทุก entity_type เหมือนกัน (เดิมทำแค่ youtube_insight ทำให้ article_note
+    # ของ News/ ไม่มีวันที่ในชื่อไฟล์ ต่างจาก News Funnel ที่มี {date_str}_{title} เสมอ) —
+    # _build_article_md ใส่ frontmatter "date" ให้ article_note ทุกครั้งอยู่แล้ว จึงมีค่าให้ใช้เสมอ
+    date_str = extract_yaml_frontmatter_value(content, "published_at") or extract_yaml_frontmatter_value(content, "date") or datetime.now().strftime("%Y-%m-%d")
+    date_prefix = date_str[:10] if date_str and len(date_str) >= 10 else datetime.now().strftime("%Y-%m-%d")
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", date_prefix) and not re.match(r"^\d{4}-\d{2}-\d{2}", title):
+        title = f"{date_prefix} {title}"
 
     filename = _sanitize_filename(title)
 
@@ -106,7 +108,23 @@ def _save_ingested_content(content: str) -> str:
         "youtube_insight": "30_Knowledge_Base/YouTube_Summaries",
     }
     folder_path = folder_map.get(entity_type, "30_Knowledge_Base/News")
-    return write_raw_markdown.invoke({"content": content, "folder_path": folder_path, "filename": filename})
+    save_result = write_raw_markdown.invoke({"content": content, "folder_path": folder_path, "filename": filename})
+
+    if entity_type == "article_note":
+        try:
+            from core.discord_notifier import send_ingested_article_discord
+
+            # write_raw_markdown คืนข้อความสถานะรูปแบบ "บันทึกสำเร็จ (raw, new): {file_path}"
+            # (tools/archivist/writer.py) — ดึง path จริงจากท้ายข้อความมาใช้แนบไฟล์ถ้าเนื้อหายาวเกิน embed
+            path_match = re.search(r": (.+)$", save_result)
+            note_path = path_match.group(1).strip() if path_match else None
+            send_ingested_article_discord(content, note_path)
+        except Exception as e:
+            from core.logger import get_logger
+
+            get_logger(__name__).warning("ส่งบทความไป Discord ไม่สำเร็จ (ไม่กระทบไฟล์ที่บันทึกไปแล้ว): %s", e)
+
+    return save_result
 
 
 def ingest_node(state: NewsYoutubeState) -> dict:

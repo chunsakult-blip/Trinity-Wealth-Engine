@@ -14,6 +14,7 @@ function makeCard(overrides: Partial<KanbanCardDTO> = {}): KanbanCardDTO {
     flow: 'manager',
     scope: 'both',
     display_seq: 7,
+    discord_notify: true,
     created_at: 1_700_000_000,
     updated_at: 1_700_000_000,
     ...overrides,

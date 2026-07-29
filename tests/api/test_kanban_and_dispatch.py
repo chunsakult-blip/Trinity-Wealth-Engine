@@ -14,6 +14,46 @@ def test_create_and_move_kanban_card(authed_client):
     assert r.json()["column_name"] == "executing"
 
 
+def test_new_card_defaults_discord_notify_true(authed_client):
+    r = authed_client.post("/api/kanban/cards", json={"title": "การ์ดใหม่"})
+    assert r.json()["card"]["discord_notify"] is True
+
+
+def test_toggle_card_discord_off_then_on(authed_client):
+    r = authed_client.post("/api/kanban/cards", json={"title": "การ์ดทดสอบ toggle"})
+    card_id = r.json()["card"]["card_id"]
+
+    r = authed_client.patch(f"/api/kanban/cards/{card_id}/discord", json={"enabled": False})
+    assert r.status_code == 200
+    assert r.json()["discord_notify"] is False
+
+    cards = authed_client.get("/api/kanban/cards").json()
+    assert next(c for c in cards if c["card_id"] == card_id)["discord_notify"] is False
+
+    r = authed_client.patch(f"/api/kanban/cards/{card_id}/discord", json={"enabled": True})
+    assert r.json()["discord_notify"] is True
+
+
+def test_toggle_discord_on_nonexistent_card_returns_404(authed_client):
+    r = authed_client.patch("/api/kanban/cards/does-not-exist/discord", json={"enabled": False})
+    assert r.status_code == 404
+
+
+def test_update_card_does_not_reset_discord_toggle(authed_client):
+    """update_kanban_card ไม่ควรแตะ discord_notify — กันบั๊ก toggle ที่ user ปิดไว้ถูกเปิดกลับมา
+    ทุกครั้งที่การ์ดถูกแก้ไข (เช่นตอน upsert_news_funnel_card อัปเดตการ์ดเดิมด้วยข่าวชุดใหม่)"""
+    r = authed_client.post("/api/kanban/cards", json={"title": "การ์ด backlog", "flow": "manager"})
+    card_id = r.json()["card"]["card_id"]
+    authed_client.patch(f"/api/kanban/cards/{card_id}/discord", json={"enabled": False})
+
+    r = authed_client.patch(
+        f"/api/kanban/cards/{card_id}",
+        json={"title": "การ์ด backlog (แก้ไขแล้ว)", "flow": "manager", "scope": "both"},
+    )
+    assert r.status_code == 200
+    assert r.json()["discord_notify"] is False
+
+
 def test_create_duplicate_card_in_backlog_returns_existing(authed_client):
     r1 = authed_client.post("/api/kanban/cards", json={"title": "ดึงข่าวเศรษฐกิจล่าสุด"})
     body1 = r1.json()
