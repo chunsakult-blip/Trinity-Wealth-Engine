@@ -83,23 +83,29 @@ export default function KanbanCardModal({
           <YoutubePitchDateControls prompt={prompt} onChange={setPrompt} />
         )}
 
-        <div>
-          <label htmlFor="kanban-card-prompt" className="mb-1 block text-xs font-medium text-zinc-600">
-            Prompt สำหรับ Manager (ไม่บังคับ)
-          </label>
-          <textarea
-            id="kanban-card-prompt"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handleSubmit()
-            }}
-            rows={7}
-            placeholder="อธิบายรายละเอียดงานให้ agent เข้าใจชัดเจน เช่น ขอบเขตการวิเคราะห์ กรอบเวลา สินทรัพย์ที่สนใจ ข้อมูลอ้างอิงพิเศษ ฯลฯ"
-            className="w-full resize-none rounded-lg border border-edge bg-panel px-3 py-2 text-sm text-zinc-900 outline-none transition-colors placeholder-zinc-400 focus:border-sky-500 focus:ring-1 focus:ring-sky-500/30"
-          />
-          <p className="mt-1 text-xs text-zinc-500">ถ้าเว้นว่างไว้ ระบบจะใช้ชื่อการ์ดเป็นคำสั่งแทน</p>
-        </div>
+        {flow === 'notebooklm' ? (
+          <p className="rounded-lg border border-edge bg-surface px-3 py-2 text-xs text-zinc-500">
+            เลือกไฟล์ Briefing Book ให้การ์ดนี้ทีหลังได้ในหน้ารายละเอียด (Drawer) หลังสร้างการ์ดเสร็จ
+          </p>
+        ) : (
+          <div>
+            <label htmlFor="kanban-card-prompt" className="mb-1 block text-xs font-medium text-zinc-600">
+              Prompt สำหรับ Manager (ไม่บังคับ)
+            </label>
+            <textarea
+              id="kanban-card-prompt"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handleSubmit()
+              }}
+              rows={7}
+              placeholder="อธิบายรายละเอียดงานให้ agent เข้าใจชัดเจน เช่น ขอบเขตการวิเคราะห์ กรอบเวลา สินทรัพย์ที่สนใจ ข้อมูลอ้างอิงพิเศษ ฯลฯ"
+              className="w-full resize-none rounded-lg border border-edge bg-panel px-3 py-2 text-sm text-zinc-900 outline-none transition-colors placeholder-zinc-400 focus:border-sky-500 focus:ring-1 focus:ring-sky-500/30"
+            />
+            <p className="mt-1 text-xs text-zinc-500">ถ้าเว้นว่างไว้ ระบบจะใช้ชื่อการ์ดเป็นคำสั่งแทน</p>
+          </div>
+        )}
       </div>
 
       {errorMessage && (

@@ -13,7 +13,11 @@ from fastapi.staticfiles import StaticFiles
 
 load_dotenv()
 
-from api import auth, jobs, routes_agents, routes_debug, routes_kanban, routes_portfolio, state_db
+from core.logger import setup_logging
+
+setup_logging()
+
+from api import auth, jobs, notebooklm_worker, routes_agents, routes_debug, routes_kanban, routes_notebooklm, routes_portfolio, state_db
 
 WEB_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
 
@@ -35,11 +39,27 @@ async def lifespan(app: FastAPI):
     with closing(state_db.get_connection()) as conn:
         state_db.init_schema(conn)
 
-    app.state.job_queue = jobs.JobQueue(run_fn=jobs.default_run_fn)
+    # คิวหลักกับคิว notebooklm แชร์ WEBUI_STATE_DB_PATH เดียวกัน (kanban_cards ต้องเห็นข้อมูล
+    # เดียวกันเสมอ — move_kanban_card ที่ถูกเรียกจาก _run_job ของแต่ละคิวต้องแก้แถวการ์ดจริง
+    # ไฟล์เดียวกัน) แยกกันด้วย `flows` allowlist แทน เพื่อกัน reenqueue_pending()/worker loop
+    # ของคิวหนึ่งไปกวาดงานอีก flow เข้าคิวตัวเอง (list_jobs_by_status ไม่ filter ตาม flow เอง)
+    app.state.job_queue = jobs.JobQueue(
+        run_fn=jobs.default_run_fn,
+        flows={"manager", "news_youtube", "news_funnel", "youtube_pitch"},
+    )
     app.state.job_queue.reenqueue_pending()
     app.state.job_queue.start()
+
+    app.state.notebooklm_job_queue = jobs.JobQueue(
+        run_fn=notebooklm_worker.notebooklm_run_fn,
+        flows={"notebooklm"},
+    )
+    app.state.notebooklm_job_queue.reenqueue_pending()
+    app.state.notebooklm_job_queue.start()
+
     yield
     await app.state.job_queue.stop()
+    await app.state.notebooklm_job_queue.stop()
 
 
 app = FastAPI(title="Invest Agents Web UI", lifespan=lifespan)
@@ -64,6 +84,7 @@ app.include_router(routes_portfolio.router)
 app.include_router(routes_agents.router)
 app.include_router(routes_kanban.router)
 app.include_router(routes_debug.router)
+app.include_router(routes_notebooklm.router)
 
 
 @app.get("/health")

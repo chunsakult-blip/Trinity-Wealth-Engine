@@ -1,7 +1,7 @@
-# .antigravityrules — คู่มือควบคุมพฤติกรรมและสถาปัตยกรรมของ AI
+# CLAUDE.md — คู่มือควบคุมพฤติกรรมและสถาปัตยกรรมของ AI
 
 > **Project:** `invest-agents` (Trinity-Wealth-Engine)
-> **Scope:** เอกสารฉบับนี้เป็น "กฎเหล็กและแนวทางปฏิบัติ" ของ Antigravity AI Coding Agent ภายในโปรเจกต์นี้
+> **Scope:** เอกสารฉบับนี้เป็น "กฎเหล็กและแนวทางปฏิบัติ" สำหรับ Claude Code (และ AI Coding Agent อื่นที่ทำงานในโปรเจกต์นี้) — แปลง/รวมมาจาก `.antigravityrules` เพื่อให้ Claude โหลดอัตโนมัติทุก session
 > **Principle:** เน้นที่ *หลักคิด* และ *กฎเหล็กเชิงสถาปัตยกรรม* ไม่ใช่การกำหนดชื่อตัวแปรหรือสูตรคำนวณตายตัว — AI มีอิสระเลือกแนวทางวิศวกรรมที่ดีที่สุด ตราบใดที่ไม่ละเมิดกรอบความถูกต้องทางการเงิน
 
 ---
@@ -30,18 +30,22 @@
     ```powershell
     uv run pytest
     ```
+* **Web UI:**
+  * Backend: `uv run uvicorn api.main:app --reload`
+  * Frontend: `npm run dev` (ใน `web/`)
 
 ---
 
 ## 2. 🧠 Mandatory Plan-First Workflow (กฎเหล็ก: คิดก่อนลงมือทำ)
 นี่คือกฎที่สำคัญที่สุด ห้ามละเมิดเด็ดขาดไม่ว่าในกรณีใดๆ:
-1. **ห้ามแก้ไขไฟล์ทันที:** เมื่อได้รับคำสั่งให้เขียนโค้ด, สร้างฟีเจอร์, หรือแก้บั๊ก **ห้าม** คุณแก้ไขไฟล์หรือรันสคริปต์เขียนโค้ดทันที
-2. **ต้องเสนอแผนก่อนเสมอ:** คุณต้องร่าง "Step-by-Step Execution Plan" (แผนการทำงานทีละขั้นตอน) เป็นภาษาไทย กลับมาให้ฉันดูก่อนทุกครั้ง โดยแผนต้องระบุชัดเจนว่า:
+1. **ห้ามแก้ไขไฟล์ทันที:** เมื่อได้รับคำสั่งให้เขียนโค้ด, สร้างฟีเจอร์, หรือแก้บั๊กที่มีความซับซ้อนเกินกว่า one-liner **ห้าม** แก้ไขไฟล์หรือรันสคริปต์เขียนโค้ดทันที
+2. **ต้องเสนอแผนก่อนเสมอ:** ร่าง "Step-by-Step Execution Plan" (แผนการทำงานทีละขั้นตอน) เป็นภาษาไทย กลับมาให้ผู้ใช้ดูก่อนทุกครั้ง โดยแผนต้องระบุชัดเจนว่า:
    - 📂 จะไปแก้ไข หรือ สร้างไฟล์ไหนบ้าง (ระบุ Path)
    - ⚙️ จะเปลี่ยน Logic หรือเพิ่มฟังก์ชันอะไรในไฟล์นั้น
    - ⚠️ ความเสี่ยงหรือผลกระทบต่อไฟล์อื่น (ถ้ามี)
-3. **รอการอนุมัติ (Wait for Approval):** เมื่อเสนอแผนเสร็จ ให้หยุดทำงานและรอจนกว่าฉันจะพิมพ์ตอบกลับว่า "Approve", "OK", "เห็นด้วย" หรือ "ลุยเลย" 
-4. **ลงมือทำ:** เมื่อได้รับอนุมัติแล้วเท่านั้น จึงจะสามารถเริ่มใช้เครื่องมือ (Tools) ในการเข้าไปแก้ไขไฟล์จริงตามแผนที่ตกลงกันไว้ได้
+3. **รอการอนุมัติ (Wait for Approval):** เมื่อเสนอแผนเสร็จ ให้หยุดทำงานและรอจนกว่าผู้ใช้จะตอบกลับว่า "Approve", "OK", "เห็นด้วย", "ลุยเลย", "ทำตามแผน" หรือคำที่มีความหมายทำนองเดียวกัน
+4. **ลงมือทำ:** เมื่อได้รับอนุมัติแล้วเท่านั้น จึงจะเริ่มใช้เครื่องมือแก้ไขไฟล์จริงตามแผนที่ตกลงกันไว้
+5. **งานเล็กหรืองาน debug เฉพาะหน้า** (เช่น หาสาเหตุบั๊กจาก log, ตอบคำถามเกี่ยวกับโค้ด) ไม่จำเป็นต้องผ่านขั้นตอนนี้ทุกครั้ง — ใช้ดุลพินิจ แต่ถ้าไม่แน่ใจว่างานใหญ่แค่ไหน ให้เอียงไปทาง "เสนอแผนก่อน"
 
 ---
 
@@ -68,8 +72,8 @@
 * ทุกงานต้องถูกแบ่งออกเป็น **ขั้นตอนที่ชัดเจน** พร้อม **เกณฑ์ตรวจสอบความสำเร็จ** ของแต่ละขั้น
 * รูปแบบที่แนะนำ:
   > **ขั้นตอน (Step):** ทำอะไร → **วิธีตรวจสอบ (Verify):** จะรู้ได้อย่างไรว่าผ่าน
-* ก่อนปิดงานต้องตอบให้ได้ว่า: *"ระบบยังผ่านเกณฑ์ความถูกต้องเดิมอยู่หรือไม่ และเงื่อนไขใหม่ที่ขอผ่านครบไหม"*
-* หากตรวจสอบไม่ได้ด้วยตนเอง (เช่น UI, manual flow) ต้อง **ระบุชัดเจน** ว่าทดสอบไม่ได้ ไม่ใช่เคลมว่าผ่าน
+* ก่อนปิดงานต้องตอบให้ได้ว่า: *"ระบบยังผ่านเกณฑ์ความถูกต้องเดิมอยู่หรือไม่ และเงื่อนไขใหม่ที่ขอผ่านครบไหม"* — รัน `uv run pytest tests/ -q` จริงเสมอ ไม่ใช่แค่เดาว่าผ่าน
+* หากตรวจสอบไม่ได้ด้วยตนเอง (เช่น UI, manual flow, external service เช่น Discord webhook) ต้อง **ระบุชัดเจน** ว่าทดสอบไม่ได้ ไม่ใช่เคลมว่าผ่าน — ถ้าเป็นไปได้ให้ทำ manual verification จริงและรายงานผลตามที่เกิดขึ้นจริง
 
 ---
 
@@ -105,12 +109,12 @@
 ### 4.5 Macro Quant Agent — ผู้เชี่ยวชาญด้านข้อมูลเชิงปริมาณและตัวชี้วัดมหภาค (Quantitative Macro)
 * ทำหน้าที่รวบรวมและคำนวณข้อมูลตัวเลข Hard Data, Market Observables, Quant Matrix Score ตลอดจนตัวชี้วัดเชิงลึก (Equity Risk Premium, Credit Spread, Derived Pair Ratios, Rolling 60-Day Correlation)
 * **กฎเหล็กข้อ 1:** ต้องบันทึกตัวชี้วัดและอัตราส่วนที่ดัดแปลง (Derived Observables) ลงในฟิลด์ `metadata` แบบ Dict/JSON เสมอเพื่อให้เป็นมาตรฐาน Machine-Readable
-* **กฎเหล็กข้อ 2:** ต้องบังคับใช้เกณฑ์คุณภาพข้อมูล (Data Quality Guard) เช่น การหาความสัมพันธ์ต้องมีวันทำการตรงกันอย่างน้อย 45 วัน ($\text{overlapping\_days} \ge 45$) หากต่ำกว่าเกณฑ์ต้องตั้งสถานะ `is_valid = False` ทันที
+* **กฎเหล็กข้อ 2:** ต้องบังคับใช้เกณฑ์คุณภาพข้อมูล (Data Quality Guard) เช่น การหาความสัมพันธ์ต้องมีวันทำการตรงกันอย่างน้อย 45 วัน (overlapping_days ≥ 45) หากต่ำกว่าเกณฑ์ต้องตั้งสถานะ `is_valid = False` ทันที
 
 ### 4.6 Macro Economist Agent — ผู้วิเคราะห์กระแสระดับมหภาค (Narrative & Macro)
 * ทำหน้าที่สกัดธีมการลงทุนหลัก (Dominant Themes), Tail Risks, Market Sentiment และ Policy Signals จากแหล่งข้อมูลข่าวสาร (News, YouTube, Articles) ในชั้น Economic Layer
 * **กฎเหล็กข้อ 1:** ต้องอิงจากข้อมูลล่าสุดผ่านเครื่องมือ (Tools) อย่าง `generate_news_radar_daily`, `get_macro_baselines` เสมอ และคัดลอกตัวเลขอย่าง `sources_count` หรือ `age_hours` จากต้นฉบับมาอย่างซื่อสัตย์ ห้าม Hallucinate ขึ้นมาเอง
-* **กฎเหล็กข้อ 2:** ห้ามคำนวณคะแนน (Score) ความมั่นใจใดๆ เอง — หน้าที่คำนวณและประเมินน้ำหนัก (เช่น Conviction/Freshness/Event Confidence) ถูกบังคับจัดการผ่าน Python Schema (`@computed_field` / `@model_validator`) แล้ว Agent ห้ามแทรกแซง 
+* **กฎเหล็กข้อ 2:** ห้ามคำนวณคะแนน (Score) ความมั่นใจใดๆ เอง — หน้าที่คำนวณและประเมินน้ำหนัก (เช่น Conviction/Freshness/Event Confidence) ถูกบังคับจัดการผ่าน Python Schema (`@computed_field` / `@model_validator`) แล้ว Agent ห้ามแทรกแซง
 
 ### 4.7 Strategic Allocator Agent — ผู้สังเคราะห์ข้อมูลเพื่อการจัดพอร์ต (4-Layer Institutional Grade)
 * ทำหน้าที่ตัดสินใจทิศทางและน้ำหนักการลงทุน (`MacroStrategyDirection`) ครอบคลุม 5 กลุ่มสินทรัพย์หลัก พร้อมระบุความน่าจะเป็นของ Regime, แผนเทรดคู่ (Pair Trades) และแผนป้องกันความเสี่ยง (Hedging Plan) ตามรูปแบบ 7-Section Dashboard Formatting
@@ -154,7 +158,7 @@
 * หากต้อง denormalize เพื่อ performance ต้องระบุชัดว่าใครเป็น *master* ใครเป็น *derived* และต้องมีฟังก์ชัน rebuild derived จาก master ได้เสมอ
 
 ### 5.4 API Resilience — การรับมือเครือข่ายล้มเหลว
-> **เหตุผล:** ระบบ Multi-Agent นี้พึ่งพา LLM API ภายนอก (Google Gemini, OpenRouter) และ Data API (yfinance, FRED) เป็นหลัก — เครือข่ายและโควต้ามีโอกาสสะดุดเป็นเรื่องปกติ หากไม่จัดการอย่างเป็นระบบ ระบบจะแครชกลางคันและผู้ใช้สูญเสีย context การสนทนา
+> **เหตุผล:** ระบบ Multi-Agent นี้พึ่งพา LLM API ภายนอก (Google Gemini, OpenRouter) และ Data API (yfinance, FRED, Discord) เป็นหลัก — เครือข่ายและโควต้ามีโอกาสสะดุดเป็นเรื่องปกติ หากไม่จัดการอย่างเป็นระบบ ระบบจะแครชกลางคันและผู้ใช้สูญเสีย context การสนทนา
 
 **กฎเหล็ก:** ทุกการเชื่อมต่อกับ LLM หรือ External API ทั้งในปัจจุบันและที่เพิ่มเข้ามาในอนาคต **ต้องครอบด้วยระบบดักจับ Transient Error และกลไก Exponential Backoff Retry เสมอ** — ห้ามปล่อยให้ระบบหยุดทำงานทันทีเมื่อเครือข่ายสะดุด
 
@@ -164,24 +168,27 @@
    * HTTP `500` / `502` / `503` / `504` (Server Error / Bad Gateway / Service Unavailable / Gateway Timeout)
    * Network-level exceptions (`TimeoutError`, `ConnectionError`, `httpx.TimeoutException` ฯลฯ)
 2. **Exponential Backoff** — ระยะรอต้องเพิ่มขึ้นเรื่อย ๆ ต่อรอบ retry (เช่น `2 ** attempt` วินาที) ห้าม retry ติด ๆ เพราะจะยิ่งซ้ำเติมเซิร์ฟเวอร์ปลายทาง
-3. **Retry Budget ที่ชัดเจน** — กำหนดจำนวนครั้งสูงสุดไว้แน่นอน (เช่น 3 ครั้ง) ห้าม retry แบบไม่จำกัด
-4. **Graceful Fallback** — เมื่อ retry หมดโควต้าแล้วยังไม่สำเร็จ ต้องแจ้งผู้ใช้ด้วยข้อความที่อ่านเข้าใจง่าย ห้ามโยน stack trace ดิบขึ้นจอ และต้อง **คงสถานะการทำงานของลูปหลักไว้** ให้ผู้ใช้พิมพ์คำสั่งใหม่ได้
+3. **Retry Budget ที่ชัดเจน** — กำหนดจำนวนครั้งสูงสุดไว้แน่นอน (เช่น 3 ครั้ง หรือ 1 ครั้งสำหรับ webhook แจ้งเตือนที่ไม่ critical) ห้าม retry แบบไม่จำกัด
+4. **Graceful Fallback** — เมื่อ retry หมดโควต้าแล้วยังไม่สำเร็จ ต้องแจ้งผู้ใช้ด้วยข้อความที่อ่านเข้าใจง่าย ห้ามโยน stack trace ดิบขึ้นจอ และต้อง **คงสถานะการทำงานของลูปหลักไว้** ให้ผู้ใช้พิมพ์คำสั่งใหม่ได้ — ฟีเจอร์เสริมที่ไม่ critical (เช่น ส่ง Discord notification) ต้อง fail-safe ไม่ทำให้ pipeline หลักพังตาม
 
-*Reference Implementation:* ดูรูปแบบสถาปัตยกรรมที่เสถียรได้จากลูปการรันของไฟล์ `main.py` หรือตัวดักจับใน `core/retry.py`
+*Reference Implementation:* ดูรูปแบบสถาปัตยกรรมที่เสถียรได้จากลูปการรันของไฟล์ `main.py`, ตัวดักจับใน `core/retry.py`, หรือ `core/discord_notifier.py::_post_with_retry`
 
 ### 5.5 Secret Management — การจัดการความลับและ API Keys
 * **เหตุผล:** เพื่อความปลอดภัยและหลีกเลี่ยงการรั่วไหลของข้อมูลระบุตัวตนและ API credentials ลงไปใน repository สาธารณะ
 
-**กฎเหล็ก:** ห้าม Hardcode API Keys (เช่น `OPENAI_API_KEY`, `FRED_API_KEY`, `GOOGLE_API_KEY`) ลงในไฟล์โค้ดเด็ดขาด
+**กฎเหล็ก:** ห้าม Hardcode API Keys/Webhook URLs (เช่น `OPENAI_API_KEY`, `FRED_API_KEY`, `GOOGLE_API_KEY`, `DISCORD_WEBHOOK_URL`) ลงในไฟล์โค้ดเด็ดขาด
 * ต้องเรียกใช้งานผ่าน `os.getenv()` และโหลดผ่านไฟล์ `.env` เท่านั้น
 * หากต้องเขียนโค้ดทดสอบหรือทำ Test Mock ให้ใช้ตัวแปรจำลองที่เป็น Dummy Value เสมอ เช่น `sk-test-123` หรือ `mock-api-key`
+* **ทุก external-service credential ที่เพิ่มเข้ามาใหม่ (webhook, API key ฯลฯ) ต้องถูกเพิ่มเข้า `tests/conftest.py::_no_real_llm_keys` (หรือ fixture ที่ทำหน้าที่เดียวกัน) ด้วยเสมอ** เพื่อกันไม่ให้ test suite ยิงออกไปหา service จริงโดยไม่ตั้งใจ — `api/main.py` เรียก `load_dotenv()` แบบไม่มีเงื่อนไขตอน import ทำให้ค่าจริงจาก `.env` รั่วเข้า `os.environ` ของทั้ง pytest process ได้ถ้าไม่ clear (เคยเกิดเหตุการณ์จริงกับ `DISCORD_WEBHOOK_URL`)
 
 ### 5.6 Centralized Model Configuration (Model Registry)
 > **เหตุผล:** เพื่อให้ง่ายต่อการปรับเปลี่ยน LLM Model ทั้งระบบจากจุดเดียว และให้สามารถตรวจสอบ (Audit) ได้ง่ายว่าแต่ละ Slot ใช้ Model อะไรอยู่
 
 **กฎเหล็ก:** ห้าม Hardcode ชื่อ Model (เช่น `"gemini-3.1-flash-lite-preview"`) หรือเรียกอ่านค่า Environment Variable ตรงๆ (เช่น `os.getenv("MANAGER_MODEL")`) กระจัดกระจายในโค้ด
 * ทุกการกำหนดค่า LLM Model สำหรับทั้ง Agent Layer และ Tool Layer ต้องรวมศูนย์ผ่าน Registry เสมอ
-* ให้เรียกใช้งานผ่านโมดูล `core.model_registry` (เช่น `get_model_name("extractor")` หรือดึงจาก `REGISTRY["extractor"].env_var`) 
+* ให้เรียกใช้งานผ่านโมดูล `core.model_registry` (เช่น `get_model_name("extractor")` หรือดึงจาก `REGISTRY["extractor"].env_var`)
+* **ข้อยกเว้นสำคัญ:** slot ที่เรียกผ่าน `invoke_structured_llm(model_env: str, ...)` (เช่น `youtube_pitch`, `news_triage`, `thai_title_translation`) **ห้ามเรียก `get_model_name()`** เพราะฟังก์ชันนั้นรับ `model_env` เป็น "ชื่อ env var" ไม่ใช่ "ชื่อ model ที่ resolve แล้ว" — ให้ดึง `REGISTRY[key].env_var`/`REGISTRY[key].default` ไปส่งตรงๆ แทน ไม่งั้น env var override จะหายไปเงียบๆ
+* ตรวจสอบค่าที่ resolve จริงได้ที่ `GET /api/debug/models` (ต้อง login)
 
 ### 5.7 Institutional Grade Macro Guardrails & Validator Separation
 > **เหตุผล:** เพื่อป้องกันการเกิด Hallucination ในกลยุทธ์การลงทุน และให้ระบบมีความน่าเชื่อถือเทียบเท่ามาตรฐานสถาบันการเงินจริง
@@ -191,7 +198,7 @@
 2. **Validator Separation:** ตรรกะการตรวจสอบกฎเกณฑ์ (Guardrails / Contradiction Rules) ต้องแยกออกจาก Pydantic Schema ไปไว้ในโมดูลชั้น `validators/` (เช่น `valuation_guardrails.py`, `contradiction_rules.py`) เพื่อให้ตรวจสอบได้อิสระและไม่เกิด Circular Validation
 3. **Valuation & Credit Guardrails (Pillar 1):** ห้ามกำหนดระดับความมั่นใจเป็น HIGH และต้องแจ้งเตือนระบบ หาก Equity Risk Premium (ERP) < 1.5% (`VALUATION_RICH_WARNING`) หรือ High Yield Credit Spread กว้างกว่าเกณฑ์ 5.0% (`CREDIT_SPREAD_WARNING`)
 4. **Active Stale Exemption (Pillar 2):** หากพบคำเตือนข้อมูลล่าช้า (Stale Data Warning) แต่มีการอ้างอิง Leading Indicators ครบอย่างน้อย 2 รหัสที่ถูกต้องใน `observable_refs` ระบบจะได้รับสิทธิ์ยกเว้นการลดระดับความมั่นใจ (Exemption)
-5. **Derived Metadata & Correlation Quality (Pillar 3 & 4):** ข้อมูลดัดแปลง (Pair Ratios) ต้องเก็บบันทึกสถิติในฟิลด์ `metadata` แบบ Dict/JSON (Machine-Readable) เสมอ และการคำนวณ Rolling Correlation ต้องมีวันทำการตรงกัน $\ge 45$ วัน มิฉะนั้นต้องตั้งสถานะ `is_valid = False` ทันที
+5. **Derived Metadata & Correlation Quality (Pillar 3 & 4):** ข้อมูลดัดแปลง (Pair Ratios) ต้องเก็บบันทึกสถิติในฟิลด์ `metadata` แบบ Dict/JSON (Machine-Readable) เสมอ และการคำนวณ Rolling Correlation ต้องมีวันทำการตรงกัน ≥ 45 วัน มิฉะนั้นต้องตั้งสถานะ `is_valid = False` ทันที
 
 ---
 
@@ -223,7 +230,7 @@
 ```
 หรือ:
 ```json
-{"action": "buy", "symbol": "AOT", "qty": 100, "price": 62.5, "cash_before": 125430, ...}
+{"action": "buy", "symbol": "AOT", "qty": 100, "price": 62.5, "cash_before": 125430}
 ```
 
 ### 6.3 Verbosity Levels
@@ -241,10 +248,10 @@
 
 **กฎเหล็กสำหรับการจัดการโฟลเดอร์ `tools/`:**
 1. **ห้ามสร้างไฟล์ Facade รวมศูนย์ (God-files):** ห้ามสร้างไฟล์อย่าง `tools/portfolio_tools.py` หรือ `tools/archivist_tools.py` ที่รวมทุกฟังก์ชันไว้ในไฟล์เดียวอีกต่อไป
-2. **แบ่งโค้ดตามโดเมน (Domain-Driven):** โค้ดฟังก์ชัน/เครื่องมือทั้งหมดต้องถูกแยกย้ายไปอยู่ภายใต้ Sub-package ของโดเมนตัวเองอย่างชัดเจน (เช่น `tools/portfolio/`, `tools/archivist/`, `tools/market/`, `tools/macro/`)
+2. **แบ่งโค้ดตามโดเมน (Domain-Driven):** โค้ดฟังก์ชัน/เครื่องมือทั้งหมดต้องถูกแยกย้ายไปอยู่ภายใต้ Sub-package ของโดเมนตัวเองอย่างชัดเจน (เช่น `tools/portfolio/`, `tools/archivist/`, `tools/market/`, `tools/macro/`, `tools/knowledge/`, `tools/content/`)
 3. **แยกไฟล์ตามหน้าที่ (Separation of Concerns):** ภายในโฟลเดอร์แต่ละโดเมน ให้ซอยไฟล์ย่อยตามหน้าที่การทำงานที่เจาะจง (เช่น `parser.py`, `search.py`, `writer.py`, `core.py`)
-4. **ป้องกันตัวแปรสูญหาย (Unknown Variables) และ Circular Dependency:** เมื่อมีการแตกไฟล์ (Refactor) ต้องตรวจสอบให้แน่ใจว่าได้คัดลอกตัวแปร Global, Constants หรือ Regex ตามไปครบถ้วน และให้ระวังการ Import ชนกันเอง (แนะนำให้ใช้ Local Import ภายในฟังก์ชันหากจำเป็น)
-5. **ทดสอบผลกระทบเสมอ:** ทุกครั้งที่เพิ่มไฟล์ใหม่หรือจัดระเบียบ Tools ต้องรัน Full Test Suite (`uv run pytest`) และถ้าเป็นไปได้ให้ทำ Static Analysis (เช่น `pyflakes`) เพื่อตรวจหา Import ที่หายไป
+4. **ป้องกันตัวแปรสูญหาย (Unknown Variables) และ Circular Dependency:** เมื่อมีการแตกไฟล์ (Refactor) ต้องตรวจสอบให้แน่ใจว่าได้คัดลอกตัวแปร Global, Constants หรือ Regex ตามไปครบถ้วน และให้ระวังการ Import ชนกันเอง (แนะนำให้ใช้ Local Import ภายในฟังก์ชันหากจำเป็น — โดยเฉพาะโมดูลที่มี dependency หนัก เช่น `tools/archivist/parser.py` ที่ลาก `langchain_chroma` มาด้วย)
+5. **ทดสอบผลกระทบเสมอ:** ทุกครั้งที่เพิ่มไฟล์ใหม่หรือจัดระเบียบ Tools ต้องรัน Full Test Suite (`uv run pytest`) จริง และเช็ค import แบบ standalone (`uv run python -c "import ..."`) เพื่อจับ syntax/import error เร็วกว่ารอ pytest collect ทั้งชุด
 
 ---
 
@@ -267,9 +274,9 @@
 
 ## 9. การจัดการความสะอาดของ Workspace และไฟล์ทดสอบ (Workspace Cleanliness & Generated Files)
 
-1. **Test Reports & Artifacts:** ไฟล์รายงานผลที่สร้างจากการรัน Test (เช่น `testing_report.html`, `coverage_report/`, `coverage.xml`) หรือไฟล์จำลองต่างๆ (Mock/Temp Files) ต้องถูกตั้งค่าให้ไปจัดเก็บไว้ในโฟลเดอร์ที่เกี่ยวข้อง (เช่น `tests/`) เท่านั้น ห้ามปล่อยให้ตกค้างหรือสร้างทิ้งไว้ใน Root Directory เด็ดขาด เพื่อไม่ให้ปะปนกับโค้ดหลัก
-2. **Scratch & Temp Files:** หากมีการสร้างไฟล์เพื่อทดสอบโค้ดชั่วคราว, เขียนสคริปต์สั้นๆ เพื่อดีบัก หรือสร้างไฟล์ล็อก (เช่น `temp_*.py`, `debug.txt`) ต้องสร้างไว้ในโฟลเดอร์ `scratch/` หรือถูกลบทิ้ง (Clean up) ทันทีเมื่อไม่ใช้งานแล้ว
-3. **No Root Clutter:** ห้ามสร้างไฟล์ขยะ โฟลเดอร์ใหม่ หรือเทสต์ที่วางสะเปะสะปะบน Root Directory โดยไม่ได้รับอนุญาต 
+1. **Test Reports & Artifacts:** ไฟล์รายงานผลที่สร้างจากการรัน Test (เช่น `testing_report.html`, `coverage_report/`, `coverage.xml`) หรือไฟล์จำลองต่างๆ (Mock/Temp Files) ต้องถูกตั้งค่าให้ไปจัดเก็บไว้ในโฟลเดอร์ที่เกี่ยวข้อง (เช่น `tests/`) เท่านั้น ห้ามปล่อยให้ตกค้างหรือสร้างทิ้งไว้ใน Root Directory เด็ดขาด
+2. **Scratch & Temp Files:** หากมีการสร้างไฟล์เพื่อทดสอบโค้ดชั่วคราว, เขียนสคริปต์สั้นๆ เพื่อดีบัก หรือสร้างไฟล์ล็อก ต้องสร้างไว้ในโฟลเดอร์ scratchpad ของ session หรือถูกลบทิ้ง (Clean up) ทันทีเมื่อไม่ใช้งานแล้ว — ห้ามทิ้ง reproduction script/debug file ค้างไว้ใน `tests/` ของจริง
+3. **No Root Clutter:** ห้ามสร้างไฟล์ขยะ โฟลเดอร์ใหม่ หรือเทสต์ที่วางสะเปะสะปะบน Root Directory โดยไม่ได้รับอนุญาต
 
 ---
 
@@ -294,14 +301,15 @@
 **กฎเหล็กสำหรับการเขียนและจัดการ Prompt:**
 1. **Modular Skill Files (ห้าม Hardcode Prompt):** ห้ามเขียนข้อความ Prompt ยาว ๆ ฝังตายตัวในไฟล์ Python บังคับให้แยกจัดเก็บไฟล์ Markdown ไว้ภายใต้โฟลเดอร์:
    - ฝั่ง Agent: `prompts/skills/<agent_name>/`
-   - ฝั่ง Tool: `prompts/tools/<tool_name>/`
+   - ฝั่ง Tool: `prompts/tools/<tool_name>/` (เข้าถึงผ่าน `skills_root=TOOLS_PROMPTS_ROOT`)
    โดยควรแบ่งโมดูลย่อย (โดยเฉพาะของ Agent) เป็น:
    - `SKILL.md` (หรือ `<AGENT_NAME>_SKILL.md`): อธิบายภารกิจ บทบาท และบทบัญญัติหลักของ Agent
    - `pillars.md` (ทางเลือก): กำหนดเสาหลัก กฎเกณฑ์เชิงโครงสร้าง หรือแนวทางการประเมิน
    - `guardrails.md` (ทางเลือก): ระบุข้อจำกัด ความปลอดภัย และกฎห้ามละเมิด
    - `few_shots.md` (ทางเลือก): ตัวอย่างผลลัพธ์ โครงสร้าง JSON Schema หรือตารางที่ถูกต้องสำหรับส่งให้ Retry Layer
-2. **Hot-Reloading & In-Memory Caching (`get_harness`):** การเรียกใช้งาน Prompt ในโค้ดของ Agent ต้องเรียกผ่าน `get_harness("agent_name")` และ `harness.get_system_prompt()` หรือ `harness.get_skill_text()` เสมอ ระบบจะทำการเช็คเวลาแก้ไขไฟล์ (`mtime`) และ Cache ไว้ในหน่วยความจำ ช่วยให้ Developer สามารถแก้ไข Prompt ใน Markdown แล้วมีผลทันทีในรอบรันถัดไป (Hot-Reloading) โดยไม่ต้องรีสตาร์ทแอปพลิเคชัน
-3. **Mustache Template (`{{variable}}`) ป้องกัน JSON Collision:** การแทรกตัวแปรไดนามิกลงใน Prompt บังคับใช้รูปแบบ Mustache syntax (`{{variable_name}}`) ผ่านฟังก์ชัน `format_mustache()` หรือพารามิเตอร์ของ `get_system_prompt(**kwargs)` **ห้าม** ใช้ Python f-strings หรือ `.format()` (`{}`) เด็ดขาด เพื่อป้องกันปัญหาข้อผิดพลาดจากปีกกาของ JSON Schema หรือ Markdown Table ชนกับรหัสจัดรูปแบบของ Python (และควรเปิด `strict=True` เพื่อดักจับตัวแปรที่ตกหล่นก่อนส่งหา LLM)
+2. **Hot-Reloading & In-Memory Caching (`get_harness`):** การเรียกใช้งาน Prompt ในโค้ดของ Agent/Tool ต้องเรียกผ่าน `get_harness("name", skills_root=...)` และ `harness.get_system_prompt()` หรือ `harness.get_skill_text()` เสมอ ระบบจะทำการเช็คเวลาแก้ไขไฟล์ (`mtime`) และ Cache ไว้ในหน่วยความจำ ช่วยให้ Developer สามารถแก้ไข Prompt ใน Markdown แล้วมีผลทันทีในรอบรันถัดไป (Hot-Reloading) โดยไม่ต้องรีสตาร์ทแอปพลิเคชัน
+3. **Mustache Template (`{{variable}}`) ป้องกัน JSON Collision:** การแทรกตัวแปรไดนามิกลงใน Prompt บังคับใช้รูปแบบ Mustache syntax (`{{variable_name}}`) ผ่านฟังก์ชัน `format_mustache()` หรือพารามิเตอร์ของ `get_system_prompt(**kwargs)`/`get_skill_text(**kwargs)` **ห้าม** ใช้ Python f-strings หรือ `.format()` (`{}`) เด็ดขาด เพื่อป้องกันปัญหาข้อผิดพลาดจากปีกกาของ JSON Schema หรือ Markdown Table ชนกับรหัสจัดรูปแบบของ Python (และควรเปิด `strict=True` เพื่อดักจับตัวแปรที่ตกหล่นก่อนส่งหา LLM)
+   - **เนื้อหา dynamic ที่เป็น list/บล็อกยาว (เช่น candidate list, evidence bundle) ต้องส่งเป็น Mustache variable ที่วางตำแหน่งตรงกับ template เดิม ห้าม concat string ต่อท้ายหลัง `get_skill_text()`** เพราะจะทำให้ลำดับเนื้อหาใน prompt สลับจากของเดิม (ตำแหน่งของ dynamic content เทียบกับกฎ/คำสั่งที่ตามมาสำคัญต่อพฤติกรรม LLM)
 4. **Dynamic Few-Shot Injection สำหรับ Retry Loop:** เมื่อเชื่อมต่อ Agent เข้ากับระบบ `invoke_with_retry` หรือ `structured_output_retry` ต้องส่งต่อข้อความซ่อมแซมผ่าน `harness.get_few_shots_feedback()` เพื่อฉีดตัวอย่างจากไฟล์ `few_shots.md` เข้าไปใน Prompt Feedback ช่วยชี้นำให้ LLM สามารถแก้ไขโครงสร้าง JSON หรือตารางที่ผิดพลาดด้วยตัวเอง (Self-Correction) ได้อย่างแม่นยำ
 5. **Mojibake Repair & Encoding Safety:** ไฟล์ Skill ทุกไฟล์ต้องถูกโหลดผ่านระบบที่จัดการภาษาและตัวอักษรอย่างปลอดภัย โดย `PromptHarness` จะครอบการซ่อมแซมตัวอักษรขยะด้วย `repair_mojibake` โดยอัตโนมัติ เพื่อป้องกันปัญหาไฟล์อักษรไทย TIS-620/Latin-1 แสดงผลผิดเพี้ยน
 6. **หลักการเขียน Test Harness สำหรับ Agents (Agent Test Harness Principles):** การทดสอบระบบ Agents ต้องแบ่งออกเป็น 2 ชั้นอย่างชัดเจน คือ (1) **Mock Harness (Unit Testing):** สำหรับทดสอบตรรกะ Guardrails, State Transitions, และ Fallback mechanisms โดยใช้ Mock Data / Fallback Calculators เพื่อให้ชุดทดสอบรันได้อย่างรวดเร็ว ไม่พึ่งพาพาหะภายนอก และ (2) **Integration Harness (Production Verification):** สำหรับทดสอบในระบบจริง ต้องบังคับปิดโหมด Mock Fallback (`use_mock_fallback=False`) และเชื่อมต่อกับ Real Data Calculators (เช่น ดึงราคาจริงผ่าน `yfinance` หรือ Vault) เสมอ เพื่อให้มั่นใจว่าในแวดล้อม Production จะไม่มีการปล่อยตัวเลขจำลองหลุดออกไปในรายงานการลงทุน
@@ -317,17 +325,18 @@
 5. **เมื่อจะเขียนไฟล์** — Atomic เสมอ
 6. **เมื่อตัวเลขเปลี่ยน** — Re-aggregate จากล่างขึ้นบน
 7. **เมื่อพูดกับ Terminal** — Prefix Token ไม่ใช่ prose
-8. **เมื่อใช้ API Keys** — ดึงจาก env เท่านั้น ห้าม Hardcode
+8. **เมื่อใช้ API Keys/Webhook URLs** — ดึงจาก env เท่านั้น ห้าม Hardcode และต้องเพิ่มเข้า test isolation fixture ด้วย
 9. **เมื่อจัดการ Tools** — แยกไฟล์ตามโดเมน ห้ามสร้าง God-files
-10. **เมื่อสร้างไฟล์ชั่วคราว/Report** — เก็บใน `tests/` หรือ `scratch/` เสมอ ห้ามวางทิ้งให้รก Root Directory
+10. **เมื่อสร้างไฟล์ชั่วคราว/Report** — เก็บใน `tests/` หรือ scratchpad เสมอ ห้ามวางทิ้งให้รก Root Directory
 11. **เมื่อสร้าง Tools ใหม่** — คืนค่า `"Error: ..."` เสมอแทนที่จะปล่อย Exception ทะลุ (Self-Correction)
 12. **เมื่อเขียนฟังก์ชัน/เครื่องมือใหม่ให้ Agent** — ต้องครอบ `@traceable(run_type="...")` ให้ถูกหมวดหมู่เสมอ
 13. **เมื่อกำหนดวิธีใช้ Tool** — เขียนเงื่อนไขและวิธีใช้งานลงใน Docstring (Google Style) ของ `@tool` เท่านั้น ห้ามใส่ใน System Prompt
-14. **เมื่อวิเคราะห์ข้อมูลมหภาคและจัดสรรพอร์ต (Macro & Allocation)** — ต้องอ้างอิง Hard Data ผ่าน `observable_refs` เสมอ และห้ามข้ามขั้นตอนการตรวจสอบของ Institutional Guardrails (ERP < 1.5%, Stale Exemption, Correlation $\ge 45$ days)
+14. **เมื่อวิเคราะห์ข้อมูลมหภาคและจัดสรรพอร์ต (Macro & Allocation)** — ต้องอ้างอิง Hard Data ผ่าน `observable_refs` เสมอ และห้ามข้ามขั้นตอนการตรวจสอบของ Institutional Guardrails (ERP < 1.5%, Stale Exemption, Correlation ≥ 45 days)
 15. **เมื่อสร้างข้อมูลตัวชี้วัดดัดแปลง (Derived Observables)** — ต้องบันทึกสถิติเชิงลึกในรูปแบบ Dict/JSON ลงใน `metadata` เสมอ เพื่อให้เป็นมาตรฐาน Machine-Readable
-16. **เมื่อเขียนหรือแก้ไข Prompt ของ Agent** — ต้องจัดการผ่าน `PromptHarness` (`get_harness`) และไฟล์ `SKILL.md` ใน `prompts/skills/` เสมอ ห้าม Hardcode ในไฟล์ Python
+16. **เมื่อเขียนหรือแก้ไข Prompt ของ Agent/Tool** — ต้องจัดการผ่าน `PromptHarness` (`get_harness`) และไฟล์ `.md` ใน `prompts/skills/` หรือ `prompts/tools/` เสมอ ห้าม Hardcode ในไฟล์ Python และห้าม concat dynamic content ต่อท้ายแบบทำลายลำดับเดิม
 17. **เมื่อออกแบบและเรียกใช้ฟังก์ชันตรวจสอบระบบ (Validation & Guardrails):** ต้องรับประกันคุณสมบัติ **Idempotent** เสมอ ห้ามสร้างคำเตือนซ้ำซ้อนหรือลดระดับความมั่นใจซ้ำสองเมื่อประมวลผลบนข้อมูลชุดเดิม
 18. **เมื่อสร้างข้อมูลตัวชี้วัดในโหมด Production:** ห้ามใช้ตัวเลขจำลอง (Mock Data) เป็น Fallback เด็ดขาด หากไม่มีข้อมูลจริงต้องแจ้งสถานะ `is_valid=False` และระบุเหตุผลใน `stale_reason` ทันที
 19. **เมื่อตรวจสอบความครบถ้วนของพอร์ต (Institutional Coverage Guardrails):** ต้องตรวจสอบการครอบคลุมสินทรัพย์หลักทั้ง 5 กลุ่ม (`equities`, `fixed_income`, `commodities`, `fx`, `cash`) เสมอ และห้ามข้ามการตรวจสอบทิศทางค่าเงินทั้งสองมุมมอง (`USD vs THB` และ `THB vs USD`)
+20. **เมื่อจัดการ Model Config** — ห้าม hardcode ชื่อ model หรือ `os.getenv()` กระจาย ต้องผ่าน `core.model_registry` เสมอ ยกเว้น slot ที่ผ่าน `invoke_structured_llm` ต้องส่ง `env_var`/`default` จาก Registry ตรงๆ ไม่ใช่เรียก `get_model_name()`
 
 > *"Code is read far more often than it is written. Optimize for the reader — and the reader of a financial system is auditing for correctness, not admiring cleverness."*

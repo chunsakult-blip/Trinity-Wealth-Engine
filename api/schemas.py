@@ -397,6 +397,7 @@ class KanbanCardDTO(BaseModel):
     scope: str = "both"
     display_seq: Optional[int] = None
     discord_notify: bool = True
+    is_verified: bool = True
     created_at: float
     updated_at: float
 
@@ -600,6 +601,31 @@ class NewsFunnelPendingItemDTO(BaseModel):
     links: list[str] = []
     triage_source: Optional[str] = None
     triage_fallback_reason: Optional[str] = None
+
+
+class NotebookLMAvailableSourceDTO(BaseModel):
+    file_path: str
+    title: str
+    date_part: Optional[str] = None
+    is_verified: bool
+
+
+class NotebookLMGenerateRequest(BaseModel):
+    card_id: str
+    briefing_file_path: Optional[str] = None
+
+
+class NotebookLMGenerateResponse(BaseModel):
+    job_id: str
+    status: str
+
+
+class NotebookLMStatusDTO(BaseModel):
+    job_id: str
+    status: str
+    audio_path: Optional[str] = None
+    notebook_id: Optional[str] = None
+    error: Optional[str] = None
 
 
 class NewsFunnelFilteredItemDTO(BaseModel):

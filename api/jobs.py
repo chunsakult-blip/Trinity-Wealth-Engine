@@ -24,9 +24,14 @@ RunFn = Callable[..., None]
 
 
 class JobQueue:
-    def __init__(self, run_fn: RunFn, db_path: Optional[str] = None):
+    def __init__(self, run_fn: RunFn, db_path: Optional[str] = None, flows: Optional[set[str]] = None):
+        """flows=None (default) = ประมวลผลทุก flow เหมือนเดิม — ใส่ค่าเมื่อ JobQueue ตัวนี้แชร์ DB
+        เดียวกับคิวอื่น (เช่น notebooklm_job_queue แชร์กับคิวหลัก) เพื่อกัน reenqueue_pending()
+        กวาดงาน flow อื่นเข้าคิวตัวเองโดยไม่ได้ตั้งใจ
+        """
         self._run_fn = run_fn
         self._db_path = db_path
+        self._flows = list(flows) if flows is not None else None
         self._queue: "asyncio.Queue[str]" = asyncio.Queue()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._worker_task: Optional[asyncio.Task] = None
@@ -141,7 +146,12 @@ class JobQueue:
                         if current["card_id"]:
                             state_db.move_kanban_card(conn, current["card_id"], "approval", job_id)
         except Exception as e:
-            error_message = str(e) or e.__class__.__name__
+            def _extract_msg(ex: BaseException) -> str:
+                if isinstance(ex, BaseExceptionGroup) and ex.exceptions:
+                    return _extract_msg(ex.exceptions[0])
+                return str(ex) or ex.__class__.__name__
+            
+            error_message = _extract_msg(e)
             with closing(self._conn()) as conn:
                 state_db.append_job_log(
                     conn,
@@ -166,14 +176,14 @@ class JobQueue:
         เกิดขึ้น (ต้องมี checkpointer เสมอ) ปลอดภัยที่จะรอ user approve ทีหลังได้แม้ restart
         """
         with closing(self._conn()) as conn:
-            for job in state_db.list_jobs_by_status(conn, ["running"]):
+            for job in state_db.list_jobs_by_status(conn, ["running"], flows=self._flows):
                 state_db.update_job_status(
                     conn, job["job_id"], "error",
                     error_message="ถูกขัดจังหวะเพราะ server restart กลางคัน — กรุณาสั่งงานใหม่อีกครั้ง",
                 )
                 if job["card_id"]:
                     state_db.move_kanban_card(conn, job["card_id"], "backlog", job["job_id"])
-            queued = state_db.list_jobs_by_status(conn, ["queued"])
+            queued = state_db.list_jobs_by_status(conn, ["queued"], flows=self._flows)
         for job in queued:
             self._queue.put_nowait(job["job_id"])
 

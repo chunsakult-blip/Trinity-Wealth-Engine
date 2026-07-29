@@ -280,6 +280,7 @@ export interface KanbanCardDTO {
   scope: string
   display_seq: number | null
   discord_notify: boolean
+  is_verified: boolean
   created_at: number
   updated_at: number
 }
@@ -474,4 +475,24 @@ export interface UpsertGoalPayload {
 
 export interface AppendJournalPayload {
   entry: string
+}
+
+export interface NotebookLMAvailableSourceDTO {
+  file_path: string
+  title: string
+  date_part: string | null
+  is_verified: boolean
+}
+
+export interface NotebookLMGenerateResponse {
+  job_id: string
+  status: string
+}
+
+export interface NotebookLMStatusDTO {
+  job_id: string
+  status: string
+  audio_path: string | null
+  notebook_id: string | null
+  error: string | null
 }

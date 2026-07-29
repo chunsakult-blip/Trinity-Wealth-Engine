@@ -21,11 +21,13 @@ def api_env(tmp_path, monkeypatch):
 def client(api_env, monkeypatch):
     """TestClient ที่ผูก job queue เข้ากับ fake run_fn — ไม่เรียก LangGraph/LLM จริง"""
     import api.jobs as jobs_module
+    import api.notebooklm_worker as notebooklm_worker_module
 
     def _fake_run_fn(**kwargs) -> None:
         return None
 
     monkeypatch.setattr(jobs_module, "default_run_fn", _fake_run_fn)
+    monkeypatch.setattr(notebooklm_worker_module, "notebooklm_run_fn", _fake_run_fn)
 
     from fastapi.testclient import TestClient
 

@@ -84,7 +84,7 @@ export default function KanbanCard({
       </button>
       <div className="mb-1.5 flex flex-wrap items-center justify-between gap-1 pr-5">
         <div className="flex flex-wrap items-center gap-1 min-w-0">
-          {editable && onDispatch && (
+          {editable && onDispatch && card.flow !== 'notebooklm' && (
             <button
               onClick={(e) => {
                 e.stopPropagation()

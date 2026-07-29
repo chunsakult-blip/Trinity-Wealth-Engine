@@ -39,6 +39,7 @@ dependencies = [
     "fastapi>=0.139.0",
     "uvicorn[standard]>=0.46.0",
     "itsdangerous>=2.2.0",
+    "notebooklm-mcp-cli>=0.9.4",
 ]
 
 [dependency-groups]
@@ -46,11 +47,13 @@ dev = [
     "pytest>=8.0",
     "pytest-cov>=7.1.0",
     "pytest-html>=4.2.0",
+    "pytest-asyncio>=0.25.0",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 filterwarnings = ["ignore::DeprecationWarning"]
+asyncio_mode = "auto"
 markers = [
     "integration: live/provider integration tests",
 ]

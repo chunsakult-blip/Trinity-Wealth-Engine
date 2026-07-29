@@ -57,6 +57,7 @@ def _card_to_dto(row) -> KanbanCardDTO:
         scope=row["scope"],
         display_seq=row["display_seq"],
         discord_notify=bool(row["discord_notify"]) if row["discord_notify"] is not None else True,
+        is_verified=bool(row["is_verified"]) if row["is_verified"] is not None else True,
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

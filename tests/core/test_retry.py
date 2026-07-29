@@ -2,7 +2,7 @@
 import pytest
 from unittest.mock import MagicMock
 
-from core.retry import is_transient_error, with_retry, _MAX_RETRIES
+from core.retry import is_transient_error, with_retry, with_retry_async, _MAX_RETRIES
 
 
 class TestIsTransientError:
@@ -196,3 +196,71 @@ class TestWithRetry:
         fn = MagicMock(return_value={"data": [1, 2, 3]})
         result = with_retry(fn)
         assert result == {"data": [1, 2, 3]}
+
+
+class TestWithRetryAsync:
+    async def test_success_first_try(self, monkeypatch):
+        slept = []
+        monkeypatch.setattr("core.retry.asyncio.sleep", _fake_async_sleep(slept))
+
+        async def fn():
+            return "ok"
+
+        assert await with_retry_async(fn) == "ok"
+        assert slept == []
+
+    async def test_success_on_second_try(self, monkeypatch):
+        slept = []
+        monkeypatch.setattr("core.retry.asyncio.sleep", _fake_async_sleep(slept))
+        calls = [0]
+
+        async def fn():
+            calls[0] += 1
+            if calls[0] == 1:
+                raise TimeoutError("transient")
+            return "done"
+
+        assert await with_retry_async(fn) == "done"
+        assert calls[0] == 2
+        assert slept == [1]
+
+    async def test_non_transient_raises_immediately(self, monkeypatch):
+        slept = []
+        monkeypatch.setattr("core.retry.asyncio.sleep", _fake_async_sleep(slept))
+
+        async def fn():
+            raise ValueError("bad")
+
+        with pytest.raises(ValueError, match="bad"):
+            await with_retry_async(fn)
+        assert slept == []
+
+    async def test_exhausts_retries_and_raises(self, monkeypatch):
+        slept = []
+        monkeypatch.setattr("core.retry.asyncio.sleep", _fake_async_sleep(slept))
+
+        async def fn():
+            raise ConnectionError("network down")
+
+        with pytest.raises(ConnectionError):
+            await with_retry_async(fn)
+        assert slept == [1, 2]
+
+    async def test_args_and_kwargs_forwarded(self, monkeypatch):
+        monkeypatch.setattr("core.retry.asyncio.sleep", _fake_async_sleep([]))
+        received = {}
+
+        async def fn(a, b, x=None):
+            received["args"] = (a, b)
+            received["x"] = x
+            return 42
+
+        result = await with_retry_async(fn, "a", "b", x=3)
+        assert result == 42
+        assert received == {"args": ("a", "b"), "x": 3}
+
+
+def _fake_async_sleep(sink: list):
+    async def _sleep(seconds):
+        sink.append(seconds)
+    return _sleep

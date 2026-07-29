@@ -15,6 +15,7 @@ function makeCard(overrides: Partial<KanbanCardDTO> = {}): KanbanCardDTO {
     scope: 'both',
     display_seq: 7,
     discord_notify: true,
+    is_verified: true,
     created_at: 1_700_000_000,
     updated_at: 1_700_000_000,
     ...overrides,
@@ -75,6 +76,11 @@ describe('KanbanCard', () => {
     expect(screen.queryByRole('button', { name: 'แก้ไขการ์ด' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'ส่งงานให้ Manager' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'ลบการ์ด' })).toBeInTheDocument()
+  })
+
+  it('การ์ด flow=notebooklm ไม่มีปุ่ม Play แม้ editable — สร้าง Audio ทำผ่าน Drawer เท่านั้น', () => {
+    renderCard({ card: makeCard({ flow: 'notebooklm' }) })
+    expect(screen.queryByRole('button', { name: 'ส่งงานให้ Manager' })).not.toBeInTheDocument()
   })
 
   it('workspace preview โชว์ชื่อ agent, จำนวน log และเวลาที่ผ่านไป', () => {

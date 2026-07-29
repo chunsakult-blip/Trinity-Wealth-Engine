@@ -21,6 +21,9 @@ import type {
   UpsertWatchlistItemPayload,
   UpsertGoalPayload,
   AppendJournalPayload,
+  NotebookLMAvailableSourceDTO,
+  NotebookLMGenerateResponse,
+  NotebookLMStatusDTO,
 } from './types'
 
 export class ApiError extends Error {
@@ -273,4 +276,20 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+
+  // ---------------------------------------------------------
+  // NotebookLM Audio Overview (การ์ด flow="notebooklm" สร้างเองผ่าน Create Card ปกติ —
+  // เลือกไฟล์ Briefing Book ทีหลังใน Drawer)
+  // ---------------------------------------------------------
+  getNotebookLMAvailableSources: () =>
+    request<NotebookLMAvailableSourceDTO[]>('/api/notebooklm/available-sources'),
+
+  generateNotebookLMAudio: (cardId: string, briefingFilePath?: string) =>
+    request<NotebookLMGenerateResponse>('/api/notebooklm/generate', {
+      method: 'POST',
+      body: JSON.stringify({ card_id: cardId, briefing_file_path: briefingFilePath ?? null }),
+    }),
+
+  getNotebookLMStatus: (jobId: string) =>
+    request<NotebookLMStatusDTO>(`/api/notebooklm/status/${encodeURIComponent(jobId)}`),
 }

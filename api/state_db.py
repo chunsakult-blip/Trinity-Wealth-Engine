@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS kanban_cards (
     job_id TEXT,
     flow TEXT NOT NULL DEFAULT 'manager',
     display_seq INTEGER,
+    is_verified INTEGER NOT NULL DEFAULT 1,
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
@@ -95,6 +96,7 @@ _COLUMN_MIGRATIONS: dict[str, dict[str, str]] = {
         "scope": "scope TEXT NOT NULL DEFAULT 'both'",
         "discord_notify": "discord_notify INTEGER NOT NULL DEFAULT 1",
         "discord_sent_events": "discord_sent_events TEXT",
+        "is_verified": "is_verified INTEGER NOT NULL DEFAULT 1",
     },
 }
 
@@ -265,9 +267,18 @@ def cas_job_status(conn: sqlite3.Connection, job_id: str, old_status: str, new_s
     return cur.rowcount > 0
 
 
-def list_jobs_by_status(conn: sqlite3.Connection, statuses: list[str]) -> list[sqlite3.Row]:
+def list_jobs_by_status(conn: sqlite3.Connection, statuses: list[str], flows: list[str] | None = None) -> list[sqlite3.Row]:
+    """flows=None (default) = ทุก flow เหมือนเดิมทุกประการ — ใส่ให้ JobQueue ที่แชร์ DB เดียวกันกับ
+    คิวอื่น (เช่น notebooklm_job_queue) กรองเฉพาะ flow ของตัวเอง กัน reenqueue_pending() ข้ามคิวไปกวาด
+    งานคนละ flow มาประมวลผลผิดที่"""
     placeholders = ",".join("?" for _ in statuses)
-    cur = conn.execute(f"SELECT * FROM jobs WHERE status IN ({placeholders})", tuple(statuses))
+    params: list[str] = list(statuses)
+    query = f"SELECT * FROM jobs WHERE status IN ({placeholders})"
+    if flows is not None:
+        flow_placeholders = ",".join("?" for _ in flows)
+        query += f" AND flow IN ({flow_placeholders})"
+        params += list(flows)
+    cur = conn.execute(query, tuple(params))
     return cur.fetchall()
 
 
@@ -335,13 +346,14 @@ def create_kanban_card(
     flow: str = "manager",
     prompt: str | None = None,
     scope: str = "both",
+    is_verified: bool = True,
 ) -> None:
     now = time.time()
     next_seq = conn.execute("SELECT COALESCE(MAX(display_seq), 0) + 1 FROM kanban_cards").fetchone()[0]
     conn.execute(
-        "INSERT INTO kanban_cards (card_id, title, column_name, job_id, flow, display_seq, prompt, scope, created_at, updated_at) "
-        "VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)",
-        (card_id, title, column_name, flow, next_seq, prompt, scope, now, now),
+        "INSERT INTO kanban_cards (card_id, title, column_name, job_id, flow, display_seq, prompt, scope, is_verified, created_at, updated_at) "
+        "VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)",
+        (card_id, title, column_name, flow, next_seq, prompt, scope, 1 if is_verified else 0, now, now),
     )
     conn.commit()
 
@@ -353,6 +365,19 @@ def update_kanban_card(
     conn.execute(
         "UPDATE kanban_cards SET title = ?, prompt = ?, flow = ?, scope = ?, updated_at = ? WHERE card_id = ?",
         (title, prompt, flow, scope, now, card_id),
+    )
+    conn.commit()
+
+
+def set_kanban_card_source(conn: sqlite3.Connection, card_id: str, prompt: str, is_verified: bool) -> None:
+    """UPDATE เฉพาะ prompt/is_verified — partial patch โดยตั้งใจ ไม่แตะ title/flow/scope (pattern
+    เดียวกับ toggle_kanban_card_discord) ใช้ตอนผู้ใช้เลือก Briefing Book ให้การ์ด NotebookLM
+    ครั้งแรกใน Drawer ไม่ให้กระทบชื่อการ์ด/flow ที่ผู้ใช้ตั้งไว้ตอนสร้าง
+    """
+    now = time.time()
+    conn.execute(
+        "UPDATE kanban_cards SET prompt = ?, is_verified = ?, updated_at = ? WHERE card_id = ?",
+        (prompt, 1 if is_verified else 0, now, card_id),
     )
     conn.commit()
 

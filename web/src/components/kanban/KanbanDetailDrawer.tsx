@@ -5,6 +5,7 @@ import type { ApprovalPayload, KanbanCardDTO } from '../../api/types'
 import LiveTerminal from '../LiveTerminal'
 import ApprovalPanel from '../ApprovalPanel'
 import NewsFunnelPromptViewer from './NewsFunnelPromptViewer'
+import NotebookLMCardDetail from './NotebookLMCardDetail'
 import YoutubePitchDateControls from './YoutubePitchDateControls'
 import { FLOW_TAG } from '../../lib/flows'
 import { columnForStatus, type TerminalStatus } from '../../lib/agentStatus'
@@ -223,7 +224,7 @@ export default function KanbanDetailDrawer({ card, onClose, onCardTransition }: 
                     className="mt-3.5"
                   />
                 )}
-                {card.prompt && (
+                {card.prompt && card.flow !== 'notebooklm' && (
                   card.flow === 'news_funnel' ? (
                     <NewsFunnelPromptViewer prompt={card.prompt} onItemDeleted={onCardTransition} />
                   ) : (
@@ -253,7 +254,23 @@ export default function KanbanDetailDrawer({ card, onClose, onCardTransition }: 
                 )}
               </div>
 
-              {card.job_id ? (
+              {card.flow === 'notebooklm' ? (
+                <div className="space-y-3">
+                  <NotebookLMCardDetail card={card} onCardTransition={onCardTransition} />
+                  {card.job_id && (
+                    terminalCollapsed ? (
+                      <details className="rounded-xl border border-edge bg-surface p-3">
+                        <summary className="cursor-pointer text-xs font-medium text-zinc-600">Execution trace</summary>
+                        <div className="mt-3">
+                          <LiveTerminal key={terminalKey} jobId={card.job_id} onStatusChange={handleTerminalStatusChange} />
+                        </div>
+                      </details>
+                    ) : (
+                      <LiveTerminal key={terminalKey} jobId={card.job_id} onStatusChange={handleTerminalStatusChange} />
+                    )
+                  )}
+                </div>
+              ) : card.job_id ? (
                 <div className="space-y-3">
                   {terminalCollapsed ? (
                     <>

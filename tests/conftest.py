@@ -169,5 +169,6 @@ def _no_real_llm_keys(monkeypatch):
     for k in (
         "GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY",
         "DISCORD_WEBHOOK_URL", "DISCORD_TAG_ID_ULTRA", "DISCORD_TAG_ID_HIGH", "DISCORD_TAG_ID_WARNING",
+        "NOTEBOOKLM_AUTH_DIR",
     ):
         monkeypatch.delenv(k, raising=False)

@@ -127,6 +127,62 @@ def test_reenqueue_pending_requeues_stale_queued_job(tmp_path):
     assert queue._queue.qsize() == 1
 
 
+def test_reenqueue_pending_with_flows_filter_ignores_other_flows_running_job(tmp_path):
+    """queue ที่แชร์ DB กับ queue อื่น (เช่น notebooklm_job_queue กับคิวหลัก) ต้องไม่ไปแตะงาน
+    flow อื่นตอน reenqueue_pending — ไม่งั้นจะ mark งาน manager/youtube_pitch ที่กำลังรันอยู่จริง
+    เป็น error ผิดๆ เพียงเพราะ queue คนละตัวมาสแกนเจอ (เกิดจาก list_jobs_by_status ไม่ filter flow)
+    """
+    db_path = str(tmp_path / "state.sqlite")
+    conn = state_db.get_connection(db_path)
+    state_db.create_job(conn, "job-manager", "thread-1", None, "key-manager", "instr", status="running", flow="manager")
+    state_db.create_job(conn, "job-notebooklm", "thread-2", None, "key-notebooklm", "instr", status="running", flow="notebooklm")
+    conn.close()
+
+    queue = JobQueue(run_fn=_noop_run_fn, db_path=db_path, flows={"notebooklm"})
+    queue.reenqueue_pending()
+
+    conn = state_db.get_connection(db_path)
+    manager_job = state_db.get_job(conn, "job-manager")
+    notebooklm_job = state_db.get_job(conn, "job-notebooklm")
+    conn.close()
+
+    assert manager_job["status"] == "running"  # ไม่ถูกแตะ
+    assert notebooklm_job["status"] == "error"  # ถูก mark ตามปกติ
+
+
+def test_reenqueue_pending_with_flows_filter_only_requeues_matching_flow(tmp_path):
+    db_path = str(tmp_path / "state.sqlite")
+    conn = state_db.get_connection(db_path)
+    state_db.create_job(conn, "job-manager", "thread-1", None, "key-manager", "instr", status="queued", flow="manager")
+    state_db.create_job(conn, "job-notebooklm", "thread-2", None, "key-notebooklm", "instr", status="queued", flow="notebooklm")
+    conn.close()
+
+    queue = JobQueue(run_fn=_noop_run_fn, db_path=db_path, flows={"notebooklm"})
+    queue.reenqueue_pending()
+
+    assert queue._queue.qsize() == 1
+
+
+def test_reenqueue_pending_without_flows_filter_processes_all_flows_as_before(tmp_path):
+    """flows=None (default) ต้องพฤติกรรมเดิมเป๊ะ — กัน regression กับคิวหลักที่มีอยู่แล้ว"""
+    db_path = str(tmp_path / "state.sqlite")
+    conn = state_db.get_connection(db_path)
+    state_db.create_job(conn, "job-manager", "thread-1", None, "key-manager", "instr", status="running", flow="manager")
+    state_db.create_job(conn, "job-notebooklm", "thread-2", None, "key-notebooklm", "instr", status="running", flow="notebooklm")
+    conn.close()
+
+    queue = JobQueue(run_fn=_noop_run_fn, db_path=db_path)
+    queue.reenqueue_pending()
+
+    conn = state_db.get_connection(db_path)
+    manager_job = state_db.get_job(conn, "job-manager")
+    notebooklm_job = state_db.get_job(conn, "job-notebooklm")
+    conn.close()
+
+    assert manager_job["status"] == "error"
+    assert notebooklm_job["status"] == "error"
+
+
 def test_job_log_role_label_and_current_node(tmp_path):
     """log ต้องแยก instruction (manager→worker) กับ reply (worker เอง) พร้อม label ทิศทาง
     และ current_node ต้องดึงจาก log แถวล่าสุดได้ (สำหรับ badge 'Workers Executing')"""

@@ -14,9 +14,10 @@ Exception coverage:
   - yfinance.exceptions.YFRateLimitError
   - fallback: regex บน str(exc) สำหรับ exception ที่ถูก wrap/chain
 """
+import asyncio
 import re
 import time
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 # Optional imports — แต่ละ HTTP stack อาจไม่ติดตั้งครบทุกตัว
 _NETWORK_CLASSES: list[type] = [TimeoutError, ConnectionError]
@@ -106,5 +107,21 @@ def with_retry(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         except Exception as e:
             if attempt < _MAX_RETRIES - 1 and is_transient_error(e):
                 time.sleep(2 ** attempt)
+                continue
+            raise
+
+
+async def with_retry_async(fn: Callable[..., Awaitable[Any]], *args: Any, **kwargs: Any) -> Any:
+    """เหมือน with_retry แต่สำหรับ async callable — ใช้ asyncio.sleep แทน time.sleep
+
+    ใช้ is_transient_error/_MAX_RETRIES ชุดเดียวกัน เพื่อไม่ให้เกณฑ์ transient error
+    ระหว่าง sync/async call เพี้ยนจากกัน
+    """
+    for attempt in range(_MAX_RETRIES):
+        try:
+            return await fn(*args, **kwargs)
+        except Exception as e:
+            if attempt < _MAX_RETRIES - 1 and is_transient_error(e):
+                await asyncio.sleep(2 ** attempt)
                 continue
             raise
