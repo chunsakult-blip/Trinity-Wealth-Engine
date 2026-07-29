@@ -91,6 +91,8 @@ describe('api client', () => {
       approved_youtube_links: [],
       approved_event_ids: [],
       approved_pitch_ids: ['pitch-abc'],
+      unverified_draft_selections: undefined,
+      pitch_presentation_styles: {},
       action: 'approve',
     })
   })

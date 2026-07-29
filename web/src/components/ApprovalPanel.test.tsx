@@ -128,7 +128,7 @@ describe('ApprovalPanel', () => {
     const approveBtn = screen.getByRole('button', { name: /อนุมัติและสร้าง Briefing Book \(ปกติ 1, Draft 0 รายการ\)/ })
     await userEvent.click(approveBtn)
 
-    expect(onApprove).toHaveBeenCalledWith([], [], [], ['pitch-101'], 'approve', [])
+    expect(onApprove).toHaveBeenCalledWith([], [], [], ['pitch-101'], 'approve', [], {})
   })
 
   it('ไม่อนุญาตให้เลือก Pitch ที่ provenance ยังไม่พร้อม', async () => {
