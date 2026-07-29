@@ -24,6 +24,7 @@ from tools.macro.report_formatter import format_macro_strategy_report, write_str
 from core.agent_log import log_turn_start, log_manager_plan, log_worker_result, log_system_action, log_routing
 from core.llm_factory import FALLBACK_MODEL, detect_provider, get_llm
 from core.logger import get_logger
+from core.model_registry import get_model_name
 from core.prompt_harness import get_harness
 from core.utils import normalize_content
 
@@ -43,14 +44,18 @@ def _sanitize_researcher_instruction(instruction: str) -> str:
 
 # Single-tier config: ทุก agent ใช้ gemini-3.1-flash-lite-preview เป็น default
 # Fallback chain (core/llm_factory.FALLBACK_MODEL) = openai/gpt-oss-120b:free (OpenRouter)
-_MANAGER_MODEL = os.getenv("MANAGER_MODEL", "gemini-3.1-flash-lite-preview")
+# ค่า default ของแต่ละ slot มาจาก core.model_registry (single source of truth ที่ /api/debug/models
+# อ่านด้วย) — ยกเว้น _ROUTER_MODEL ที่คง behavior เดิมไว้ตั้งใจ: ถ้าไม่ตั้ง ROUTER_MODEL เอง จะ
+# chain ไปตามค่า _MANAGER_MODEL ที่ resolve แล้ว (ไม่ใช่ default คงที่ของ registry) เพื่อให้การ
+# override MANAGER_MODEL อย่างเดียวยังส่งผลถึง router ด้วยเหมือนเดิม
+_MANAGER_MODEL = get_model_name("manager")
 _ROUTER_MODEL = os.getenv("ROUTER_MODEL", _MANAGER_MODEL)
-_ARCHIVIST_MODEL = os.getenv("ARCHIVIST_MODEL", "gemini-3.1-flash-lite-preview")
-_RESEARCHER_MODEL = os.getenv("RESEARCHER_MODEL", "gemini-3.1-flash-lite-preview")
-_BOOKKEEPER_MODEL = os.getenv("BOOKKEEPER_MODEL", "gemini-3.1-flash-lite-preview")
-_MACRO_QUANT_MODEL = os.getenv("MACRO_QUANT_MODEL", "gemini-3.1-flash-lite-preview")
-_MACRO_ECONOMIST_MODEL = os.getenv("MACRO_ECONOMIST_MODEL", "gemini-3.1-flash-lite-preview")
-_STRATEGIC_ALLOCATOR_MODEL = os.getenv("STRATEGIC_ALLOCATOR_MODEL", "gemini-3.1-flash-lite-preview")
+_ARCHIVIST_MODEL = get_model_name("archivist")
+_RESEARCHER_MODEL = get_model_name("researcher")
+_BOOKKEEPER_MODEL = get_model_name("bookkeeper")
+_MACRO_QUANT_MODEL = get_model_name("macro_quant")
+_MACRO_ECONOMIST_MODEL = get_model_name("economist")
+_STRATEGIC_ALLOCATOR_MODEL = get_model_name("allocator")
 _ROUTER_HISTORY_LIMIT = 20
 _MAX_REPLAN = 5
 _SUMMARY_SOURCE_CHAR_LIMIT = 24000

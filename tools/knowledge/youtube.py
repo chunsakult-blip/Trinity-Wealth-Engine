@@ -16,7 +16,8 @@ from youtube_transcript_api import (
 )
 
 from core.logger import get_logger
-from .core import _call_extractor_llm
+from core.model_registry import get_model_name
+from .core import _call_extractor_llm, _extractor_system_prompt
 
 log = get_logger(__name__)
 
@@ -267,13 +268,12 @@ def _extract_via_gemini_url_direct(url: str, video_id: str) -> str:
     """Tier 3: ส่ง YouTube URL ให้ Google Gemini ดู/ฟังโดยตรง (Zero-Download Multimodal)"""
     from google import genai
     from google.genai.types import Part
-    from .core import _EXTRACTOR_SYSTEM_PROMPT
 
     api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise ValueError("ไม่พบ GOOGLE_API_KEY หรือ GEMINI_API_KEY สำหรับใช้งาน Gemini Multimodal")
 
-    extractor_model = os.getenv("EXTRACTOR_MODEL", "gemini-3.1-flash-lite-preview")
+    extractor_model = get_model_name("extractor")
     model_name = extractor_model if "gemini" in extractor_model.lower() else "gemini-3.1-flash-lite-preview"
 
     client = genai.Client(api_key=api_key)
@@ -286,7 +286,7 @@ def _extract_via_gemini_url_direct(url: str, video_id: str) -> str:
             prompt,
         ],
         config={
-            "system_instruction": _EXTRACTOR_SYSTEM_PROMPT,
+            "system_instruction": _extractor_system_prompt(),
             "temperature": 0.0,
         },
     )

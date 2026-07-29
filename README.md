@@ -121,7 +121,7 @@ PIIMiddleware ─── ตรวจและลบข้อมูลส่ว�
 - **Atomic File Writes**: เขียนไฟล์ผ่าน temp → `os.replace()` เสมอ — ป้องกันข้อมูลเสียหายกรณี crash
 - **Exponential Backoff Retry**: ทุก API call มี retry logic อัตโนมัติ (429/5xx, network errors)
 - **Daily Markdown Logs**: บันทึก agent routing และ warnings/errors ลง Vault รายวัน
-- **Prompt Harness (Skill-based Prompts)**: แยก System Prompt ของแต่ละ Agent ออกจากโค้ด Python ไปเป็นไฟล์ `.md` ใน `prompts/skills/` พร้อม Hot-reload, Mustache Templating และ Mojibake Repair กลาง
+- **Prompt Harness (Skill-based Prompts)**: แยก System Prompt ของทั้ง Agent (`prompts/skills/`) และ Tool (`prompts/tools/`) ออกจากโค้ด Python ไปเป็นไฟล์ `.md` พร้อม Hot-reload, Mustache Templating และ Mojibake Repair กลาง
 
 ---
 
@@ -258,6 +258,7 @@ invest-agents/
 │   ├── auth.py                  # รหัสผ่านเดียว + session cookie
 │   ├── jobs.py                  # Single-worker job queue (dispatch/resume LangGraph)
 │   ├── routes_agents.py         # Dispatch / SSE stream / resume endpoints
+│   ├── routes_debug.py          # GET /api/debug/models — model registry audit
 │   ├── routes_kanban.py         # Kanban card CRUD + move
 │   ├── routes_portfolio.py      # Macro Strategy dashboard endpoints
 │   ├── schemas.py                # API response DTOs (แยกจาก schemas/macro_schemas.py)
@@ -284,9 +285,11 @@ invest-agents/
 │   ├── quality_check.py         # Warning classification (retryable/critical/soft)
 │   └── structured_output_retry.py # LLM retry loop + fallback placeholders
 ├── prompts/
-│   └── skills/                  # Agent system prompts as Markdown (SKILL.md / pillars.md / guardrails.md / few_shots.md)
+│   ├── skills/                  # Agent system prompts as Markdown (SKILL.md / pillars.md / guardrails.md / few_shots.md)
+│   └── tools/                   # Tool-layer prompts (extractor, youtube_pitcher, news_funnel) — เดียวกับ prompts/skills/ แค่แยก root
 ├── core/
 │   ├── llm_factory.py           # LLM factory (Google / Anthropic / OpenRouter)
+│   ├── model_registry.py        # Centralized LLM model config — 12 slots (agent + tool layer), audit ผ่าน GET /api/debug/models
 │   ├── security.py              # PII redaction middleware
 │   ├── retry.py                 # Exponential backoff retry helper
 │   ├── agent_log.py             # Daily Markdown agent activity logger
@@ -319,6 +322,27 @@ invest-agents/
 ├── .env.example
 └── pyproject.toml
 ```
+
+---
+
+## Model Configuration
+
+ทุก env var ที่เลือก LLM model (ทั้ง agent layer และ tool layer) รวมศูนย์อยู่ใน `core/model_registry.py` — ไม่ต้องไล่หา `os.getenv(...)` กระจายทั่วโค้ด ดูค่าที่ resolve จริงตอนรันได้ที่ `GET /api/debug/models` (ต้อง login ก่อน)
+
+| Slot | Env Var | Default | Layer | Purpose |
+|------|---------|---------|-------|---------|
+| `manager` | `MANAGER_MODEL` | `gemini-3.1-flash-lite-preview` | agent | Manager Agent — routing and orchestration |
+| `router` | `ROUTER_MODEL` | `gemini-3.1-flash-lite-preview` | agent | Structured routing (RouterDecision) — ถ้าไม่ตั้งจะ chain ไปตามค่า `manager` ที่ resolve แล้ว |
+| `archivist` | `ARCHIVIST_MODEL` | `gemini-3.1-flash-lite-preview` | agent | PKM management agent |
+| `researcher` | `RESEARCHER_MODEL` | `gemini-3.1-flash-lite-preview` | agent | Data fetching agent |
+| `bookkeeper` | `BOOKKEEPER_MODEL` | `gemini-3.1-flash-lite-preview` | agent | Portfolio & accounting agent |
+| `macro_quant` | `MACRO_QUANT_MODEL` | `gemini-3.1-flash-lite-preview` | agent | Quant Macro Matrix agent |
+| `economist` | `MACRO_ECONOMIST_MODEL` | `gemini-3.1-flash-lite-preview` | agent | Macroeconomic narrative synthesis agent |
+| `allocator` | `STRATEGIC_ALLOCATOR_MODEL` | `gemini-3.1-flash-lite-preview` | agent | Strategic Allocator agent |
+| `extractor` | `EXTRACTOR_MODEL` | `gemini-3.1-flash-lite-preview` | tool | Article/PDF/YouTube content extraction |
+| `youtube_pitch` | `YOUTUBE_PITCH_MODEL` | `gemini-3.1-flash-lite-preview` | tool | YouTube Pitch generation + Briefing Book |
+| `news_triage` | `NEWS_FUNNEL_TRIAGE_MODEL` | `gemini-3.1-flash-lite-preview` | tool | News impact scoring (batch triage) |
+| `thai_title_translation` | `NEWS_FUNNEL_SYNTHESIS_MODEL` | `gemini-3.1-flash-lite-preview` | tool | Thai title translation for news |
 
 ---
 

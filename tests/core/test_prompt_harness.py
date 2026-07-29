@@ -3,7 +3,7 @@ import time
 from pathlib import Path
 import pytest
 
-from core.prompt_harness import PromptHarness, get_harness
+from core.prompt_harness import TOOLS_PROMPTS_ROOT, PromptHarness, get_harness
 
 
 def test_mustache_formatting(tmp_path: Path):
@@ -72,3 +72,35 @@ def test_few_shots_feedback(tmp_path: Path):
     assert "Error: missing field" in feedback
     assert "[ตัวอย่างรูปแบบข้อมูลและ JSON ที่ถูกต้อง (Few-Shot Reference)]" in feedback
     assert "{\"example\": \"valid_data\"}" in feedback
+
+
+class TestToolsPromptsRoot:
+    """prompts/tools/ เป็น root แยกจาก prompts/skills/ — ใช้ skills_root=TOOLS_PROMPTS_ROOT
+    เข้าถึงได้โดยไม่ต้องแก้ PromptHarness class เลย (ใช้ constructor param ที่มีอยู่แล้ว)"""
+
+    def test_tools_prompts_root_points_at_prompts_tools_dir(self):
+        assert TOOLS_PROMPTS_ROOT.name == "tools"
+        assert TOOLS_PROMPTS_ROOT.parent.name == "prompts"
+
+    def test_extractor_skill_md_loads_from_real_prompts_tools_dir(self):
+        """โหลดไฟล์จริงที่ core.py ใช้ตอน production — regression guard ถ้ามีคนย้าย/ลบไฟล์ไป"""
+        prompt = get_harness("extractor", skills_root=TOOLS_PROMPTS_ROOT).get_system_prompt()
+        assert "หุ่นยนต์สกัดข้อมูลการลงทุน" in prompt
+        assert "## ใจความสำคัญ" in prompt
+
+    def test_dynamic_list_variable_stays_at_templated_position(self, tmp_path: Path):
+        """จำลองปัญหาที่เจอตอนรีวิว: ถ้า concat dynamic list ต่อท้าย get_skill_text() แทนที่จะ
+        ใช้ Mustache variable ตรงตำแหน่งเดิม จะทำให้ลำดับ prompt ผิดเพี้ยนจากของเดิม (เช่น
+        candidate_list ต้องอยู่ก่อนกฎ ไม่ใช่หลังกฎ) — เทสต์นี้ล็อกว่าตำแหน่งต้องถูกต้องตาม template"""
+        agent_dir = tmp_path / "order_agent"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "SKILL.md").write_text(
+            "intro\n{{dynamic_list}}\nrules after list", encoding="utf-8"
+        )
+        harness = PromptHarness("order_agent", skills_root=tmp_path)
+        result = harness.get_skill_text("SKILL.md", dynamic_list="item1\nitem2")
+
+        intro_pos = result.index("intro")
+        list_pos = result.index("item1")
+        rules_pos = result.index("rules after list")
+        assert intro_pos < list_pos < rules_pos

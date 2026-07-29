@@ -58,8 +58,22 @@ def get_synthesis_period(now: Optional[datetime] = None) -> str:
     return "morning" if current.hour < 12 else "evening"
 
 
-def _invoke_structured(schema: Any, model_env: str, prompt_lines: List[str], purpose: Optional[str] = None, max_output_tokens: Optional[int] = None, **kwargs: Any) -> Any:
-    """Helper สำหรับสร้างและเรียกใช้ structured LLM ด้วย provider='google'"""
+def _invoke_structured(
+    schema: Any,
+    model_env: str,
+    prompt_lines: List[str],
+    purpose: Optional[str] = None,
+    max_output_tokens: Optional[int] = None,
+    default_model: str = "gemini-3.1-flash-lite-preview",
+    **kwargs: Any,
+) -> Any:
+    """Helper สำหรับสร้างและเรียกใช้ structured LLM ด้วย provider='google'
+
+    default_model เป็น named parameter จริง (ไม่ใช่แค่ hardcode inline) เพื่อให้ caller ส่ง
+    ค่าจาก core.model_registry.REGISTRY[key].default เข้ามา override ได้ — ถ้า hardcode
+    default_model="..." ไว้ในบรรทัด invoke_structured_llm(...) ด้านล่างเฉยๆ แล้วให้ caller ส่ง
+    default_model ผ่าน **kwargs จะชนกันเป็น TypeError: got multiple values for keyword argument
+    """
     from core.llm_factory import invoke_structured_llm
     return invoke_structured_llm(
         schema=schema,
@@ -67,7 +81,7 @@ def _invoke_structured(schema: Any, model_env: str, prompt_lines: List[str], pur
         prompt_lines=prompt_lines,
         purpose=purpose,
         max_output_tokens=max_output_tokens,
-        default_model="gemini-3.1-flash-lite-preview",
+        default_model=default_model,
         provider="google",
         **kwargs,
     )
@@ -228,27 +242,28 @@ def _llm_triage_single_chunk(chunk: List[Dict[str, Any]]) -> tuple[List[MacroImp
     if not chunk:
         return [], None
     try:
-        prompt_lines = [
-            f"CRITICAL REQUIREMENT: You are given EXACTLY {len(chunk)} news items numbered 1 to {len(chunk)}.",
-            f"You MUST return the 'results' array with EXACTLY {len(chunk)} elements.",
-            "Each element MUST correspond 1-to-1 to the input item at the exact same index order. Do NOT skip, merge, or reorder any items.",
-            "Evaluate macro impact score (1-10) and asset impact score (1-10) for each news item below.",
-            "IMPORTANT requirement: You MUST provide 'thai_title' (accurate headline translated into THAI language) and 'thai_summary' (CONCISE analytical summary written in THAI language maximum 2-3 sentences for Thai investors. Do NOT write paragraphs).",
-            "Rubric:",
-            "- Score >= 7 (HIGH IMPACT): Systemic macro shift, central bank rate decision, critical policy change, inflation surprise, systemic shock, or market-moving earnings/catalyst (e.g. NVDA, PTT).",
-            "- Score < 7 (ROUTINE IMPACT): Minor commentary, routine update, or localized news without broad market impact.",
-            "News items to evaluate:"
-        ]
+        news_items_lines = []
         for idx, it in enumerate(chunk):
             truncated_summary = _clean_and_truncate_summary(it.get('summary', ''), max_len=500)
-            prompt_lines.append(f"{idx+1}. Title: {it.get('title', '')} | Summary: {truncated_summary}")
+            news_items_lines.append(f"{idx+1}. Title: {it.get('title', '')} | Summary: {truncated_summary}")
 
+        from core.model_registry import REGISTRY
+        from core.prompt_harness import TOOLS_PROMPTS_ROOT, get_harness
+
+        prompt_text = get_harness("news_funnel", skills_root=TOOLS_PROMPTS_ROOT).get_skill_text(
+            "triage.md",
+            chunk_size=str(len(chunk)),
+            news_items="\n".join(news_items_lines),
+        )
+
+        slot = REGISTRY["news_triage"]
         res = _invoke_structured(
             TriageBatchResult,
-            "NEWS_FUNNEL_TRIAGE_MODEL",
-            prompt_lines,
+            slot.env_var,
+            prompt_text.split("\n"),
             purpose="triage_batch",
             max_output_tokens=16384,
+            default_model=slot.default,
         )
         if res and hasattr(res, "results") and len(res.results) == len(chunk):
             return res.results, None
@@ -727,12 +742,15 @@ def _ensure_thai_title(title: str) -> str:
         class ThaiTitleSynthesis(BaseModel):
             thai_title: str = Field(description="ชื่อหัวข้อข่าวแปลและเรียบเรียงเป็นภาษาไทยที่สละสลวย กระชับ สื่อความหมายชัดเจน")
 
-        prompt_lines = [
-            "Please translate the following financial/macro news headline into professional THAI language for Thai investors.",
-            f"Original Title: {title}",
-            "Requirement: Return only a clear, professional headline in THAI language.",
-        ]
-        res = _invoke_structured(ThaiTitleSynthesis, "NEWS_FUNNEL_SYNTHESIS_MODEL", prompt_lines, purpose="thai_title_synthesis")
+        from core.model_registry import REGISTRY
+        from core.prompt_harness import TOOLS_PROMPTS_ROOT, get_harness
+
+        prompt_text = get_harness("news_funnel", skills_root=TOOLS_PROMPTS_ROOT).get_skill_text(
+            "thai_title.md",
+            original_title=title,
+        )
+        slot = REGISTRY["thai_title_translation"]
+        res = _invoke_structured(ThaiTitleSynthesis, slot.env_var, prompt_text.split("\n"), purpose="thai_title_synthesis", default_model=slot.default)
         if res and hasattr(res, "thai_title") and res.thai_title:
             return res.thai_title.strip()
     except Exception as e:

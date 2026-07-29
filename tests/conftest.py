@@ -158,6 +158,16 @@ def isolated_archivist(tmp_vault, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _no_real_llm_keys(monkeypatch):
-    """ป้องกันการเรียก network / API จริงระหว่างรัน unit tests ทั้ง suite"""
-    for k in ("GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"):
+    """ป้องกันการเรียก network / API จริงระหว่างรัน unit tests ทั้ง suite
+
+    ครอบคลุม DISCORD_WEBHOOK_URL ด้วย — ไม่ใช่แค่ LLM keys: api/main.py เรียก load_dotenv()
+    ตอน import โดยไม่มีเงื่อนไข และหลาย test fixture (เช่น tests/api/conftest.py::client) import
+    api.main เข้ามา ทำให้ค่าจริงจาก .env รั่วเข้า os.environ ได้ตลอด process หลังจากนั้น ถ้าไม่ clear
+    ตรงนี้ test ของ News Funnel synthesis / article ingest ที่ไม่ได้ mock Discord เอง (เพราะไม่ได้
+    ตั้งใจทดสอบ Discord) จะยิง webhook จริงโดยไม่ตั้งใจ — เจอเป็น incident จริงจาก live test run
+    """
+    for k in (
+        "GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY",
+        "DISCORD_WEBHOOK_URL", "DISCORD_TAG_ID_ULTRA", "DISCORD_TAG_ID_HIGH", "DISCORD_TAG_ID_WARNING",
+    ):
         monkeypatch.delenv(k, raising=False)

@@ -11,7 +11,9 @@ import uuid
 
 from core.llm_factory import get_llm, invoke_structured_llm
 from core.logger import get_logger
+from core.model_registry import REGISTRY
 from core.nlp_utils import _jaccard_similarity
+from core.prompt_harness import TOOLS_PROMPTS_ROOT, get_harness
 from core.retry import with_retry
 from core.utils import normalize_content
 from schemas.youtube_pitch_schemas import (
@@ -299,30 +301,23 @@ def _generate_pitches_internal(
         link_str = links[0] if links else "N/A"
         cand_summary_lines.append(f"[{ev_id}] {t}\n   สรุป: {s}\n   ลิงก์: {link_str}")
 
-    prompt_lines = [
-        "คุณคือ Chief Content Architect และ Senior Macro Analyst สำหรับช่อง YouTube การเงินและเศรษฐกิจชั้นนำ",
-        f"คำสั่งพิเศษจากผู้ใช้: {instruction or 'รวบรวมและนำเสนอไอเดียคลิปที่ลึกซึ้ง น่าติดตาม จากข่าวที่คัดกรอง'}",
-        f"ช่วงวันที่คัดกรอง: {date_summary}",
-        f"จำนวนข้อมูลและบทวิเคราะห์ที่คัดกรองมาทั้งหมด: {len(selected_candidates)} รายการ (จากทั้งหมด {len(candidates)} รายการในคลัง)",
-        "\n--- รายชื่อข่าวและบทวิเคราะห์จากกูรูที่คัดกรองมา (Candidates) ---",
-        "\n".join(cand_summary_lines),
-        "\n--- คำสั่งในการสร้าง Multi-source Pitch ---",
-        f"1. ให้คัดเลือกหรือรวบรวมกลุ่มข่าว (Multi-source) ที่เชื่อมโยงกันเป็นเรื่องใหญ่ เพื่อนำเสนอไอเดียทำคลิป YouTube จำนวน {max_pitches} หัวข้อ",
-        "2. แต่ละหัวข้อ (Item) ต้องมี 'working_titles' พอดี 3 ชื่อ ครบ 3 สไตล์: 1.คำถามเจาะลึก 2.วิเคราะห์สมมติฐาน 3.เตือนภัย/โอกาส",
-        "3. ในแต่ละหัวข้อ ต้องมี 'key_questions_to_answer' อย่างน้อย 3 ข้อ และ 'research_hypotheses' อย่างน้อย 2 ข้อ เพื่อให้ NotebookLM โหมด Research ไปค้นคว้าต่อได้อย่างเข้มข้น",
-        "4. กรุณาระบุ 'source_event_ids', 'source_titles', และ 'source_links' จาก Candidates ต้นทางให้ถูกต้อง",
-        "5. ผลลัพธ์ทั้งหมดต้องเป็นภาษาไทยสละสลวย เป็นมืออาชีพ ดึงดูดสายตา",
-        "6. ทุกหัวข้อต้องมี 'counter_intuitive_lead' (มุมมองเปิดเรื่องที่สวนสายตา/ค้านความเข้าใจทั่วไป อย่างน้อย 10 ตัวอักษร) และ "
-        "'analogy_generator' (คำเปรียบเปรยกับชีวิตประจำวันที่ช่วยให้เข้าใจง่าย อย่างน้อย 10 ตัวอักษร) ห้ามเว้นว่าง",
-        "7. กำหนด 'presentation_style' ของแต่ละหัวข้อให้เหมาะสมกับเรื่อง (เลือกระหว่าง 'narrative' สำหรับเจาะลึก/เล่าเรื่องยาว หรือ 'interview_qa' สำหรับบทสัมภาษณ์ถามตอบ/วิเคราะห์สองมุม)",
-    ]
+    prompt_text = get_harness("youtube_pitcher", skills_root=TOOLS_PROMPTS_ROOT).get_skill_text(
+        "SKILL.md",
+        instruction=instruction or "รวบรวมและนำเสนอไอเดียคลิปที่ลึกซึ้ง น่าติดตาม จากข่าวที่คัดกรอง",
+        date_summary=date_summary,
+        candidate_count=str(len(selected_candidates)),
+        total_count=str(len(candidates)),
+        max_pitches=str(max_pitches),
+        candidate_list="\n".join(cand_summary_lines),
+    )
 
+    slot = REGISTRY["youtube_pitch"]
     batch = invoke_structured_llm(
         schema=YouTubeContentPitchBatch,
-        model_env="YOUTUBE_PITCH_MODEL",
-        prompt_lines=prompt_lines,
+        model_env=slot.env_var,
+        prompt_lines=prompt_text.split("\n"),
         purpose="YouTube Content Pitch Generation",
-        default_model="gemini-3.1-flash-lite-preview",
+        default_model=slot.default,
         provider=os.getenv("YOUTUBE_PITCH_PROVIDER", "google"),
     )
     validate_generated_pitch(batch)
@@ -459,25 +454,21 @@ def synthesize_notebooklm_source(
     from core.providers import resolve_provider
     provider_name = resolve_provider("YOUTUBE_PITCH_MODEL", "YOUTUBE_PITCH_PROVIDER", "google")
 
-    prompt_lines = [
-        f"You are a Senior Research Director generating an InvestigativeBriefingBookDraft.",
-        f"Output JSON that matches the InvestigativeBriefingBookDraft schema exactly.",
-        "",
-        "--- ข้อมูลไอเดียคลิป (Pitch Item) ---",
+    pitch_info = "\n".join([
         f"Working Titles: {', '.join(getattr(pitch, 'working_titles', []) or ['untitled'])}",
         f"Core Hook: {getattr(pitch, 'core_hook', '')}",
         f"Investigation Mode: {getattr(pitch, 'investigation_mode', 'mixed')}",
         f"Counter-intuitive Lead: {getattr(pitch, 'counter_intuitive_lead', '')}",
         f"Key Questions: {', '.join(getattr(pitch, 'key_questions_to_answer', []) or [])}",
         f"Research Hypotheses: {', '.join(getattr(pitch, 'research_hypotheses', []) or [])}",
-        "",
-        "--- รายการหลักฐานใน Evidence Bundle ---",
-    ]
+    ])
 
+    evidence_lines = []
     for s in bundle.sources:
-        prompt_lines.append(f"Source [{s.source_id}]: {s.original_title} | Publisher: {s.publisher} | Date: {s.published_at or 'unverified'}")
+        evidence_lines.append(f"Source [{s.source_id}]: {s.original_title} | Publisher: {s.publisher} | Date: {s.published_at or 'unverified'}")
     for e in bundle.evidence_items:
-        prompt_lines.append(f"Evidence [{e.evidence_id}] (Source: {', '.join(e.source_ids)}): {e.claim}")
+        evidence_lines.append(f"Evidence [{e.evidence_id}] (Source: {', '.join(e.source_ids)}): {e.claim}")
+    evidence_bundle = "\n".join(evidence_lines)
 
     presentation_style = getattr(pitch, "presentation_style", "narrative")
     if presentation_style == "interview_qa":
@@ -493,33 +484,20 @@ def synthesize_notebooklm_source(
             "พร้อมใช้การเปรียบเปรย (Analogy) ให้เห็นภาพชัดเจน"
         )
 
-    prompt_lines.extend([
-        "",
-        style_prompt,
-        "",
-        "ข้อบังคับสำคัญ:",
-        "1. **ห้ามสร้างตัวเลข วันที่ หรือชื่อสำนักข่าวใหม่ที่ไม่มีใน Evidence Bundle เด็ดขาด**",
-        "2. **ใช้ภาษาไทยเท่านั้น (Thai Language Only)**: ชื่อเรื่อง บทพูด บทสรุป คำบรรยาย สมมติฐาน ฉากทัศน์ รวมถึงคำสั่ง NotebookLM ทั้งหมด ต้องเขียนเป็นภาษาไทยอย่างสละสลวย เป็นทางการและดึงดูดใจผู้ฟัง (ยกเว้นชื่อเฉพาะหรือสัญลักษณ์หุ้นให้เป็นภาษาอังกฤษได้)",
-        "3. ต้องสร้าง causality_scenarios อย่างน้อย 3 ฉากทัศน์",
-        "4. ต้องกำหนด invalidation_conditions และ risk_factors สำหรับทุก asset_impacts",
-        "5. ต้องกำหนด visual_directives ครบทั้ง Act I, Act II, Act III",
-        "6. ต้องกำหนด notebooklm_prompts จำนวน 5-8 ข้อ",
-        "7. ทุก scenario ต้องระบุ time_horizon; หาก trigger มีตัวเลขต้องระบุ threshold_basis และอ้าง evidence_ids ที่รองรับ",
-        "8. Visual directive ที่เป็นกราฟราคาต้องใช้ provider series identifier",
-        "9. ห้ามใส่ [VISUAL_EVIDENCE ...] ลงใน act scripts",
-        "10. **ข้อมูลตัวเลขและกราฟ (Natural Data Narration)**: ข้อมูลตัวเลขและเนื้อหาสำคัญจากตารางทั้งหมด ต้องถูกเขียนบรรยายเป็นประโยคคำพูดที่ลื่นไหลสอดแทรกไปในเนื้อหาของ Act Scripts (เช่น 'จากกราฟจะเห็นได้ว่าอัตราเงินเฟ้อพุ่งสูงกว่า 3%...') ห้ามทิ้งข้อมูลไว้เป็นตารางหรือ Bullet เปล่าๆ เด็ดขาด เพื่อให้ NotebookLM นำไปอ่านออกเสียงได้อย่างเป็นธรรมชาติ "
-        "**ทุกครั้งที่อ้างอิง Evidence ID (เช่น [E01]) ในเนื้อหา Act Script ต้องมีตัวเลขหรือค่าที่ตรงกับ evidence นั้นปรากฏอยู่ในประโยคเดียวกันหรือประโยคที่อยู่ติดกันเสมอ "
-        "ห้ามอ้างอิง Evidence ID ต่อท้ายข้อความเชิงคุณภาพโดยไม่ระบุตัวเลขประกอบเด็ดขาด "
-        "(ตัวอย่างที่ห้ามทำ: 'หุ้นกลุ่มเทคโนโลยีอาจได้รับผลกระทบหนัก [E14]' — ผิด เพราะไม่มีตัวเลข; "
-        "ตัวอย่างที่ถูกต้อง: 'หุ้นกลุ่มเทคโนโลยีอย่าง XLK ที่ปัจจุบันอยู่ที่ 175.88 ดอลลาร์ อาจได้รับผลกระทบหนัก [E14]')",
-    ])
+    prompt_text = get_harness("youtube_pitcher", skills_root=TOOLS_PROMPTS_ROOT).get_skill_text(
+        "briefing.md",
+        pitch_info=pitch_info,
+        evidence_bundle=evidence_bundle,
+        style_prompt=style_prompt,
+    )
 
+    slot = REGISTRY["youtube_pitch"]
     draft = invoke_structured_llm(
         schema=InvestigativeBriefingBookDraft,
-        model_env="YOUTUBE_PITCH_MODEL",
-        prompt_lines=prompt_lines,
+        model_env=slot.env_var,
+        prompt_lines=prompt_text.split("\n"),
         purpose="Briefing Book Draft Generation",
-        default_model="gemini-3.1-flash-lite-preview",
+        default_model=slot.default,
         provider=provider_name,
         max_output_tokens=16384,
     )

@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 load_dotenv()
 
-from api import auth, jobs, routes_agents, routes_kanban, routes_portfolio, state_db
+from api import auth, jobs, routes_agents, routes_debug, routes_kanban, routes_portfolio, state_db
 
 WEB_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
 
@@ -63,6 +63,7 @@ app.include_router(auth.router)
 app.include_router(routes_portfolio.router)
 app.include_router(routes_agents.router)
 app.include_router(routes_kanban.router)
+app.include_router(routes_debug.router)
 
 
 @app.get("/health")

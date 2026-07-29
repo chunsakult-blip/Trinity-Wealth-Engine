@@ -115,6 +115,10 @@ class PromptHarness:
         return f"{base_feedback}\n\n[ตัวอย่างรูปแบบข้อมูลและ JSON ที่ถูกต้อง (Few-Shot Reference)]\n{formatted_shots}"
 
 
+# root สำหรับ prompt ของ tools/ (แยกจาก prompts/skills/ ที่เป็นของ agents/) — ให้ tools ได้
+# hot-reload + Mustache templating + Mojibake repair เหมือน agent skills โดยไม่ต้องแก้ PromptHarness เลย
+TOOLS_PROMPTS_ROOT = Path(__file__).resolve().parent.parent / "prompts" / "tools"
+
 _harness_instances: Dict[str, PromptHarness] = {}
 
 def get_harness(agent_name: str, skills_root: Optional[str | Path] = None) -> PromptHarness:
