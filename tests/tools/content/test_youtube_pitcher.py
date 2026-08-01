@@ -89,6 +89,8 @@ def test_generate_youtube_pitches_success(mock_invoke):
         estimated_impact="Impact",
         counter_intuitive_lead="เบาะแสสำคัญค้านสายตา: ตลาดหุ้นเติบโตแต่กระแสเงินสดติดลบ",
         analogy_generator="คำเปรียบเปรย: เหมือนรถที่วิ่งด้วยความเร็วสูงแต่เชื้อเพลิงกำลังจะหมด",
+        audience_takeaway="เก็บเงินสดสำรอง 6 เดือนก่อนตัดสินใจลงทุนเพิ่ม",
+        thumbnail_concept="ภาพกราฟตลาดหุ้นพุ่งขึ้นแต่กระเป๋าเงินโล่ง",
     )
     mock_invoke.return_value = YouTubeContentPitchBatch(
         pitches=[mock_item],
@@ -502,6 +504,46 @@ def test_synthesize_notebooklm_source_presentation_style_prompt_branching(
     call_args_qa = mock_invoke.call_args[1]["prompt_lines"]
     assert any("บทสัมภาษณ์ (Interview Q&A)" in line for line in call_args_qa)
     assert not any("บทความเชิงลึก (Narrative Deep Dive)" in line for line in call_args_qa)
+
+
+@patch("tools.content.youtube_pitcher.invoke_structured_llm")
+@patch("tools.content.youtube_pitcher.normalize_visual_directives")
+@patch("tools.content.briefing_artifacts.save_briefing_artifact")
+@patch("tools.content.briefing_quality.validate_briefing_book_quality")
+@patch("tools.content.briefing_renderer.render_briefing_book")
+@patch("tools.content.provenance_enrichment.assess_pitch_source_readiness")
+@patch("tools.content.briefing_evidence.build_briefing_evidence")
+def test_synthesize_notebooklm_source_pitch_info_includes_audience_takeaway(
+    mock_build, mock_readiness, mock_render, mock_validate, mock_save, mock_normalize, mock_invoke
+):
+    """audience_takeaway ต้องถูกใส่เข้า pitch_info ที่ป้อนให้ LLM สร้าง Briefing Book (WIIFM)"""
+    from schemas.briefing_book_schemas import InvestigativeBriefingBookDraft
+
+    mock_draft = InvestigativeBriefingBookDraft(
+        title="test", executive_summary="test", act1_script="test",
+        act2_script="test", act3_script="test", causality_scenarios=[],
+        asset_impacts=[], bull_case="bull", bear_case="bear",
+        falsification_triggers=[], notebooklm_prompts=[], visual_directives=[]
+    )
+    mock_invoke.return_value = mock_draft
+    mock_normalize.return_value = mock_draft
+    mock_render.return_value = MagicMock()
+    mock_validate.return_value = MagicMock(status="pass", blockers=[], issues=[])
+    mock_build.return_value = MagicMock(sources=[], evidence_items=[])
+    source_events = [{"event_id": "e1", "canonical_title": "t1"}]
+    mock_readiness.return_value = ("ready", [], [], source_events)
+    mock_render.side_effect = Exception("Stop Here!")
+
+    pitch = YouTubeContentPitchItem(
+        pitch_id="p3", working_titles=["1", "2", "3"], target_audience="a", core_hook="h",
+        key_questions_to_answer=["1", "2", "3"], research_hypotheses=["1", "2"],
+        source_event_ids=["e1"], source_links=[], source_titles=["t1"], recommended_format="f",
+        estimated_impact="i", audience_takeaway="เก็บเงินสดสำรอง 6 เดือนก่อนตัดสินใจลงทุนเพิ่ม",
+    )
+    with pytest.raises(Exception, match="Stop Here!"):
+        synthesize_notebooklm_source(pitch, source_events)
+    prompt_lines = mock_invoke.call_args[1]["prompt_lines"]
+    assert any("Audience Takeaway: เก็บเงินสดสำรอง" in line for line in prompt_lines)
 
 
 @patch("tools.content.youtube_pitcher.invoke_structured_llm")

@@ -203,6 +203,8 @@ export interface YoutubePitchItemDTO {
   investigation_mode?: 'stock' | 'macro' | 'mixed'
   counter_intuitive_lead?: string
   analogy_generator?: string
+  thumbnail_concept?: string
+  audience_takeaway?: string
   source_readiness?: 'ready' | 'needs_refresh' | 'blocked' | 'unknown'
   source_readiness_issues?: string[]
   unverified_draft_issue_codes?: string[]

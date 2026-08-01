@@ -609,6 +609,18 @@ function YoutubePitchApprovalView({
                     </div>
                   )}
 
+                  {p.thumbnail_concept && (
+                    <div className="rounded-lg bg-sky-50/70 p-2 border border-sky-200/60 text-sky-950">
+                      <span className="font-semibold text-sky-800">🖼️ Thumbnail Concept:</span> {p.thumbnail_concept}
+                    </div>
+                  )}
+
+                  {p.audience_takeaway && (
+                    <div className="rounded-lg bg-emerald-50/70 p-2 border border-emerald-200/60 text-emerald-950">
+                      <span className="font-semibold text-emerald-800">🎁 Audience Takeaway:</span> {p.audience_takeaway}
+                    </div>
+                  )}
+
                   {p.source_readiness && (
                     <div className={`rounded-lg border p-2 ${p.source_readiness === 'ready' ? 'border-emerald-200 bg-emerald-50/70 text-emerald-900' : p.source_readiness === 'unknown' ? 'border-amber-200 bg-amber-50/70 text-amber-900' : 'border-red-200 bg-red-50/70 text-red-900'}`}>
                       <div className="flex items-center justify-between gap-2">

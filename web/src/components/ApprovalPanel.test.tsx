@@ -111,6 +111,8 @@ describe('ApprovalPanel', () => {
           investigation_mode: 'macro',
           counter_intuitive_lead: 'ดอกเบี้ยคงที่แต่ตลาดหุ้นพุ่ง',
           analogy_generator: 'เหมือนพายุสงบก่อนจะพัดแรง',
+          thumbnail_concept: 'ภาพกราฟตลาดหุ้นพุ่งขึ้นแต่กระเป๋าเงินโล่ง',
+          audience_takeaway: 'เก็บเงินสดสำรอง 6 เดือนก่อนตัดสินใจลงทุนเพิ่ม',
           source_readiness: 'ready',
         },
       ],
@@ -123,6 +125,8 @@ describe('ApprovalPanel', () => {
     expect(screen.getByText('🔍 Mode: macro')).toBeInTheDocument()
     expect(screen.getByText('⚡ Counter-Intuitive Lead:')).toBeInTheDocument()
     expect(screen.getByText('💡 Analogy Generator:')).toBeInTheDocument()
+    expect(screen.getByText('🖼️ Thumbnail Concept:')).toBeInTheDocument()
+    expect(screen.getByText('🎁 Audience Takeaway:')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('checkbox'))
     const approveBtn = screen.getByRole('button', { name: /อนุมัติและสร้าง Briefing Book \(ปกติ 1, Draft 0 รายการ\)/ })

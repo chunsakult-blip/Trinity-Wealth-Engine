@@ -41,6 +41,12 @@ class YouTubeContentPitchItem(BaseModel):
     analogy_generator: str = Field(
         default="", description="คำเปรียบเปรยเปรียบเทียบกับชีวิตประจำวัน"
     )
+    thumbnail_concept: str = Field(
+        default="", description="ไอเดียภาพหน้าปกคลิป (Visual/Text Concept) แบบดึงดูดสายตา"
+    )
+    audience_takeaway: str = Field(
+        default="", description="WIIFM: สิ่งที่คนดูจะได้ประโยชน์หรือเอาไปใช้ต่อได้ทันที (Actionable Advice)"
+    )
     presentation_style: Literal["narrative", "interview_qa"] = Field(
         default="narrative", description="สไตล์การนำเสนอเนื้อหาที่ส่งผลต่อการสร้าง Script (narrative/interview_qa)"
     )
@@ -78,6 +84,9 @@ def validate_generated_pitch(batch: YouTubeContentPitchBatch) -> None:
     for i, pitch in enumerate(batch.pitches):
         lead = pitch.counter_intuitive_lead.strip()
         analogy = pitch.analogy_generator.strip()
+        takeaway = pitch.audience_takeaway.strip()
+        thumbnail = pitch.thumbnail_concept.strip()
+        
         if len(lead) < 10:
             raise ValueError(
                 f"Pitch {i} ('{pitch.pitch_id}') missing or insufficient counter_intuitive_lead (min 10 non-whitespace chars)"
@@ -85,4 +94,12 @@ def validate_generated_pitch(batch: YouTubeContentPitchBatch) -> None:
         if len(analogy) < 10:
             raise ValueError(
                 f"Pitch {i} ('{pitch.pitch_id}') missing or insufficient analogy_generator (min 10 non-whitespace chars)"
+            )
+        if len(takeaway) < 10:
+            raise ValueError(
+                f"Pitch {i} ('{pitch.pitch_id}') missing or insufficient audience_takeaway (min 10 non-whitespace chars)"
+            )
+        if len(thumbnail) < 5:
+            raise ValueError(
+                f"Pitch {i} ('{pitch.pitch_id}') missing or insufficient thumbnail_concept (min 5 non-whitespace chars)"
             )

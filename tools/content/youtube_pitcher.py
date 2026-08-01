@@ -459,6 +459,7 @@ def synthesize_notebooklm_source(
         f"Core Hook: {getattr(pitch, 'core_hook', '')}",
         f"Investigation Mode: {getattr(pitch, 'investigation_mode', 'mixed')}",
         f"Counter-intuitive Lead: {getattr(pitch, 'counter_intuitive_lead', '')}",
+        f"Audience Takeaway: {getattr(pitch, 'audience_takeaway', '')}",
         f"Key Questions: {', '.join(getattr(pitch, 'key_questions_to_answer', []) or [])}",
         f"Research Hypotheses: {', '.join(getattr(pitch, 'research_hypotheses', []) or [])}",
     ])
