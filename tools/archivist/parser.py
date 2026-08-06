@@ -3,7 +3,7 @@ import os
 import re
 import shutil
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional, Any
@@ -131,5 +131,106 @@ def _chunk_file(file_path: Path, splitter: RecursiveCharacterTextSplitter) -> tu
     metas = [{"source": rel} for _ in chunks]
     ids = [f"{rel}::{i}" for i in range(len(chunks))]
     return texts, metas, ids
+
+
+def parse_company_news_items(content: str) -> dict[str, Any]:
+    """Parse Company_News markdown content into structured dictionary."""
+    ticker = extract_yaml_frontmatter_value(content, "ticker") or ""
+    market = extract_yaml_frontmatter_value(content, "market") or "US"
+    date_str = extract_yaml_frontmatter_value(content, "date")
+    last_updated_str = extract_yaml_frontmatter_value(content, "last_updated")
+
+    # Base reference datetime for calculating published_at fallback
+    ref_dt = None
+    if last_updated_str:
+        try:
+            ref_dt = datetime.strptime(last_updated_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+        except Exception:
+            try:
+                ref_dt = datetime.fromisoformat(last_updated_str.replace("Z", "+00:00"))
+            except Exception:
+                ref_dt = None
+    if not ref_dt and date_str:
+        try:
+            ref_dt = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except Exception:
+            ref_dt = None
+
+    items = []
+    # Pattern to match item headlines like: 1. **Title** ⚠️ [STALE] <!-- published_at: 2026-08-05T14:30:00Z -->
+    item_blocks = re.split(r"(?m)^(?=\s*\d+\.\s+\*\*)", content)
+    for block in item_blocks:
+        block = block.strip()
+        if not block or not re.match(r"^\s*\d+\.\s+\*\*", block):
+            continue
+
+        lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
+        headline_line = lines[0]
+
+        # Extract title
+        m_head = re.match(r"^\s*\d+\.\s+\*\*(.+?)\*\*", headline_line)
+        if not m_head:
+            continue
+
+        title = m_head.group(1).strip()
+        # Remove any ⚠️ [STALE] flag or comments from title if captured
+        title = re.sub(r"\s+⚠️\s*\[STALE\]", "", title).strip()
+
+        # Extract published_at HTML comment if present anywhere in headline_line
+        m_pub = re.search(r"<!--\s*published_at:\s*([^\s>]+)\s*-->", headline_line)
+        pub_iso = m_pub.group(1).strip() if m_pub else None
+
+        source = "N/A"
+        sources_count = 1
+        link = ""
+        age_hours_fallback = 0
+        freshness_reason_fallback = "Unknown age"
+
+        for ln in lines[1:]:
+            if "ที่มา:" in ln:
+                m_src = re.search(r"ที่มา:\s*(.*?)(?:\s*\(Reported by (\d+) sources\))?$", ln)
+                if m_src:
+                    source = m_src.group(1).strip()
+                    if m_src.group(2):
+                        try:
+                            sources_count = int(m_src.group(2))
+                        except Exception:
+                            pass
+            elif "อายุข่าว:" in ln:
+                m_age = re.search(r"อายุข่าว:\s*(\d+)\s*ชั่วโมง\s*(?:\((.*?)\))?", ln)
+                if m_age:
+                    try:
+                        age_hours_fallback = int(m_age.group(1))
+                    except Exception:
+                        pass
+                    if m_age.group(2):
+                        freshness_reason_fallback = m_age.group(2).strip()
+            elif "[อ่านต่อ]" in ln:
+                m_link = re.search(r"\[อ่านต่อ\]\((.*?)\)", ln)
+                if m_link:
+                    link = m_link.group(1).strip()
+
+        # If pub_iso is missing, fallback calculate from ref_dt - age_hours_fallback
+        if not pub_iso and ref_dt and age_hours_fallback < 9000:
+            pub_iso = (ref_dt - timedelta(hours=age_hours_fallback)).isoformat()
+
+        items.append({
+            "title": title,
+            "source": source,
+            "link": link,
+            "published_at": pub_iso,
+            "age_hours": age_hours_fallback,
+            "freshness_reason": freshness_reason_fallback,
+            "sources_count": sources_count,
+            "is_stale": age_hours_fallback > 48
+        })
+
+    return {
+        "ticker": ticker,
+        "market": market,
+        "date": date_str,
+        "last_updated": last_updated_str,
+        "items": items
+    }
 
 

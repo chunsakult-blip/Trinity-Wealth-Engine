@@ -21,6 +21,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="บังคับเปิด Deep Research แม้ไฟล์จะไม่มี prompt แบบ [RESEARCH] (ปกติเปิดอัตโนมัติถ้ามี)",
     )
     parser.add_argument("--research-query", default=None, dest="research_query")
+    parser.add_argument("--research-mode", default="deep", choices=["deep", "fast"], dest="research_mode", help="โหมด Research: deep (~5 นาที) หรือ fast (~30 วินาที)")
     parser.add_argument("--language", default="th", dest="audio_language")
     parser.add_argument("--timeout", type=int, default=5_400, dest="timeout_seconds")  # 1 ชม. 30 นาที
     return parser
@@ -34,6 +35,7 @@ def main() -> None:
         confirm_generation=args.confirm_generation,
         with_research=args.with_research,
         research_query=args.research_query,
+        research_mode=args.research_mode,
         notebooklm_prompts=prompts,
         audio_language=args.audio_language,
         timeout_seconds=args.timeout_seconds,

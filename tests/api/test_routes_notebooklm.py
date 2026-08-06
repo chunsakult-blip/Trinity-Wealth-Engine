@@ -18,6 +18,7 @@ def _isolate_sources_dir(tmp_path, monkeypatch):
     sources_dir.mkdir()
     monkeypatch.setattr(routes_notebooklm, "NOTEBOOKLM_SOURCES_DIR", sources_dir.resolve())
     monkeypatch.setattr(manifest_mod, "MANIFEST_DIR", tmp_path / "notebooklm_runs")
+    monkeypatch.setattr(routes_notebooklm, "check_binary_available", lambda: None)
     return sources_dir
 
 

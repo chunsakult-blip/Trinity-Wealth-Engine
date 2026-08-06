@@ -29,6 +29,9 @@ REGISTRY: dict[str, ModelSlot] = {
     "macro_quant":   ModelSlot("MACRO_QUANT_MODEL",           "gemini-3.1-flash-lite-preview", "Quant Macro Matrix agent", "agent"),
     "economist":     ModelSlot("MACRO_ECONOMIST_MODEL",       "gemini-3.1-flash-lite-preview", "Macroeconomic narrative synthesis agent", "agent"),
     "allocator":     ModelSlot("STRATEGIC_ALLOCATOR_MODEL",   "gemini-3.1-flash-lite-preview", "Strategic Allocator agent", "agent"),
+    "equity_quant":       ModelSlot("EQUITY_QUANT_MODEL",       "gemini-3.1-flash-lite-preview", "Equity Quant Signals agent (deterministic)", "agent"),
+    "equity_narrative":   ModelSlot("EQUITY_NARRATIVE_MODEL",   "gemini-3.1-flash-lite-preview", "Equity Sentiment/Narrative synthesis agent", "agent"),
+    "equity_synthesizer": ModelSlot("EQUITY_SYNTHESIZER_MODEL", "gemini-3.1-flash-lite-preview", "Equity final report synthesis agent", "agent"),
     # --- Tool Layer ---
     "extractor":              ModelSlot("EXTRACTOR_MODEL",              "gemini-3.1-flash-lite-preview", "Article/PDF/YouTube content extraction", "tool"),
     "youtube_pitch":           ModelSlot("YOUTUBE_PITCH_MODEL",          "gemini-3.1-flash-lite-preview", "YouTube Pitch generation + Briefing Book", "tool"),

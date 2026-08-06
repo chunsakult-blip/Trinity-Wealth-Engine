@@ -17,7 +17,7 @@ from core.logger import setup_logging
 
 setup_logging()
 
-from api import auth, jobs, notebooklm_worker, routes_agents, routes_debug, routes_kanban, routes_notebooklm, routes_portfolio, state_db
+from api import auth, jobs, notebooklm_worker, routes_agents, routes_debug, routes_kanban, routes_notebooklm, routes_portfolio, routes_equity, state_db
 
 WEB_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
 
@@ -85,6 +85,7 @@ app.include_router(routes_agents.router)
 app.include_router(routes_kanban.router)
 app.include_router(routes_debug.router)
 app.include_router(routes_notebooklm.router)
+app.include_router(routes_equity.router)
 
 
 @app.get("/health")

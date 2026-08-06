@@ -20,6 +20,7 @@ import TradeModal from '../components/portfolio/Modals/TradeModal'
 import CashFlowModal from '../components/portfolio/Modals/CashFlowModal'
 import IncomeModal from '../components/portfolio/Modals/IncomeModal'
 import ResetConfirmModal from '../components/portfolio/Modals/ResetConfirmModal'
+import PortfolioCalendarTab from '../components/portfolio/PortfolioCalendarTab'
 import {
   TradeIcon,
   CashFlowIcon,
@@ -56,6 +57,15 @@ const TABS = [
       <span className="flex items-center gap-1.5">
         <WatchlistIcon className="w-4 h-4 text-amber-500" />
         <span>Watchlist</span>
+      </span>
+    ),
+  },
+  {
+    key: 'calendar',
+    label: (
+      <span className="flex items-center gap-1.5">
+        <span className="text-sm">📅</span>
+        <span>Corporate Calendar</span>
       </span>
     ),
   },
@@ -389,6 +399,10 @@ export default function Portfolio() {
             lastUpdated={watchlistState?.last_updated ?? null}
             onSuccess={(wState) => setWatchlistState(wState)}
           />
+        )}
+
+        {activeTab === 'calendar' && (
+          <PortfolioCalendarTab />
         )}
       </div>
 

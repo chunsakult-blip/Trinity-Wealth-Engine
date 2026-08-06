@@ -44,16 +44,16 @@ describe('NotebookLMCardDetail — ยังไม่เลือกไฟล์
 
   it('โหลดรายชื่อ Briefing Book มาให้เลือก และปุ่มยืนยันถูก disable จนกว่าจะเลือก', async () => {
     vi.mocked(api.getNotebookLMAvailableSources).mockResolvedValue([
-      { file_path: '/vault/a.md', title: 'หัวข้อ A', is_verified: true },
-      { file_path: '/vault/b.md', title: 'หัวข้อ B', is_verified: false },
+      { file_path: '/vault/a.md', title: 'หัวข้อ A', is_verified: true, date_part: '2026-08-04' },
+      { file_path: '/vault/b.md', title: 'หัวข้อ B', is_verified: false, date_part: null },
     ])
 
     render(<NotebookLMCardDetail card={makeCard()} onCardTransition={vi.fn()} />)
 
     await waitFor(() => {
-      expect(screen.getByText('🟢 หัวข้อ A')).toBeInTheDocument()
+      expect(screen.getByText(/🟢 หัวข้อ A/)).toBeInTheDocument()
     })
-    expect(screen.getByText('🟡 หัวข้อ B')).toBeInTheDocument()
+    expect(screen.getByText(/🟡 หัวข้อ B/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'ยืนยันและสร้าง Audio' })).toBeDisabled()
   })
 
@@ -69,7 +69,7 @@ describe('NotebookLMCardDetail — ยังไม่เลือกไฟล์
 
   it('เลือกไฟล์แล้วกดยืนยัน เรียก generate พร้อม card_id และ path ที่เลือก', async () => {
     vi.mocked(api.getNotebookLMAvailableSources).mockResolvedValue([
-      { file_path: '/vault/a.md', title: 'หัวข้อ A', is_verified: true },
+      { file_path: '/vault/a.md', title: 'หัวข้อ A', is_verified: true, date_part: '2026-08-04' },
     ])
     vi.mocked(api.generateNotebookLMAudio).mockResolvedValue({ job_id: 'job-1', status: 'queued' })
     const onCardTransition = vi.fn()

@@ -39,6 +39,8 @@ from api.schemas import (
     AppendJournalRequestDTO,
     NewsFunnelPendingItemDTO,
     NewsFunnelFilteredItemDTO,
+    CalendarEventDTO,
+    PortfolioCalendarDTO,
 )
 from tools.archivist.core import VAULT_PATH
 from tools.macro.dashboard import load_indicator_series
@@ -215,6 +217,140 @@ def get_actual_performance(days: int = 30) -> list[PerformanceSnapshotDTO]:
     with handle_portfolio_exceptions("Performance lock timeout"):
         rows = portfolio_perf.get_structured_performance_history(days=days)
         return [PerformanceSnapshotDTO.model_validate(r) for r in rows]
+
+
+@router.get("/api/portfolio/calendar", response_model=PortfolioCalendarDTO)
+def get_portfolio_calendar() -> PortfolioCalendarDTO:
+    import concurrent.futures
+    from datetime import date, datetime, timezone
+    from tools.market.asset_resolver import resolve_asset
+    from tools.market.calendar import get_asset_calendar
+
+    holding_symbols = []
+    holding_names = {}
+    with handle_portfolio_exceptions("Portfolio lock timeout"):
+        state = portfolio_core.get_structured_portfolio_state()
+        holding_symbols = [h.symbol for h in state.holdings if h.symbol]
+        holding_names = {h.symbol.strip().upper(): h.company_name for h in state.holdings if h.symbol}
+
+    watchlist_symbols = []
+    with handle_portfolio_exceptions("Watchlist lock timeout"):
+        wl = portfolio_watchlist.get_structured_watchlist()
+        watchlist_symbols = [w.symbol for w in wl.items if w.symbol]
+
+    ticker_items = []
+    seen = set()
+
+    for sym in holding_symbols:
+        clean = sym.strip().upper()
+        if clean and clean not in seen:
+            seen.add(clean)
+            resolved = resolve_asset(clean)
+            provider_sym = resolved.provider_symbol if resolved else clean
+            company_name = holding_names.get(clean)
+            ticker_items.append({
+                "symbol": clean,
+                "provider_symbol": provider_sym,
+                "company_name": company_name,
+                "bucket": "holding"
+            })
+
+    for sym in watchlist_symbols:
+        clean = sym.strip().upper()
+        if clean and clean not in seen:
+            seen.add(clean)
+            resolved = resolve_asset(clean)
+            provider_sym = resolved.provider_symbol if resolved else clean
+            company_name = None
+            ticker_items.append({
+                "symbol": clean,
+                "provider_symbol": provider_sym,
+                "company_name": company_name,
+                "bucket": "watchlist"
+            })
+
+    today = date.today()
+    events: list[CalendarEventDTO] = []
+    tickers_failed: list[str] = []
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {
+            executor.submit(get_asset_calendar, item["provider_symbol"]): item
+            for item in ticker_items
+        }
+
+        for future in concurrent.futures.as_completed(futures):
+            item = futures[future]
+            try:
+                cal = future.result()
+                if not isinstance(cal, dict):
+                    continue
+
+                # 1. Parse Earnings Date
+                earnings_dates = cal.get("Earnings Date")
+                if isinstance(earnings_dates, list) and len(earnings_dates) > 0:
+                    e_date = earnings_dates[0]
+                    if isinstance(e_date, str):
+                        try:
+                            e_date = datetime.strptime(e_date, "%Y-%m-%d").date()
+                        except ValueError:
+                            e_date = None
+                    elif isinstance(e_date, datetime):
+                        e_date = e_date.date()
+
+                    if isinstance(e_date, date):
+                        e_iso = e_date.strftime("%Y-%m-%d")
+                        d_until = (e_date - today).days
+
+                        eps_avg = cal.get("Earnings Average")
+                        eps_low = cal.get("Earnings Low")
+                        eps_high = cal.get("Earnings High")
+
+                        events.append(CalendarEventDTO(
+                            ticker=item["symbol"],
+                            company_name=item["company_name"],
+                            event_type="earnings",
+                            event_date=e_iso,
+                            days_until=d_until,
+                            bucket=item["bucket"],
+                            eps_estimate=float(eps_avg) if eps_avg is not None else None,
+                            eps_low=float(eps_low) if eps_low is not None else None,
+                            eps_high=float(eps_high) if eps_high is not None else None
+                        ))
+
+                # 2. Parse Ex-Dividend Date
+                ex_div_date = cal.get("Ex-Dividend Date")
+                if isinstance(ex_div_date, str):
+                    try:
+                        ex_div_date = datetime.strptime(ex_div_date, "%Y-%m-%d").date()
+                    except ValueError:
+                        ex_div_date = None
+                elif isinstance(ex_div_date, datetime):
+                    ex_div_date = ex_div_date.date()
+
+                if isinstance(ex_div_date, date):
+                    ex_iso = ex_div_date.strftime("%Y-%m-%d")
+                    d_until = (ex_div_date - today).days
+                    events.append(CalendarEventDTO(
+                        ticker=item["symbol"],
+                        company_name=item["company_name"],
+                        event_type="ex_dividend",
+                        event_date=ex_iso,
+                        days_until=d_until,
+                        bucket=item["bucket"]
+                    ))
+
+            except Exception:
+                tickers_failed.append(item["symbol"])
+
+    events.sort(key=lambda x: x.event_date)
+
+    return PortfolioCalendarDTO(
+        generated_at=datetime.now(timezone.utc).isoformat(),
+        events=events,
+        tickers_fetched=len(ticker_items) - len(tickers_failed),
+        tickers_failed=tickers_failed
+    )
 
 
 @router.post(

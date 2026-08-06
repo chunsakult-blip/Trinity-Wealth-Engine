@@ -10,6 +10,7 @@ import Login from './pages/Login'
 const Kanban = lazy(() => import('./pages/Kanban'))
 const Portfolio = lazy(() => import('./pages/Portfolio'))
 const Macro = lazy(() => import('./pages/Macro'))
+const Equity = lazy(() => import('./pages/Equity'))
 const Landing = lazy(() => import('./pages/Landing'))
 
 function RouteFallback() {
@@ -29,6 +30,8 @@ function App() {
                 <Route path="/kanban" element={<Kanban />} />
                 <Route path="/portfolio" element={<Portfolio />} />
                 <Route path="/macro" element={<Macro />} />
+                <Route path="/equity" element={<Equity />} />
+                <Route path="/equity/:ticker" element={<Equity />} />
               </Route>
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

@@ -122,9 +122,12 @@ def ingest_stock_news(ticker: str, market: Market = "US") -> str:
         is_stale = item.get('is_stale', False)
         stale_flag = "⚠️ [STALE]" if is_stale else ""
         
+        pub_iso = item['published_at'].isoformat() if item.get('published_at') else ""
+        pub_comment = f" <!-- published_at: {pub_iso} -->" if pub_iso else ""
+
         link_md = f"[อ่านต่อ]({url})" if url else "N/A"
         md_lines += [
-            f"{i}. **{title}** {stale_flag}",
+            f"{i}. **{title}** {stale_flag}{pub_comment}",
             f"   - ที่มา: {provider} (Reported by {sources_count} sources)",
             f"   - อายุข่าว: {item.get('age_hours', 0)} ชั่วโมง ({freshness_reason})",
             f"   - {link_md}",

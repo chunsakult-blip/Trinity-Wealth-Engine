@@ -6,6 +6,7 @@ Frontend สำหรับ Web UI ของระบบ Investment Manager AI �
 
 - **`/kanban`** — Agent Kanban Board: สร้าง/แก้ไข/สั่งงานการ์ด, ดู log การทำงานของ agent แบบ real-time ผ่าน Server-Sent Events, อนุมัติรายการข่าว/คลิป YouTube ก่อน agent เจาะลึก (human-in-the-loop)
 - **`/macro`** — Macro Strategy Report: Regime Probabilities, Cross-Asset Allocation, Pair Trades, Hedging Scenarios พร้อมแหล่งอ้างอิงข้อมูล
+- **`/equity`** — Equity Analysis: ตารางสรุปคะแนนปัจจัยพื้นฐาน, Base Case Summary, Sentiment Context, และ Narrative Analysis
 - **`/portfolio`** — พื้นที่สำหรับติดตามพอร์ตจริง (อยู่ระหว่างพัฒนา)
 
 ## รันแบบ Dev
@@ -18,6 +19,14 @@ npm run dev
 ```
 
 เปิด `http://localhost:5173` — Vite dev server proxy `/api` และ `/health` ไปที่ backend อัตโนมัติ (ดู `vite.config.ts`) เพื่อให้ auth cookie ทำงานแบบ same-origin โดยไม่ต้องตั้งค่า CORS
+
+### Explicit Mock Mode สำหรับหน้า Equity
+หน้า `/equity` มีโหมดจำลองข้อมูล (Mock Mode) เพื่อการพัฒนา UI โดยไม่ต้องรอ Backend หรือ Agent ทำงานจริง 
+เปิดใช้งานโดยเพิ่ม environment variable ก่อนรัน (เฉพาะโหมด Dev):
+```bash
+VITE_EQUITY_MOCK=true npm run dev
+```
+Mock นี้จะทำงานเฉพาะใน Vite DEV mode เท่านั้น (ไม่มี fallback หรือ bundle เข้าไปบน Production แน่นอนเพื่อความปลอดภัย)
 
 ## รันแบบ Production
 

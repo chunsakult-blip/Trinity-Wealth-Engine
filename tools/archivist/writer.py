@@ -23,7 +23,7 @@ _DATE_FRONTMATTER_RE = re.compile(r'^date:\s*["\']?(\d{4}-\d{2}-\d{2})', re.MULT
 
 from .core import _atomic_write_text, _sanitize_filename, VAULT_PATH
 from tools.tool_errors import GOAL_VIA_BOOKKEEPER
-from .parser import _split_bullets, _parse_h3_subsections, _parse_h2_sections, _strip_frontmatter, _extract_asset_tickers, _TICKER_FRONTMATTER_RE, _VIDEO_ID_FRONTMATTER_RE, _SOURCE_URL_FRONTMATTER_RE, extract_yaml_frontmatter_value
+from .parser import _split_bullets, _parse_h3_subsections, _parse_h2_sections, _strip_frontmatter, _extract_asset_tickers, _TICKER_FRONTMATTER_RE, _VIDEO_ID_FRONTMATTER_RE, _SOURCE_URL_FRONTMATTER_RE, extract_yaml_frontmatter_value, parse_company_news_items
 from .indexer import update_master_index, _index_upsert
 
 _CHANNEL_FRONTMATTER_RE = re.compile(r'^channel:\s*(.+)$', re.MULTILINE)
@@ -158,7 +158,7 @@ def write_raw_markdown(content: str, folder_path: str, filename: str) -> str:
     - macro_strategy → ให้บันทึกลงทั้ง 2 โฟลเดอร์ คือ '30_Knowledge_Base/Macroeconomics/Daily_Snapshots' และ '30_Knowledge_Base/Strategies'
     - macro_daily / us_sectors_pulse / regional_macro / economic_fundamentals 
       → folder_path='30_Knowledge_Base/Macroeconomics/Daily_Snapshots'
-    - Company / Financial_Trends / Financial_Health / Stock_Momentum / Analyst_Consensus / Company_News 
+    - Company / Financial_Trends / Financial_Health / Stock_Momentum / Analyst_Consensus / Company_News / equity_analysis
       → folder_path='30_Knowledge_Base/Stocks'
     - youtube_insight → folder_path='30_Knowledge_Base/YouTube_Summaries'
     - article_note → folder_path='30_Knowledge_Base/News'
@@ -234,6 +234,14 @@ def write_raw_markdown(content: str, folder_path: str, filename: str) -> str:
         except Exception as e:
             log.warning("[CANVAS FAIL] | %s: %s", file_path.name, e)
         _mark_youtube_digest_read(content)
+
+    if entity_type_val == "Company_News":
+        try:
+            parsed_data = parse_company_news_items(content)
+            json_path = file_path.with_suffix(".json")
+            _atomic_write_text(json_path, json.dumps(parsed_data, ensure_ascii=False, indent=2))
+        except Exception as e:
+            log.warning("[NEWS SIDECAR FAIL] | %s: %s", file_path.name, e)
 
     if "News" in resolved_path.split("/"):
         _mark_news_radar_read(content)

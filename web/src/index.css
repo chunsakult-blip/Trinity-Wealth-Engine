@@ -69,6 +69,25 @@ body {
   animation: card-in 0.2s ease-out backwards;
 }
 
+/* ไอคอนเล็กๆ ประกอบการ์ด (เช่น ScoreCard) เด้งเข้ามาทีหลังตัวการ์ดเล็กน้อย */
+@keyframes icon-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.4) rotate(-8deg);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.15) rotate(4deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+.animate-icon-pop {
+  animation: icon-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+
 @keyframes card-out {
   from {
     opacity: 1;

@@ -79,6 +79,19 @@ export const api = {
 
   getMacroDashboard: () => request<MacroDashboardDTO>('/api/macro/dashboard'),
 
+  getEquityLatest: () => request<import('./types').EquitySummaryDTO[]>('/api/equity/latest'),
+
+  getEquityDetail: (ticker: string) => request<import('./types').EquityDetailDTO>(`/api/equity/${encodeURIComponent(ticker)}`),
+
+  getEquityNews: (ticker: string) => request<import('./types').EquityNewsDTO>(`/api/equity/${encodeURIComponent(ticker)}/news`),
+
+  getEquityNotes: (ticker: string) => request<import('./types').EquityNotesDTO>(`/api/equity/${encodeURIComponent(ticker)}/notes`),
+
+  getEquityNoteContent: (relPath: string) => request<import('./types').EquityNoteContentDTO>(`/api/equity/notes/content?rel_path=${encodeURIComponent(relPath)}`),
+
+
+  getPortfolioCalendar: () => request<import('./types').PortfolioCalendarDTO>('/api/portfolio/calendar'),
+
   getMacroIndicatorSeries: (indicatorId: string, range: '1m' | '3m' | '1y') =>
     request<import('./types').MacroIndicatorSeriesDTO>(
       `/api/macro/indicators/${encodeURIComponent(indicatorId)}/series?range=${range}`

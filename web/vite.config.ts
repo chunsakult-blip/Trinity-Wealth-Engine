@@ -14,11 +14,11 @@ export default defineConfig({
       // ให้ /api/* และ /health ไหลไปที่ FastAPI (uvicorn api.main:app) แบบ same-origin
       // จาก browser — เลี่ยงต้องตั้ง CORS เพราะ auth ใช้ cookie
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
       '/health': {
-        target: 'http://localhost:8000',
+        target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
     },

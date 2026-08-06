@@ -7,6 +7,7 @@ const links = [
   { to: '/kanban', label: 'Agent Kanban Board' },
   { to: '/portfolio', label: 'All-Asset Portfolio' },
   { to: '/macro', label: 'Macroeconomic Analysis' },
+  { to: '/equity', label: 'Equity Analysis' },
 ]
 
 export default function Sidebar() {

@@ -20,6 +20,8 @@
   (Researcher จะส่งผลให้ Archivist บันทึกอัตโนมัติ — ไม่ต้องส่ง archivist ซ้ำ)
 - "archivist" → อ่าน/ค้นหาข้อมูลใน Vault (ข้อมูลความรู้/Entity ที่บันทึกไว้, สุขภาพ Vault, semantic search), บันทึก book note หรือ knowledge ที่ผู้ใช้พิมพ์/วางมาเองโดยตรง (entity_type: book_note)
 - "macro_intel" → วิเคราะห์สภาวะเศรษฐกิจมหภาคและการจัดสรรสินทรัพย์: คำนวณคะแนนสภาวะเศรษฐกิจ ประเมินเชิงคุณภาพ และออกรายงานทิศทางกลยุทธ์
+- "equity_intel" → วิเคราะห์หุ้นรายตัว 1 ตัวเชิงลึก (ไม่ใช่แค่ดึงข้อมูลมาแสดง): คำนวณ Value/Quality/Momentum Score, Beta, Volatility, Max Drawdown, Upside/Downside แบบ deterministic พร้อมสรุป Market Sentiment และเขียนบทวิเคราะห์ — ใช้เมื่อผู้ใช้ถามทำนอง "วิเคราะห์หุ้น X", "X น่าซื้อไหม", "ประเมินหุ้น X" (ต่างจาก "researcher" ที่แค่ดึงข้อมูลดิบมาแสดงโดยไม่สังเคราะห์คะแนน/บทวิเคราะห์)
+  (equity_intel จะส่งผลให้ Archivist บันทึกอัตโนมัติตาม save_to_vault — ไม่ต้องส่ง archivist ซ้ำ, instruction ให้ระบุ ticker และ market ถ้าทราบ)
 - "bookkeeper" → พอร์ตการลงทุนจริง:
   - ธุรกรรม: ซื้อ/ขาย/ฝาก/ถอน (THB/USD แยก pot), dividend/interest/rental, FX update, แก้ไข holding ที่ผิด
   - สถานะ/รายงาน: NAV, P/L, holdings, เงินสด, allocation % (asset_type/currency), performance trend ย้อนหลัง
@@ -33,10 +35,10 @@
 - Bookkeeper = ตัวเลขพอร์ตจริง (เช่น "ซื้อ AAPL 10 หุ้น", "เงินสดเหลือเท่าไหร่")
 
 [วิธีกรอกแต่ละ task]
-- target = worker ที่รับงาน (archivist/researcher/bookkeeper/macro_intel)
+- target = worker ที่รับงาน (archivist/researcher/bookkeeper/macro_intel/equity_intel)
 - instruction = คำสั่งของ task นั้น กระชับ ชัดเจน
-- save_to_vault = ใช้กับ researcher เท่านั้น: True (ค่าเริ่มต้น) = Archivist เซฟอัตโนมัติ,
-  False = ผู้ใช้บอกชัดเจนไม่ต้องเซฟ ('ดูเฉยๆ', 'ไม่ต้องเซฟ', 'แค่อยากรู้', 'เช็คเฉยๆ')
+- save_to_vault = ใช้กับ researcher และ equity_intel เท่านั้น: True (ค่าเริ่มต้น) = Archivist เซฟอัตโนมัติ,
+  False = ผู้ใช้บอกชัดเจนไม่ต้องเซฟ ('ดูเฉยๆ', 'ไม่ต้องเซฟ', 'แค่อยากรู้', 'เช็คเฉยๆ') — target อื่น (archivist/bookkeeper/macro_intel) ไม่ใช้ field นี้
 
 [กฎเหล็ก]
 - ห้ามนำข้อมูลดิบที่ Researcher ดึงมาสรุป/วิเคราะห์ซ้ำในคำตอบ

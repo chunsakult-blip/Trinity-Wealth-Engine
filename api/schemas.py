@@ -645,3 +645,288 @@ class NewsFunnelFilteredItemDTO(BaseModel):
     error_msg: Optional[str] = None
     ingested_at: Optional[str] = None
 
+
+class EquitySummaryDTO(BaseModel):
+    ticker: str
+    market: Literal["TH", "US"]
+    company_name: Optional[str] = None
+    analysis_date: str
+    evaluated_at: str
+    market_sentiment: Literal["bullish", "neutral", "bearish"]
+    composite_score: Optional[float] = None
+    data_quality_flags: list[str] = []
+    source_file: str
+    sidecar_file: str
+
+
+class EquitySentimentContextDTO(BaseModel):
+    evaluated_at: str
+    market_sentiment: Literal["bullish", "neutral", "bearish"]
+    key_themes: list[str] = []
+class ActualWatchlistItemDTO(BaseModel):
+    symbol: str
+    asset_type: str
+    target_price: Optional[float] = None
+    added_date: str
+    notes: Optional[str] = None
+
+
+class ActualWatchlistStateDTO(BaseModel):
+    last_updated: Optional[str] = None
+    items: list[ActualWatchlistItemDTO] = []
+
+
+class ActualGoalItemDTO(BaseModel):
+    name: str
+    target_amount_thb: float
+    goal_type: str  # 'nav_target', 'cash_target', 'passive_income_ytd'
+    current_amount_thb: float = 0.0
+    progress_pct: float = 0.0
+    deadline: Optional[str] = None
+    deadline_days_left: Optional[int] = None
+    notes: Optional[str] = None
+
+
+class ActualGoalsResponseDTO(BaseModel):
+    n_goals: int
+    goals: list[ActualGoalItemDTO] = []
+    generated_at: Optional[str] = None
+
+
+class PerformanceSnapshotDTO(BaseModel):
+    Date: str
+    Total_NAV: float
+    Total_Cost: float
+    Unrealized_PnL: float
+    Cash_Balance: float
+    realized_pnl_ytd: Optional[float] = None
+    passive_income_ytd: Optional[float] = None
+
+
+class JournalEntryDTO(BaseModel):
+    timestamp: str
+    content: str
+
+
+class UpsertAllocationTargetsRequestDTO(BaseModel):
+    targets: list[AllocationTargetDTO] = []
+
+
+class AssignBucketRequestDTO(BaseModel):
+    bucket_id: Optional[str] = None
+
+
+class BatchAssignBucketRequestDTO(BaseModel):
+    symbols: list[str] = []
+    bucket_id: Optional[str] = None
+
+
+class BatchRemoveHoldingsRequestDTO(BaseModel):
+    symbols: list[str] = []
+
+
+class TradeRequestDTO(BaseModel):
+    symbol: str
+    asset_type: str
+    action: Literal["buy", "sell"]
+    units: float
+    price: float
+    currency: Literal["THB", "USD"] = "THB"
+    exchange_rate: Optional[float] = None
+    date: Optional[str] = None
+    notes: str = ""
+    bucket_id: Optional[str] = None
+
+
+class CashFlowRequestDTO(BaseModel):
+    amount: float
+    action: Literal["deposit", "withdraw"]
+    currency: Literal["THB", "USD"] = "THB"
+    exchange_rate: Optional[float] = None
+    date: Optional[str] = None
+    notes: str = ""
+
+
+class IncomeRequestDTO(BaseModel):
+    income_type: Literal["Dividend", "Interest", "Rental", "Other"]
+    amount_thb: float
+    source_symbol: Optional[str] = None
+    date: Optional[str] = None
+    notes: str = ""
+
+
+class EditHoldingRequestDTO(BaseModel):
+    units: Optional[float] = None
+    avg_cost: Optional[float] = None
+    accumulated_dividend_thb: Optional[float] = None
+    asset_type: Optional[str] = None
+    reason: str = ""
+    bucket_id: Optional[str] = None
+
+
+class UpsertWatchlistItemRequestDTO(BaseModel):
+    asset_type: str
+    target_price: Optional[float] = None
+    notes: str = ""
+
+
+class UpsertGoalRequestDTO(BaseModel):
+    goal_type: Literal["nav_target", "cash_target", "passive_income_ytd"]
+    target_amount_thb: float
+    deadline: Optional[str] = None
+    years_from_now: Optional[int] = None
+    notes: Optional[str] = None
+
+
+class AppendJournalRequestDTO(BaseModel):
+    entry: str
+
+
+class NewsFunnelPendingItemDTO(BaseModel):
+    event_id: str
+    canonical_title: str
+    comprehensive_summary: str = ""
+    macro_impact_score: int = 0
+    asset_impact_score: int = 0
+    extracted_tickers: list[str] = []
+    extracted_themes: list[str] = []
+    primary_tags: list[str] = []
+    links: list[str] = []
+    triage_source: Optional[str] = None
+    triage_fallback_reason: Optional[str] = None
+
+
+class NotebookLMAvailableSourceDTO(BaseModel):
+    file_path: str
+    title: str
+    date_part: Optional[str] = None
+    is_verified: bool
+
+
+class NotebookLMGenerateRequest(BaseModel):
+    card_id: str
+    briefing_file_path: Optional[str] = None
+
+
+class NotebookLMGenerateResponse(BaseModel):
+    job_id: str
+    status: str
+
+
+class NotebookLMStatusDTO(BaseModel):
+    job_id: str
+    status: str
+    audio_path: Optional[str] = None
+    notebook_id: Optional[str] = None
+    error: Optional[str] = None
+
+
+class NewsFunnelFilteredItemDTO(BaseModel):
+    event_id: str
+    canonical_title: str
+    comprehensive_summary: str = ""
+    macro_impact_score: int = 0
+    asset_impact_score: int = 0
+    extracted_tickers: list[str] = []
+    extracted_themes: list[str] = []
+    primary_tags: list[str] = []
+    links: list[str] = []
+    triage_source: Optional[str] = None
+    triage_fallback_reason: Optional[str] = None
+    status: str
+    triage_reasoning: Optional[str] = None
+    error_msg: Optional[str] = None
+    ingested_at: Optional[str] = None
+
+
+class EquitySummaryDTO(BaseModel):
+    ticker: str
+    market: Literal["TH", "US"]
+    company_name: Optional[str] = None
+    analysis_date: str
+    evaluated_at: str
+    market_sentiment: Literal["bullish", "neutral", "bearish"]
+    composite_score: Optional[float] = None
+    data_quality_flags: list[str] = []
+    source_file: str
+    sidecar_file: str
+
+
+
+class EquitySentimentContextDTO(BaseModel):
+    evaluated_at: str
+    market_sentiment: Literal["bullish", "neutral", "bearish"]
+    key_themes: list[str] = []
+    tail_risks: list[str] = []
+    sources_summary: str
+    report_references: list[dict[str, Any]] = []
+
+
+class EquityDetailDTO(EquitySummaryDTO):
+    quant_signals: dict[str, Any]
+    sentiment_context: EquitySentimentContextDTO
+    narrative_analysis: str
+    base_case_summary: str
+    generated_by: str = "equity_intel"
+
+
+class EquityNewsItemDTO(BaseModel):
+    title: str
+    source: str
+    link: str
+    published_at: Optional[str] = None
+    age_hours: int
+    freshness_reason: str
+    is_stale: bool
+    sources_count: int = 1
+
+
+class EquityNewsDTO(BaseModel):
+    ticker: str
+    market: Literal["TH", "US"]
+    last_updated: Optional[str] = None
+    news_date: Optional[str] = None
+    items: list[EquityNewsItemDTO] = []
+
+
+class EquityNoteItemDTO(BaseModel):
+    title: str
+    folder: str
+    relative_path: str
+    obsidian_uri: str
+    snippet: str
+    modified_at: str
+    matched_by: str
+
+
+class EquityNotesDTO(BaseModel):
+    ticker: str
+    total_count: int
+    items: list[EquityNoteItemDTO] = []
+
+
+class EquityNoteContentDTO(BaseModel):
+    title: str
+    relative_path: str
+    content: str
+    modified_at: Optional[str] = None
+
+
+
+class CalendarEventDTO(BaseModel):
+    ticker: str
+    company_name: Optional[str] = None
+    event_type: Literal["earnings", "ex_dividend"]
+    event_date: str           # ISO date "2026-10-30"
+    days_until: int           # -N = past, 0 = today, N = future
+    bucket: Literal["holding", "watchlist"]
+    eps_estimate: Optional[float] = None
+    eps_low: Optional[float] = None
+    eps_high: Optional[float] = None
+
+
+class PortfolioCalendarDTO(BaseModel):
+    generated_at: str
+    events: list[CalendarEventDTO] = []
+    tickers_fetched: int = 0
+    tickers_failed: list[str] = []

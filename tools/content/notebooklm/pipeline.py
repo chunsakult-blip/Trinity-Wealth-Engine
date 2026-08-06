@@ -68,12 +68,24 @@ def _result_from_manifest(manifest: NotebookLMManifest, manifest_path: Path) -> 
     )
 
 
-async def _run_research(session, manifest: NotebookLMManifest, research_query: str, timeout_seconds: int) -> NotebookLMManifest:
+async def _run_research(
+    session,
+    manifest: NotebookLMManifest,
+    research_query: str,
+    timeout_seconds: int,
+    research_mode: str = "deep",
+) -> NotebookLMManifest:
     if not manifest.research_task_id:
         resp = await adapter.call_tool(session, "research_start", {
             "query": research_query,
             "notebook_id": manifest.notebook_id,
+            "mode": research_mode,
         })
+        if resp.get("status") == "no_research" or not resp.get("task_id"):
+            logger.info(f"[NotebookLM Pipeline] ข้ามขั้นตอน Deep research: {resp}")
+            manifest.research_completed = True
+            manifest.status = "research_done"
+            return manifest
         manifest.research_task_id = resp.get("task_id")
         save_manifest(manifest)
 
@@ -83,7 +95,17 @@ async def _run_research(session, manifest: NotebookLMManifest, research_query: s
         "task_id": manifest.research_task_id,
         "max_wait": timeout_seconds,
     })
-    if status_resp.get("status") != "completed":
+    
+    status_str = status_resp.get("status")
+    error_str = status_resp.get("error", "")
+    
+    if status_str == "no_research" or (status_str == "error" and "NOT_FOUND" in str(error_str)):
+        logger.info(f"[NotebookLM Pipeline] สถานะ Deep research แจ้งว่าข้ามงาน/ไม่พบงาน (no_research/NOT_FOUND): {status_resp}")
+        manifest.research_completed = True
+        manifest.status = "research_done"
+        return manifest
+        
+    if status_str != "completed":
         raise StudioTerminalError(f"Deep research ไม่สำเร็จ: {status_resp}")
 
     await adapter.call_tool(session, "research_import", {
@@ -104,10 +126,17 @@ async def _run_notebook_prompts(
     context/chat history ให้ notebook ก่อนสร้าง Audio Overview ไม่ใช่เก็บผลลัพธ์กลับมาใช้ต่อ
     """
     for prompt in prompts:
-        await adapter.call_tool(session, "notebook_query", {
-            "notebook_id": manifest.notebook_id,
-            "query": build_notebook_query(prompt),
-        })
+        try:
+            await adapter.call_tool(session, "notebook_query", {
+                "notebook_id": manifest.notebook_id,
+                "query": build_notebook_query(prompt),
+            })
+        except Exception as e:
+            logger.warning(
+                f"[NotebookLM Pipeline] notebook_query ล้มเหลว (ข้ามคำถามนี้เนื่องจากจุดประสงค์เพื่อสร้าง context เท่านั้น): {e}"
+            )
+            continue
+            
     manifest.prompts_queried = True
     manifest.status = "prompts_queried"
     return manifest
@@ -126,7 +155,7 @@ async def _generate_audio(
             "Audio generation requires confirm_generation=True — "
             f"resume ค้างอยู่ที่ status={manifest.status}, ยังไม่เคยยืนยัน"
         )
-    for attempt in range(5):
+    for attempt in range(60):
         try:
             resp = await adapter.call_tool(session, "studio_create", {
                 "notebook_id": manifest.notebook_id,
@@ -136,9 +165,9 @@ async def _generate_audio(
             })
             break
         except Exception as e:
-            if attempt < 4 and "Could not retrieve notebook sources" in str(e):
+            if attempt < 59 and "Could not retrieve notebook sources" in str(e):
                 logger.warning(
-                    "[NotebookLM Pipeline] Google API ยังเตรียม Source ไม่เสร็จ รอ 5 วินาทีแล้วลองใหม่ (attempt %d/5)...",
+                    "[NotebookLM Pipeline] Google API ยังเตรียม Source ไม่เสร็จ รอ 5 วินาทีแล้วลองใหม่ (attempt %d/60)...",
                     attempt + 1,
                 )
                 import asyncio
@@ -277,12 +306,25 @@ async def _download_audio(
     dest_path = OUTPUT_DIR / dest_name
     tmp_path = OUTPUT_DIR / f".tmp_{dest_name}"
 
-    await adapter.call_tool(session, "download_artifact", {
-        "notebook_id": manifest.notebook_id,
-        "artifact_type": "audio",
-        "artifact_id": manifest.artifact_id,
-        "output_path": str(tmp_path),
-    })
+    for attempt in range(60):
+        try:
+            await adapter.call_tool(session, "download_artifact", {
+                "notebook_id": manifest.notebook_id,
+                "artifact_type": "audio",
+                "artifact_id": manifest.artifact_id,
+                "output_path": str(tmp_path),
+            })
+            break
+        except Exception as e:
+            if attempt < 59 and "propagating" in str(e).lower():
+                logger.warning(
+                    "[NotebookLM Pipeline] Audio media URL ยังไม่พร้อม (กำลัง propagate) รอ 10 วินาทีแล้วลองใหม่ (attempt %d/60)...",
+                    attempt + 1,
+                )
+                import asyncio
+                await asyncio.sleep(10)
+                continue
+            raise
 
     if not tmp_path.exists() or tmp_path.stat().st_size == 0:
         tmp_path.unlink(missing_ok=True)
@@ -315,6 +357,7 @@ async def run_notebooklm_post_production_pipeline(
     confirm_generation: bool,
     with_research: bool = False,
     research_query: str | None = None,
+    research_mode: str = "deep",
     notebooklm_prompts: list[NotebookLMPromptRecord] | None = None,
     audio_language: str = "th",
     timeout_seconds: int = 5_400,  # 1 ชม. 30 นาที
@@ -392,7 +435,7 @@ async def run_notebooklm_post_production_pipeline(
             on_step("source_add", "อัปโหลด Briefing Book สำเร็จ")
 
         if effective_with_research and not manifest.research_completed and not manifest.artifact_id:
-            manifest = await _run_research(session, manifest, effective_research_query, timeout_seconds)
+            manifest = await _run_research(session, manifest, effective_research_query, timeout_seconds, research_mode=research_mode)
             save_manifest(manifest)
             on_step("research", "Deep Research เสร็จสิ้น นำเข้าแหล่งข้อมูลแล้ว")
 

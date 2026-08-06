@@ -183,3 +183,42 @@ def test_create_youtube_canvas_exception(test_vault, monkeypatch):
     # Canvas won't exist because it failed, but write_raw_markdown shouldn't crash
     canvas_file = test_vault / "30_Knowledge_Base" / "Videos" / "YT_Insight_Fail.canvas"
     assert not canvas_file.exists()
+
+
+def test_write_raw_markdown_company_news_auto_sidecar(test_vault):
+    raw_md = """---
+title: AAPL Latest News 2026-08-05
+entity_type: Company_News
+ticker: AAPL
+market: US
+date: 2026-08-05
+last_updated: 2026-08-05 22:10:59
+---
+
+# ข่าวล่าสุด: AAPL (US)
+
+1. **Apple Intelligence Launch** <!-- published_at: 2026-08-05T14:30:00Z -->
+   - ที่มา: Reuters (Reported by 2 sources)
+   - อายุข่าว: 2 ชั่วโมง (Fresh)
+   - [อ่านต่อ](https://example.com/news1)
+"""
+    res = write_raw_markdown.func(
+        content=raw_md,
+        folder_path="30_Knowledge_Base/Stocks",
+        filename="AAPL Latest News 2026-08-05"
+    )
+    assert "บันทึกสำเร็จ" in res
+
+    md_file = test_vault / "30_Knowledge_Base" / "Stocks" / "AAPL" / "AAPL Latest News 2026-08-05.md"
+    json_file = test_vault / "30_Knowledge_Base" / "Stocks" / "AAPL" / "AAPL Latest News 2026-08-05.json"
+
+    assert md_file.exists()
+    assert json_file.exists()
+
+    sidecar_data = json.loads(json_file.read_text(encoding="utf-8"))
+    assert sidecar_data["ticker"] == "AAPL"
+    assert sidecar_data["market"] == "US"
+    assert len(sidecar_data["items"]) == 1
+    assert sidecar_data["items"][0]["title"] == "Apple Intelligence Launch"
+    assert sidecar_data["items"][0]["published_at"] == "2026-08-05T14:30:00Z"
+

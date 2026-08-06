@@ -67,6 +67,7 @@ Thumbs.db
 .claude/settings.local.json
 
 # =========================================
-# 9. Superpowers scratch (subagent-driven-development ledger/workspace)
+# 9. Node Modules & Superpowers scratch
 # =========================================
+node_modules/
 .superpowers/

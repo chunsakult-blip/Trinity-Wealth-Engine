@@ -5,9 +5,6 @@ import type { KanbanCardDTO, NotebookLMAvailableSourceDTO, NotebookLMStatusDTO }
 const POLL_INTERVAL_MS = 10_000
 const TERMINAL_JOB_STATUSES = new Set(['done', 'done_with_warnings', 'done_with_errors', 'error'])
 
-function fileNameFromPath(path: string): string {
-  return path.split(/[/\\]/).pop() ?? path
-}
 
 const MANIFEST_STATUS_LABEL: Record<string, string> = {
   initialized: 'กำลังเตรียม...',

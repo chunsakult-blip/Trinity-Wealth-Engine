@@ -271,217 +271,215 @@ export default function PortfolioHoldingsTab({
                 return (
                   <Fragment key={h.symbol}>
                     <tr
-                      className={`transition-colors ${
-                        isSelected ? 'bg-flow-cyan/10' : 'hover:bg-sky-50/50'
-                      }`}
+                      className={`transition-colors ${isSelected ? 'bg-flow-cyan/10' : 'hover:bg-sky-50/50'
+                        }`}
                     >
-                    {/* Checkbox */}
-                    <td className="px-4 py-4 text-center align-top">
-                      <input
-                        type="checkbox"
-                        aria-label={`Select ${h.symbol}`}
-                        checked={isSelected}
-                        onChange={() => toggleSelect(h.symbol)}
-                        className="h-4 w-4 rounded border-sky-300 text-flow-blue focus:ring-flow-cyan"
-                      />
-                    </td>
+                      {/* Checkbox */}
+                      <td className="px-4 py-4 text-center align-top">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${h.symbol}`}
+                          checked={isSelected}
+                          onChange={() => toggleSelect(h.symbol)}
+                          className="h-4 w-4 rounded border-sky-300 text-flow-blue focus:ring-flow-cyan"
+                        />
+                      </td>
 
-                    {/* Col 1: Symbol (Line 1) + Company Name (Line 2) */}
-                    <td className="px-4 py-4 align-top">
-                      <div className="font-bold text-zinc-900 text-sm tracking-tight">{h.symbol}</div>
-                      <div className="mt-0.5 text-[11px] text-zinc-500 line-clamp-1">
-                        {h.company_name || 'N/A'}
-                      </div>
-                    </td>
+                      {/* Col 1: Symbol (Line 1) + Company Name (Line 2) */}
+                      <td className="px-4 py-4 align-top">
+                        <div className="font-bold text-zinc-900 text-sm tracking-tight">{h.symbol}</div>
+                        <div className="mt-0.5 text-[11px] text-zinc-500 line-clamp-1">
+                          {h.company_name || 'N/A'}
+                        </div>
+                      </td>
 
-                    {/* Col 2: Asset Type (Line 1) + Bucket ID (Line 2) */}
-                    <td className="px-4 py-4 align-top">
-                      <span className="inline-block rounded-md bg-sky-50 px-2 py-0.5 text-xs font-semibold text-sky-800">
-                        {h.asset_type}
-                      </span>
-                      <div className="mt-1 font-mono tabular-nums text-[11px] text-zinc-400">
-                        {h.bucket_id || 'unassigned'}
-                      </div>
-                    </td>
+                      {/* Col 2: Asset Type (Line 1) + Bucket ID (Line 2) */}
+                      <td className="px-4 py-4 align-top">
+                        <span className="inline-block rounded-md bg-sky-50 px-2 py-0.5 text-xs font-semibold text-sky-800">
+                          {h.asset_type}
+                        </span>
+                        <div className="mt-1 font-mono tabular-nums text-[11px] text-zinc-400">
+                          {h.bucket_id || 'unassigned'}
+                        </div>
+                      </td>
 
-                    {/* Col 3: Shares/Units (Line 1) + Avg Cost (Line 2) */}
-                    <td className="px-4 py-4 text-right align-top font-mono tabular-nums">
-                      <div className="font-bold text-zinc-900">
-                        {h.units.toLocaleString('en-US', { maximumFractionDigits: 4 })}
-                      </div>
-                      <div className="mt-0.5 text-[11px] text-zinc-500">
-                        Avg: {formatPrice(h.avg_cost_usd, h.avg_cost_thb)}
-                      </div>
-                    </td>
+                      {/* Col 3: Shares/Units (Line 1) + Avg Cost (Line 2) */}
+                      <td className="px-4 py-4 text-right align-top font-mono tabular-nums">
+                        <div className="font-bold text-zinc-900">
+                          {h.units.toLocaleString('en-US', { maximumFractionDigits: 4 })}
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-zinc-500">
+                          Avg: {formatPrice(h.avg_cost_usd, h.avg_cost_thb)}
+                        </div>
+                      </td>
 
-                    {/* Col 4: Current Price (Line 1) + Currency tag (Line 2) */}
-                    <td className="px-4 py-4 text-right align-top font-mono tabular-nums">
-                      <div className="font-bold text-zinc-900">
-                        {formatPrice(h.current_price_usd, h.current_price_thb)}
-                      </div>
-                      <div className="mt-0.5 text-[11px] text-zinc-400">
-                        {h.current_price_usd !== null && h.current_price_usd !== undefined ? 'USD' : 'THB'}
-                      </div>
-                    </td>
+                      {/* Col 4: Current Price (Line 1) + Currency tag (Line 2) */}
+                      <td className="px-4 py-4 text-right align-top font-mono tabular-nums">
+                        <div className="font-bold text-zinc-900">
+                          {formatPrice(h.current_price_usd, h.current_price_thb)}
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-zinc-400">
+                          {h.current_price_usd !== null && h.current_price_usd !== undefined ? 'USD' : 'THB'}
+                        </div>
+                      </td>
 
-                    {/* Col 5: Market Value THB (Line 1) + % of NAV placeholder (Line 2) */}
-                    <td className="px-4 py-4 text-right align-top font-mono tabular-nums">
-                      <div className="font-extrabold text-zinc-900 text-sm">
-                        {formatTHB(h.market_value_thb)}
-                      </div>
-                      <div className="mt-0.5 text-[11px] text-zinc-400">
-                        Market Cap:{' '}
-                        {h.market_cap_value
-                          ? (h.current_price_usd !== null && h.current_price_usd !== undefined
+                      {/* Col 5: Market Value THB (Line 1) + % of NAV placeholder (Line 2) */}
+                      <td className="px-4 py-4 text-right align-top font-mono tabular-nums">
+                        <div className="font-extrabold text-zinc-900 text-sm">
+                          {formatTHB(h.market_value_thb)}
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-zinc-400">
+                          Market Cap:{' '}
+                          {h.market_cap_value
+                            ? (h.current_price_usd !== null && h.current_price_usd !== undefined
                               ? formatPrice(h.market_cap_value / 1e9, null) + 'B'
                               : formatPrice(null, h.market_cap_value / 1e9) + 'B')
-                          : 'N/A'}
-                      </div>
-                    </td>
+                            : 'N/A'}
+                        </div>
+                      </td>
 
-                    {/* Col 6: Unrealized PnL % (Line 1) + Unrealized PnL Value (Line 2) */}
-                    <td className="px-4 py-4 text-right align-top font-mono tabular-nums">
-                      {h.unrealized_pnl_percent !== null ? (
-                        <>
-                          <div className={`font-bold ${isPos ? 'text-emerald-600' : 'text-rose-600'}`}>
-                            {isPos ? '+' : ''}
-                            {h.unrealized_pnl_percent.toFixed(2)}%
-                          </div>
-                          <div className={`mt-0.5 text-[11px] font-semibold ${isPos ? 'text-emerald-700' : 'text-rose-700'}`}>
-                            {isPos ? '+' : ''}
-                            {formatTHB(h.unrealized_pnl_value ?? 0)}
-                          </div>
-                        </>
-                      ) : (
-                        <span className="text-zinc-400">-</span>
-                      )}
-                    </td>
+                      {/* Col 6: Unrealized PnL % (Line 1) + Unrealized PnL Value (Line 2) */}
+                      <td className="px-4 py-4 text-right align-top font-mono tabular-nums">
+                        {h.unrealized_pnl_percent !== null ? (
+                          <>
+                            <div className={`font-bold ${isPos ? 'text-emerald-600' : 'text-rose-600'}`}>
+                              {isPos ? '+' : ''}
+                              {h.unrealized_pnl_percent.toFixed(2)}%
+                            </div>
+                            <div className={`mt-0.5 text-[11px] font-semibold ${isPos ? 'text-emerald-700' : 'text-rose-700'}`}>
+                              {isPos ? '+' : ''}
+                              {formatTHB(h.unrealized_pnl_value ?? 0)}
+                            </div>
+                          </>
+                        ) : (
+                          <span className="text-zinc-400">-</span>
+                        )}
+                      </td>
 
-                    {/* Col 7: P/E Ratio (Line 1) + EPS & Payout Ratio (Line 2) */}
-                    <td className="px-4 py-4 text-right align-top font-mono tabular-nums">
-                      <div className="font-semibold text-zinc-800">
-                        PE: {h.pe_ratio ? `${h.pe_ratio.toFixed(1)}x` : 'N/A'}
-                      </div>
-                      <div className="mt-0.5 text-[11px] text-zinc-500">
-                        EPS: {h.eps ? `$${h.eps.toFixed(2)}` : 'N/A'} {h.payout_ratio ? `(${h.payout_ratio.toFixed(0)}% PO)` : ''}
-                      </div>
-                    </td>
+                      {/* Col 7: P/E Ratio (Line 1) + EPS & Payout Ratio (Line 2) */}
+                      <td className="px-4 py-4 text-right align-top font-mono tabular-nums">
+                        <div className="font-semibold text-zinc-800">
+                          PE: {h.pe_ratio ? `${h.pe_ratio.toFixed(1)}x` : 'N/A'}
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-zinc-500">
+                          EPS: {h.eps ? `$${h.eps.toFixed(2)}` : 'N/A'} {h.payout_ratio ? `(${h.payout_ratio.toFixed(0)}% PO)` : ''}
+                        </div>
+                      </td>
 
-                    {/* Col 8: Yield on Cost (Line 1) + Div Yield & DPS (Line 2) */}
-                    <td className="px-4 py-4 text-right align-top font-mono tabular-nums">
-                      <div className="font-bold text-amber-700">
-                        YoC: {h.yield_on_cost ? `${h.yield_on_cost.toFixed(2)}%` : 'N/A'}
-                      </div>
-                      <div className="mt-0.5 text-[11px] text-zinc-500">
-                        Div: {h.dividend_yield ? `${h.dividend_yield.toFixed(2)}%` : 'N/A'} {h.dividend_per_share ? `($${h.dividend_per_share.toFixed(2)})` : ''}
-                      </div>
-                    </td>
+                      {/* Col 8: Yield on Cost (Line 1) + Div Yield & DPS (Line 2) */}
+                      <td className="px-4 py-4 text-right align-top font-mono tabular-nums">
+                        <div className="font-bold text-amber-700">
+                          YoC: {h.yield_on_cost ? `${h.yield_on_cost.toFixed(2)}%` : 'N/A'}
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-zinc-500">
+                          Div: {h.dividend_yield ? `${h.dividend_yield.toFixed(2)}%` : 'N/A'} {h.dividend_per_share ? `($${h.dividend_per_share.toFixed(2)})` : ''}
+                        </div>
+                      </td>
 
-                    {/* Col 9: Market Cap Tier (Line 1) + Fundamentals Updated At (Line 2) */}
-                    <td className="px-4 py-4 text-center align-top">
-                      <span className="inline-block rounded-full border border-sky-200 bg-white px-2.5 py-0.5 text-[11px] font-semibold text-zinc-700 shadow-2xs">
-                        {h.market_cap_tier || 'N/A'}
-                      </span>
-                      <div className="mt-1 text-[10px] text-zinc-400">
-                        {h.fundamentals_updated_at
-                          ? new Date(h.fundamentals_updated_at * 1000).toLocaleDateString('th-TH', { month: 'short', day: 'numeric' })
-                          : 'Not cached'}
-                      </div>
-                    </td>
+                      {/* Col 9: Market Cap Tier (Line 1) + Fundamentals Updated At (Line 2) */}
+                      <td className="px-4 py-4 text-center align-top">
+                        <span className="inline-block rounded-full border border-sky-200 bg-white px-2.5 py-0.5 text-[11px] font-semibold text-zinc-700 shadow-2xs">
+                          {h.market_cap_tier || 'N/A'}
+                        </span>
+                        <div className="mt-1 text-[10px] text-zinc-400">
+                          {h.fundamentals_updated_at
+                            ? new Date(h.fundamentals_updated_at * 1000).toLocaleDateString('th-TH', { month: 'short', day: 'numeric' })
+                            : 'Not cached'}
+                        </div>
+                      </td>
 
-                    {/* Col 10: Actions */}
-                    <td className="px-3 py-4 text-center align-top space-y-1">
-                      <div className="flex flex-col gap-1 items-center justify-center">
-                        <button
-                          type="button"
-                          onClick={() => setExpandedSymbol(expandedSymbol === h.symbol ? null : h.symbol)}
-                          className={`w-16 rounded-lg border px-2 py-1 text-[11px] font-bold transition-colors flex items-center justify-center gap-1 ${
-                            expandedSymbol === h.symbol
-                              ? 'border-flow-blue bg-flow-blue text-white'
-                              : 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-600 hover:text-white'
-                          }`}
-                          title="ดู/เขียน Trading Journal สำหรับหุ้นนี้"
-                        >
-                          <JournalIcon className="h-3 w-3" />
-                          <span>{symbolEntries.length}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setEditingHolding(h)}
-                          className="w-16 rounded-lg border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-bold text-flow-blue hover:bg-flow-blue hover:text-white transition-colors flex items-center justify-center gap-1"
-                          title="แก้ไข / ปรับปรุง"
-                        >
-                          <EditIcon className="h-3 w-3" />
-                          <span>แก้ไข</span>
-                        </button>
-                        {onSuccess && (
+                      {/* Col 10: Actions */}
+                      <td className="px-3 py-4 text-center align-top space-y-1">
+                        <div className="flex flex-col gap-1 items-center justify-center">
                           <button
                             type="button"
-                            onClick={() => handleRemoveSingle(h.symbol)}
-                            className="w-16 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] font-bold text-rose-600 hover:bg-rose-600 hover:text-white transition-colors flex items-center justify-center gap-1"
-                            title="ลบ Holding"
+                            onClick={() => setExpandedSymbol(expandedSymbol === h.symbol ? null : h.symbol)}
+                            className={`w-16 rounded-lg border px-2 py-1 text-[11px] font-bold transition-colors flex items-center justify-center gap-1 ${expandedSymbol === h.symbol
+                                ? 'border-flow-blue bg-flow-blue text-white'
+                                : 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-600 hover:text-white'
+                              }`}
+                            title="ดู/เขียน Trading Journal สำหรับหุ้นนี้"
                           >
-                            <DeleteIcon className="h-3 w-3" />
-                            <span>ลบ</span>
+                            <JournalIcon className="h-3 w-3" />
+                            <span>{symbolEntries.length}</span>
                           </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-
-                  {expandedSymbol === h.symbol && (
-                    <tr className="bg-sky-50/70 border-b border-sky-200 animate-fade-in">
-                      <td colSpan={11} className="px-6 py-5" aria-label="Journal Details">
-                        <div className="rounded-xl border border-sky-200 bg-white p-4 shadow-sm space-y-4 text-left">
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-sky-100 pb-3 gap-2">
-                            <div className="flex items-center gap-2">
-                              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-flow-blue/10 text-flow-blue">
-                                <JournalIcon className="h-4 w-4" />
-                              </span>
-                              <h4 className="font-bold text-zinc-900 text-sm">
-                                Trading Journal & Activity Log สำหรับ [{h.symbol}] ({symbolEntries.length} บันทึก)
-                              </h4>
-                            </div>
-                            {onSuccessJournal && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setJournalModalSymbol(h.symbol)
-                                  setJournalModalOpen(true)
-                                }}
-                                className="rounded-lg bg-flow-blue px-3 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-sky-600 transition-colors shrink-0"
-                              >
-                                + เขียนบันทึกสำหรับ [{h.symbol}]
-                              </button>
-                            )}
-                          </div>
-
-                          <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                            {symbolEntries.map((entry, idx) => (
-                              <div
-                                key={`${entry.timestamp}-${idx}`}
-                                className="rounded-xl border border-sky-100 bg-sky-50/40 p-3.5 font-sans text-xs text-zinc-800"
-                              >
-                                <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono tabular-nums mb-1.5">
-                                  <span>🕒 {entry.timestamp}</span>
-                                  <span className="rounded bg-white px-1.5 py-0.5 border border-sky-200 text-sky-700">Wikilink Obsidian</span>
-                                </div>
-                                <div className="whitespace-pre-wrap leading-relaxed">{entry.content}</div>
-                              </div>
-                            ))}
-                            {symbolEntries.length === 0 && (
-                              <div className="py-8 text-center text-xs text-zinc-400 italic">
-                                ยังไม่มีบันทึก Trading Journal ที่กล่าวถึงหุ้น [{h.symbol}] ในขณะนี้
-                              </div>
-                            )}
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setEditingHolding(h)}
+                            className="w-16 rounded-lg border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-bold text-flow-blue hover:bg-flow-blue hover:text-white transition-colors flex items-center justify-center gap-1"
+                            title="แก้ไข / ปรับปรุง"
+                          >
+                            <EditIcon className="h-3 w-3" />
+                            <span>แก้ไข</span>
+                          </button>
+                          {onSuccess && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveSingle(h.symbol)}
+                              className="w-16 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] font-bold text-rose-600 hover:bg-rose-600 hover:text-white transition-colors flex items-center justify-center gap-1"
+                              title="ลบ Holding"
+                            >
+                              <DeleteIcon className="h-3 w-3" />
+                              <span>ลบ</span>
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
-                  )}
-                </Fragment>
-              )
-            })}
+
+                    {expandedSymbol === h.symbol && (
+                      <tr className="bg-sky-50/70 border-b border-sky-200 animate-fade-in">
+                        <td colSpan={11} className="px-6 py-5" aria-label="Journal Details">
+                          <div className="rounded-xl border border-sky-200 bg-white p-4 shadow-sm space-y-4 text-left">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-sky-100 pb-3 gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-flow-blue/10 text-flow-blue">
+                                  <JournalIcon className="h-4 w-4" />
+                                </span>
+                                <h4 className="font-bold text-zinc-900 text-sm">
+                                  Trading Journal & Activity Log สำหรับ [{h.symbol}] ({symbolEntries.length} บันทึก)
+                                </h4>
+                              </div>
+                              {onSuccessJournal && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setJournalModalSymbol(h.symbol)
+                                    setJournalModalOpen(true)
+                                  }}
+                                  className="rounded-lg bg-flow-blue px-3 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-sky-600 transition-colors shrink-0"
+                                >
+                                  + เขียนบันทึกสำหรับ [{h.symbol}]
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                              {symbolEntries.map((entry, idx) => (
+                                <div
+                                  key={`${entry.timestamp}-${idx}`}
+                                  className="rounded-xl border border-sky-100 bg-sky-50/40 p-3.5 font-sans text-xs text-zinc-800"
+                                >
+                                  <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono tabular-nums mb-1.5">
+                                    <span>🕒 {entry.timestamp}</span>
+                                    <span className="rounded bg-white px-1.5 py-0.5 border border-sky-200 text-sky-700">Wikilink Obsidian</span>
+                                  </div>
+                                  <div className="whitespace-pre-wrap leading-relaxed">{entry.content}</div>
+                                </div>
+                              ))}
+                              {symbolEntries.length === 0 && (
+                                <div className="py-8 text-center text-xs text-zinc-400 italic">
+                                  ยังไม่มีบันทึก Trading Journal ที่กล่าวถึงหุ้น [{h.symbol}] ในขณะนี้
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
               {sortedHoldings.length === 0 && (
                 <tr>
                   <td colSpan={11} className="py-16 text-center">

@@ -184,7 +184,9 @@ def _fetch_autopsy_raw(provider_symbol: str, timeout: float = 10.0) -> Tuple[dic
     session = None
     try:
         from curl_cffi import requests as c_requests
-        session = c_requests.Session(timeout=timeout)
+        # impersonate="chrome" จำเป็น — Session เปล่าไม่มี browser TLS fingerprint ทำให้ Yahoo
+        # ตรวจจับเป็น bot และคืน YFRateLimitError ทันทีตั้งแต่ request แรก (ไม่เกี่ยวกับจำนวนครั้งที่ยิงจริง)
+        session = c_requests.Session(timeout=timeout, impersonate="chrome")
     except Exception:
         pass
     

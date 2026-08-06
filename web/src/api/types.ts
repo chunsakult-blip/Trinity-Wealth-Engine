@@ -498,3 +498,132 @@ export interface NotebookLMStatusDTO {
   notebook_id: string | null
   error: string | null
 }
+
+export interface EquitySummaryDTO {
+  ticker: string
+  market: 'TH' | 'US'
+  company_name: string | null
+  analysis_date: string
+  evaluated_at: string
+  market_sentiment: 'bullish' | 'neutral' | 'bearish'
+  composite_score: number | null
+  data_quality_flags: string[]
+  source_file: string
+  sidecar_file: string
+}
+
+export interface EquitySentimentContextDTO {
+  evaluated_at: string
+  market_sentiment: 'bullish' | 'neutral' | 'bearish'
+  key_themes: string[]
+  tail_risks: string[]
+  sources_summary: string
+  report_references: any[]
+}
+
+export interface QuantSignalsDTO {
+  ticker: string
+  market: 'TH' | 'US'
+  company_name: string | null
+  value_score: number | null
+  quality_score: number | null
+  momentum_score: number | null
+  beta: number | null
+  volatility_pct: number | null
+  mdd_pct: number | null
+  upside_pct: number | null
+  downside_pct: number | null
+  revenue_growth_yoy_pct: number | null
+  net_income_growth_yoy_pct: number | null
+  growth_score: number | null
+  dividend_yield_pct: number | null
+  payout_ratio_pct: number | null
+  dividend_score: number | null
+  de_ratio_pct: number | null
+  current_ratio: number | null
+  solvency_score: number | null
+  adtv_local_currency: number | null
+  composite_score: number | null
+  peer_sector: string | null
+  peer_count: number | null
+  pe_vs_peer_avg_pct: number | null
+  peer_relative_score: number | null
+  price_percentile_5y: number | null
+  price_zscore_5y: number | null
+  eps_revision_net_30d: number | null
+  eps_estimate_change_30d_pct: number | null
+  earnings_momentum_score: number | null
+  evaluated_at: string
+  data_quality_flags: string[]
+}
+
+export interface EquityDetailDTO extends EquitySummaryDTO {
+  quant_signals: QuantSignalsDTO
+  sentiment_context: EquitySentimentContextDTO
+  narrative_analysis: string
+  base_case_summary: string
+  generated_by: string
+}
+
+export interface EquityNewsItemDTO {
+  title: string
+  source: string
+  link: string
+  published_at?: string | null
+  age_hours: number
+  freshness_reason: string
+  is_stale: boolean
+  sources_count?: number
+}
+
+export interface EquityNewsDTO {
+  ticker: string
+  market: 'TH' | 'US'
+  last_updated?: string | null
+  news_date?: string | null
+  items: EquityNewsItemDTO[]
+}
+
+export interface EquityNoteItemDTO {
+  title: string
+  folder: string
+  relative_path: string
+  obsidian_uri: string
+  snippet: string
+  modified_at: string
+  matched_by: string
+}
+
+export interface EquityNotesDTO {
+  ticker: string
+  total_count: number
+  items: EquityNoteItemDTO[]
+}
+
+export interface EquityNoteContentDTO {
+  title: string
+  relative_path: string
+  content: string
+  modified_at?: string | null
+}
+
+
+export interface CalendarEventDTO {
+  ticker: string
+  company_name?: string | null
+  event_type: 'earnings' | 'ex_dividend'
+  event_date: string
+  days_until: number
+  bucket: 'holding' | 'watchlist'
+  eps_estimate?: number | null
+  eps_low?: number | null
+  eps_high?: number | null
+}
+
+export interface PortfolioCalendarDTO {
+  generated_at: string
+  events: CalendarEventDTO[]
+  tickers_fetched: number
+  tickers_failed: string[]
+}
+

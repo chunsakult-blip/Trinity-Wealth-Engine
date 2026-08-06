@@ -3,9 +3,9 @@ import re
 import time
 import uuid
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import lru_cache
-from typing import Literal, TypedDict, Optional
+from typing import Literal, TypedDict, Optional, Any
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.runnables.config import RunnableConfig
@@ -19,8 +19,15 @@ from agents.researcher_agent import create_researcher
 from agents.macro_quant_agent import create_macro_quant
 from agents.macro_economist_agent import create_macro_economist
 from agents.strategic_allocator import invoke_strategic_allocator
+from agents.equity_quant_agent import create_equity_quant
+from agents.equity_narrative_agent import create_equity_narrative
+from agents.equity_synthesizer import invoke_equity_synthesizer
 from schemas.macro_schemas import MarketObservable
+from schemas.micro_quant_schemas import QuantSignals, EquitySentimentContext, MicroQuantOutput
 from tools.macro.report_formatter import format_macro_strategy_report, write_strategy_json_sidecar
+from tools.market.equity_report_formatter import format_equity_analysis_report
+from tools.market.quant_history import save_equity_quant_snapshot
+from tools.market.equity_sidecar import write_equity_sidecar
 from core.agent_log import log_turn_start, log_manager_plan, log_worker_result, log_system_action, log_routing
 from core.llm_factory import FALLBACK_MODEL, detect_provider, get_llm
 from core.logger import get_logger
@@ -56,6 +63,9 @@ _BOOKKEEPER_MODEL = get_model_name("bookkeeper")
 _MACRO_QUANT_MODEL = get_model_name("macro_quant")
 _MACRO_ECONOMIST_MODEL = get_model_name("economist")
 _STRATEGIC_ALLOCATOR_MODEL = get_model_name("allocator")
+_EQUITY_QUANT_MODEL = get_model_name("equity_quant")
+_EQUITY_NARRATIVE_MODEL = get_model_name("equity_narrative")
+_EQUITY_SYNTHESIZER_MODEL = get_model_name("equity_synthesizer")
 _ROUTER_HISTORY_LIMIT = 20
 _MAX_REPLAN = 5
 _SUMMARY_SOURCE_CHAR_LIMIT = 24000
@@ -126,20 +136,28 @@ class AgentState(MessagesState):
     narrative_raw: Optional[str]
     narrative_context: Optional[dict]
 
+    # Equity Intel Pipeline State
+    equity_quant_raw: Optional[str]
+    equity_quant_score: Optional[dict]
+    equity_narrative_raw: Optional[str]
+    equity_narrative_context: Optional[dict]
+    equity_save_to_vault: Optional[bool]
+    equity_output: Optional[dict[str, Any]]
+
 
 # ROUTER_PROMPT ถูกย้ายไปที่ prompts/skills/manager/SKILL.md ผ่านระบบ PromptHarness
 
 
 class WorkerTask(BaseModel):
     """งานย่อย 1 ชิ้น ที่ route ไปยัง worker หนึ่งตัว"""
-    target: Literal["archivist", "researcher", "bookkeeper", "macro_intel"]
+    target: Literal["archivist", "researcher", "bookkeeper", "macro_intel", "equity_intel"]
     instruction: str = Field(
         description="คำสั่งสำหรับ worker ตัวนี้ — กระชับ ชัดเจน ตัดคำนำหน้า/คำพ่วงที่ไม่เกี่ยวออก"
     )
     save_to_vault: bool = Field(
         default=True,
-        description="ใช้กับ target == 'researcher' เท่านั้น — True = ส่งผลให้ Archivist บันทึก, "
-                    "False = แค่ดึงข้อมูลแล้วแสดง ไม่เซฟ "
+        description="ใช้กับ target == 'researcher' หรือ 'equity_intel' เท่านั้น — True = ส่งผลให้ Archivist บันทึก, "
+                    "False = แค่ดึงข้อมูล/วิเคราะห์แล้วแสดง ไม่เซฟ "
                     "(เลือก False เมื่อผู้ใช้บอกชัดเจน เช่น 'ดูเฉยๆ', 'ไม่ต้องเซฟ', 'แค่อยากรู้')",
     )
 
@@ -220,6 +238,18 @@ def _get_macro_economist_graph():
 
 
 @lru_cache(maxsize=1)
+def _get_equity_quant_graph():
+    provider = detect_provider(_EQUITY_QUANT_MODEL)
+    return create_equity_quant(get_llm(provider=provider, model_name=_EQUITY_QUANT_MODEL, use_fallback=True))
+
+
+@lru_cache(maxsize=1)
+def _get_equity_narrative_graph():
+    provider = detect_provider(_EQUITY_NARRATIVE_MODEL)
+    return create_equity_narrative(get_llm(provider=provider, model_name=_EQUITY_NARRATIVE_MODEL, use_fallback=True))
+
+
+@lru_cache(maxsize=1)
 def _get_router_model():
     provider = detect_provider(_ROUTER_MODEL)
     primary = get_llm(provider=provider, model_name=_ROUTER_MODEL)
@@ -285,9 +315,11 @@ def build_graph(checkpointer=None) -> StateGraph:
     bookkeeper_graph = _get_bookkeeper_graph()
     macro_quant_graph = _get_macro_quant_graph()
     macro_economist_graph = _get_macro_economist_graph()
+    equity_quant_graph = _get_equity_quant_graph()
+    equity_narrative_graph = _get_equity_narrative_graph()
     router_model = _get_router_model()
 
-    def supervisor_node(state: AgentState) -> Command[Literal["prepare_archivist", "researcher", "bookkeeper", "macro_quant", "__end__"]]:
+    def supervisor_node(state: AgentState) -> Command[Literal["prepare_archivist", "researcher", "bookkeeper", "macro_quant", "equity_quant", "__end__"]]:
         messages = state["messages"]
         turn_id = state.get("turn_id")
 
@@ -392,7 +424,7 @@ def build_graph(checkpointer=None) -> StateGraph:
         task, rest = queue[0], queue[1:]
         target = task["target"]
         meta: RouteMeta = {"source": "manager", "target": target}
-        if target == "researcher":
+        if target in ("researcher", "equity_intel"):
             meta["save_to_vault"] = task.get("save_to_vault", True)
 
         meta["worker_started_at"] = time.monotonic()
@@ -402,29 +434,50 @@ def build_graph(checkpointer=None) -> StateGraph:
             goto_target = "prepare_archivist"
         elif target == "macro_intel":
             goto_target = "macro_quant"
+        elif target == "equity_intel":
+            goto_target = "equity_quant"
 
         if target == "researcher":
             instruction = _sanitize_researcher_instruction(task["instruction"])
         else:
             instruction = task["instruction"]
 
-        return Command(
-            goto=goto_target,
-            update={
-                "messages": messages_update + [HumanMessage(content=instruction, name="manager")],
-                "route_meta": meta,
-                "task_queue": rest,
-                "replan_count": replan_count_update,
-                "turn_id": turn_id,
-            },
-        )
+        # equity_save_to_vault เป็น top-level state field แยกจาก route_meta โดยตั้งใจ — post_equity_quant/
+        # post_equity_narrative/equity_synthesizer_node ทับ route_meta ใหม่ทั้งก้อนทุก hop ถ้าเก็บ
+        # save_to_vault ไว้ใน route_meta อย่างเดียวจะหายก่อนถึง post_equity_intel_node ที่ปลายทาง
+        state_update = {
+            "messages": messages_update + [HumanMessage(content=instruction, name="manager")],
+            "route_meta": meta,
+            "task_queue": rest,
+            "replan_count": replan_count_update,
+            "turn_id": turn_id,
+        }
+        if target == "equity_intel":
+            state_update["equity_save_to_vault"] = task.get("save_to_vault", True)
+            state_update["equity_output"] = None
+
+        return Command(goto=goto_target, update=state_update)
 
     def prepare_archivist_node(state: AgentState) -> Command[Literal["archivist"]]:
         meta = state.get("route_meta") or {}
 
-        if meta.get("source") in ["researcher", "macro_intel"]:
+        if meta.get("source") in ["researcher", "macro_intel", "equity_intel"]:
             last_msg = extract_worker_reply(state["messages"])
-            task = f"คุณต้องเรียกใช้เครื่องมือ write_raw_markdown เพื่อบันทึกข้อมูลดิบต่อไปนี้ลง Vault ทันที ห้ามตอบกลับเป็นข้อความโดยไม่เรียกใช้เครื่องมือ\n\n[ข้อมูลดิบ]\n{last_msg}"
+
+            # write_raw_markdown ให้ Archivist LLM ตัดสินใจ filename เอง — พบว่าไม่ deterministic
+            # ข้ามรอบรัน (เช่นวันเดียวกันแต่ตัดสินใจสลับ space/underscore) ทำให้เกิดไฟล์ซ้ำแทนที่จะ
+            # overwrite เดิม (เจอจริงจาก live test ของ equity_intel) — ดึง title จาก YAML มาบังคับ
+            # filename ให้คงที่ทุกรอบแทน ไม่ปล่อยให้ LLM เดาเอง (แก้ที่ instruction ไม่ใช่ tool เพราะ
+            # write_raw_markdown ถูกทดสอบไว้แล้วว่าต้อง preserve filename ตามที่ caller ส่งมาตรงๆ
+            # ทั้งแบบ space และ underscore สำหรับ entity_type อื่น เปลี่ยน tool เองจะพังเทสต์เดิม)
+            from tools.archivist.parser import extract_yaml_frontmatter_value
+            title = extract_yaml_frontmatter_value(last_msg, "title")
+            filename_directive = (
+                f"\nต้องใช้ filename='{title}' เป๊ะๆ ตามนี้เท่านั้น ห้ามดัดแปลง เปลี่ยนช่องว่างเป็นขีดล่าง "
+                f"หรือเปลี่ยนรูปแบบใดๆ ทั้งสิ้น (เพื่อให้ re-run วันเดียวกัน overwrite ไฟล์เดิมแทนสร้างไฟล์ซ้ำ)"
+                if title else ""
+            )
+            task = f"คุณต้องเรียกใช้เครื่องมือ write_raw_markdown เพื่อบันทึกข้อมูลดิบต่อไปนี้ลง Vault ทันที ห้ามตอบกลับเป็นข้อความโดยไม่เรียกใช้เครื่องมือ{filename_directive}\n\n[ข้อมูลดิบ]\n{last_msg}"
         else:
             last_msg = normalize_content(state["messages"][-1].content)
             msgs = state["messages"]
@@ -456,6 +509,21 @@ def build_graph(checkpointer=None) -> StateGraph:
 
         turn_id = state.get("turn_id", "unknown")
         elapsed = _get_elapsed(state.get("route_meta") or {})
+        
+        meta = state.get("route_meta") or {}
+        if meta.get("source") == "equity_intel" and state.get("equity_save_to_vault", True):
+            if not archivist_reply.lstrip().startswith("Error:"):
+                equity_output_data = state.get("equity_output")
+                if equity_output_data:
+                    try:
+                        output = MicroQuantOutput.model_validate(equity_output_data)
+                        write_equity_sidecar(output)
+                        log.info(f"[{turn_id}] Successfully wrote equity sidecar for {output.ticker}")
+                    except Exception as e:
+                        log.warning(f"[EQUITY SIDECAR WARN] Failed to write sidecar: {e}")
+                else:
+                    log.warning(f"[EQUITY SIDECAR WARN] equity_output missing from state, skipping sidecar write.")
+
         log_worker_result(turn_id, "archivist", archivist_reply, status="success", elapsed_sec=elapsed)
 
         return Command(
@@ -745,6 +813,159 @@ def build_graph(checkpointer=None) -> StateGraph:
     builder.add_node("macro_economist", macro_economist_wrapper)
     builder.add_node("strategic_allocator", strategic_allocator_node)
 
+    # --- Equity Intel Pipeline ---
+    def equity_quant_wrapper(state: AgentState, config: RunnableConfig):
+        task_message = state["messages"][-1]
+        result = equity_quant_graph.invoke({"messages": [task_message]}, config=config)
+        reply = extract_worker_reply(result["messages"])
+        return {"messages": [AIMessage(content=reply, name="equity_quant")]}
+
+    def equity_narrative_wrapper(state: AgentState, config: RunnableConfig):
+        # อ่าน ticker/market/company_name จาก state ตรงๆ (ไม่ parse จากข้อความอิสระ) — equity_narrative
+        # เป็น RunnableLambda ไม่ใช่ ReAct agent จึงรับ input เป็น dict ธรรมดา ไม่ใช่ {"messages": [...]}
+        quant_score = state.get("equity_quant_score", {}) or {}
+        result = equity_narrative_graph.invoke(
+            {
+                "ticker": quant_score.get("ticker"),
+                "market": quant_score.get("market", "US"),
+                "company_name": quant_score.get("company_name"),
+            },
+            config=config,
+        )
+        reply = extract_worker_reply(result["messages"])
+        return {"messages": [AIMessage(content=reply, name="equity_narrative")]}
+
+    def post_equity_quant_node(state: AgentState) -> Command[Literal["equity_narrative", "supervisor"]]:
+        reply = extract_worker_reply(state["messages"])
+        try:
+            validated = QuantSignals.model_validate(json.loads(reply))
+            try:
+                save_equity_quant_snapshot(validated)
+            except Exception as hist_err:
+                log.warning("save_equity_quant_snapshot failed (non-fatal): %s", hist_err)
+            validated_json = validated.model_dump(mode="json")
+            turn_id = state.get("turn_id", "unknown")
+            elapsed = _get_elapsed(state.get("route_meta") or {})
+            log_worker_result(turn_id, "equity_quant", reply, status="success", elapsed_sec=elapsed)
+            return Command(
+                goto="equity_narrative",
+                update={
+                    "equity_quant_raw": reply,
+                    "equity_quant_score": validated_json,
+                    "route_meta": {"source": "equity_quant", "target": "equity_narrative", "worker_started_at": time.monotonic()},
+                }
+            )
+        except Exception as e:
+            log_worker_result(state.get("turn_id", "unknown"), "equity_quant", f"Error: {e}\n{reply}", status="failure")
+            return Command(
+                goto="supervisor",
+                update={"messages": [AIMessage(content=f"Error: (Equity Quant) {str(e)} - {reply}")]}
+            )
+
+    def post_equity_narrative_node(state: AgentState) -> Command[Literal["equity_synthesizer"]]:
+        reply = extract_worker_reply(state["messages"])
+        import re
+        reply_clean = re.sub(r'^```(?:json)?\s*|\s*```$', '', reply.strip(), flags=re.MULTILINE)
+        try:
+            validated_json = EquitySentimentContext.model_validate(json.loads(reply_clean)).model_dump(mode="json")
+            turn_id = state.get("turn_id", "unknown")
+            elapsed = _get_elapsed(state.get("route_meta") or {})
+            log_worker_result(turn_id, "equity_narrative", reply, status="success", elapsed_sec=elapsed)
+        except Exception as e:
+            log_worker_result(state.get("turn_id", "unknown"), "equity_narrative", f"Validation fallback: {e}\n{reply}", status="warning")
+            fallback_dict = {
+                "evaluated_at": datetime.now(timezone.utc).isoformat(),
+                "market_sentiment": "neutral",
+                "key_themes": [],
+                "tail_risks": [],
+                "sources_summary": f"Data fetch/parse failed: {str(e)}",
+            }
+            validated_json = EquitySentimentContext.model_validate(fallback_dict).model_dump(mode="json")
+
+        return Command(
+            goto="equity_synthesizer",
+            update={
+                "equity_narrative_raw": reply,
+                "equity_narrative_context": validated_json,
+                "route_meta": {"source": "equity_narrative", "target": "equity_synthesizer", "worker_started_at": time.monotonic()},
+            }
+        )
+
+    def equity_synthesizer_node(state: AgentState) -> Command[Literal["post_equity_intel", "supervisor"]]:
+        try:
+            provider = detect_provider(_EQUITY_SYNTHESIZER_MODEL)
+            model = get_llm(provider=provider, model_name=_EQUITY_SYNTHESIZER_MODEL, use_fallback=True)
+
+            quant_data = state.get("equity_quant_score", {}) or {}
+            narrative_data = state.get("equity_narrative_context", {}) or {}
+            quant_json = json.dumps(quant_data, ensure_ascii=False)
+            narrative_json = json.dumps(narrative_data, ensure_ascii=False)
+
+            narrative = invoke_equity_synthesizer(model, quant_json, narrative_json)
+
+            output = MicroQuantOutput(
+                ticker=quant_data["ticker"],
+                market=quant_data["market"],
+                analysis_date=datetime.now().strftime("%Y-%m-%d"),
+                quant_signals=QuantSignals.model_validate(quant_data),
+                sentiment_context=EquitySentimentContext.model_validate(narrative_data),
+                narrative_analysis=narrative.narrative_analysis,
+                base_case_summary=narrative.base_case_summary,
+            )
+            report = format_equity_analysis_report(output)
+
+            turn_id = state.get("turn_id", "unknown")
+            elapsed = _get_elapsed(state.get("route_meta") or {})
+            log_worker_result(turn_id, "equity_synthesizer", report, status="success", elapsed_sec=elapsed)
+            return Command(
+                goto="post_equity_intel",
+                update={
+                    "messages": [AIMessage(content=report)],
+                    "equity_output": output.model_dump(mode="json"),
+                }
+            )
+        except Exception as e:
+            log_worker_result(state.get("turn_id", "unknown"), "equity_synthesizer", f"Error: {e}", status="failure")
+            return Command(
+                goto="supervisor",
+                update={"messages": [AIMessage(content=f"Error: (Equity Synthesizer) {str(e)}")]}
+            )
+
+    def post_equity_intel_node(state: AgentState) -> Command[Literal["supervisor", "prepare_archivist"]]:
+        report = state["messages"][-1].content
+        turn_id = state.get("turn_id", "unknown")
+        elapsed = _get_elapsed(state.get("route_meta") or {})
+        save_to_vault = state.get("equity_save_to_vault")
+        if save_to_vault is None:
+            save_to_vault = True
+
+        if _has_researcher_frontmatter(report) and save_to_vault:
+            log_worker_result(turn_id, "equity_synthesizer", report, status="success", elapsed_sec=elapsed)
+            return Command(
+                goto="prepare_archivist",
+                update={
+                    "route_meta": {"source": "equity_intel", "target": "archivist", "worker_started_at": time.monotonic()}
+                }
+            )
+
+        status = "failure" if report.strip().startswith("Error:") else "info"
+        log_worker_result(turn_id, "equity_synthesizer", report, status=status, elapsed_sec=elapsed)
+        return Command(
+            goto="supervisor",
+            update={
+                "messages": [AIMessage(content=report)],
+                "route_meta": {"source": "equity_intel", "target": "user"},
+                "turn_id": turn_id,
+            }
+        )
+
+    builder.add_node("equity_quant", equity_quant_wrapper)
+    builder.add_node("equity_narrative", equity_narrative_wrapper)
+    builder.add_node("equity_synthesizer", equity_synthesizer_node)
+    builder.add_node("post_equity_quant", post_equity_quant_node)
+    builder.add_node("post_equity_narrative", post_equity_narrative_node)
+    builder.add_node("post_equity_intel", post_equity_intel_node)
+
     builder.add_node("post_archivist", post_archivist_node)
     builder.add_node("post_researcher", post_researcher_node)
     builder.add_node("post_bookkeeper", post_bookkeeper_node)
@@ -762,5 +983,8 @@ def build_graph(checkpointer=None) -> StateGraph:
     builder.add_edge("macro_quant", "post_quant")
     builder.add_edge("macro_economist", "post_economist")
     builder.add_edge("strategic_allocator", "post_macro_intel")
+
+    builder.add_edge("equity_quant", "post_equity_quant")
+    builder.add_edge("equity_narrative", "post_equity_narrative")
 
     return builder.compile(checkpointer=checkpointer)
