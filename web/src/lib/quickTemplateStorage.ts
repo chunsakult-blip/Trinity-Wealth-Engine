@@ -14,8 +14,16 @@ const NOTEBOOKLM_QUICK_TEMPLATE: QuickTemplate = {
   label: 'สร้าง Audio Overview (NotebookLM)', instruction: '', flow: 'notebooklm', scope: 'both',
 }
 
+const EQUITY_NEWS_QUICK_TEMPLATE: QuickTemplate = {
+  label: 'วิเคราะห์หุ้นและดึงข่าว (Equity & News)',
+  instruction: 'วิเคราะห์หุ้น AAPL และดึงข่าวล่าสุดพร้อมประเมิน Valuation',
+  flow: 'manager',
+  scope: 'both',
+}
+
 const DEFAULT_TEMPLATES: QuickTemplate[] = [
   { label: 'วิเคราะห์เศรษฐกิจมหภาค', instruction: 'วิเคราะห์เศรษฐกิจมหภาคและจัดสรรพอร์ตประจำวัน', flow: 'manager', scope: 'both' },
+  EQUITY_NEWS_QUICK_TEMPLATE,
   { label: 'ดึงข่าวล่าสุด', instruction: 'ดึงข่าวเศรษฐกิจและการลงทุนล่าสุด สรุปประเด็นสำคัญ', flow: 'news_youtube', scope: 'news' },
   { label: 'ดึงสรุปคลิป YouTube', instruction: 'ดึงสรุปคลิป YouTube ช่องการลงทุนที่ติดตามไว้ล่าสุด', flow: 'news_youtube', scope: 'youtube' },
   { label: 'หาไอเดียทำคลิป (ย้อนหลัง 3 วัน)', instruction: 'หาไอเดียทำคลิป YouTube เชิงลึก [lookback_days=3]', flow: 'youtube_pitch', scope: 'both' },
@@ -30,13 +38,20 @@ export function loadQuickTemplates(): QuickTemplate[] {
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return DEFAULT_TEMPLATES
 
-    // ผู้ใช้ที่เคย save quick templates ไว้ก่อนมี flow นี้จะไม่เห็น default ใหม่เลย (เพราะ
-    // localStorage ไม่ว่างแล้ว โค้ดข้างบนคืนค่าที่ parse ได้ตรงๆ) เติมให้อัตโนมัติครั้งเดียว
-    // แบบไม่ทับปุ่มลัดอื่นที่ผู้ใช้ปรับแต่งเอง — เช็คก่อนว่ายังไม่มีถึงจะเติม กัน duplicate ทุกครั้งที่โหลด
-    if (!parsed.some((t) => t?.flow === 'notebooklm')) {
-      const migrated = [...parsed, NOTEBOOKLM_QUICK_TEMPLATE]
-      saveQuickTemplates(migrated)
-      return migrated
+    let updated = [...parsed]
+    let hasChanged = false
+
+    if (!updated.some((t) => t?.flow === 'notebooklm')) {
+      updated.push(NOTEBOOKLM_QUICK_TEMPLATE)
+      hasChanged = true
+    }
+    if (!updated.some((t) => t?.label?.includes('วิเคราะห์หุ้นและดึงข่าว'))) {
+      updated.splice(1, 0, EQUITY_NEWS_QUICK_TEMPLATE)
+      hasChanged = true
+    }
+    if (hasChanged) {
+      saveQuickTemplates(updated)
+      return updated
     }
     return parsed
   } catch {

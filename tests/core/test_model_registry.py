@@ -2,21 +2,22 @@
 from core.model_registry import REGISTRY, get_model_name, get_registry_summary
 
 
-def test_registry_has_exactly_12_slots():
-    assert len(REGISTRY) == 12
+def test_registry_has_exactly_14_slots():
+    assert len(REGISTRY) == 14
 
 
-def test_registry_has_8_agent_and_4_tool_slots():
+def test_registry_has_10_agent_and_4_tool_slots():
     agent_slots = [s for s in REGISTRY.values() if s.layer == "agent"]
     tool_slots = [s for s in REGISTRY.values() if s.layer == "tool"]
-    assert len(agent_slots) == 8
+    assert len(agent_slots) == 10
     assert len(tool_slots) == 4
 
 
 def test_all_expected_slot_keys_present():
     expected = {
-        "manager", "router", "archivist", "researcher", "bookkeeper",
+        "manager", "router", "archivist", "bookkeeper",
         "macro_quant", "economist", "allocator",
+        "equity_quant", "equity_narrative", "equity_synthesizer",
         "extractor", "youtube_pitch", "news_triage", "thai_title_translation",
     }
     assert set(REGISTRY.keys()) == expected
@@ -38,9 +39,9 @@ def test_get_model_name_unknown_slot_raises_keyerror():
         get_model_name("does_not_exist")
 
 
-def test_get_registry_summary_returns_12_entries():
+def test_get_registry_summary_returns_14_entries():
     summary = get_registry_summary()
-    assert len(summary) == 12
+    assert len(summary) == 14
 
 
 def test_get_registry_summary_marks_overridden_slot(monkeypatch):

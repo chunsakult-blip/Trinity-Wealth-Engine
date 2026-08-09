@@ -14,12 +14,20 @@ interface IndexedTemplate extends QuickTemplate {
   index: number
 }
 
+function getCategoryLabel(t: QuickTemplate): { key: string; label: string } {
+  if (t.label.includes('วิเคราะห์หุ้น') || t.instruction.includes('วิเคราะห์หุ้น')) {
+    return { key: 'micro', label: 'Micro' }
+  }
+  return { key: t.flow, label: flowLabel(t.flow) }
+}
+
 function groupByFlow(templates: QuickTemplate[]): { flow: string; label: string; items: IndexedTemplate[] }[] {
   const groups: { flow: string; label: string; items: IndexedTemplate[] }[] = []
   templates.forEach((t, index) => {
-    let group = groups.find((g) => g.flow === t.flow)
+    const cat = getCategoryLabel(t)
+    let group = groups.find((g) => g.flow === cat.key)
     if (!group) {
-      group = { flow: t.flow, label: flowLabel(t.flow), items: [] }
+      group = { flow: cat.key, label: cat.label, items: [] }
       groups.push(group)
     }
     group.items.push({ ...t, index })

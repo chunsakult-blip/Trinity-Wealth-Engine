@@ -18,6 +18,23 @@ describe('RegimeProbabilityChart', () => {
     expect(screen.getByText('46%')).toBeInTheDocument()
   })
 
+  it('รองรับค่าความน่าจะเป็นที่เป็นเปอร์เซ็นต์ > 1 (เช่น 15, 47.5) และข้อความ %', () => {
+    render(
+      <RegimeProbabilityChart
+        probabilities={{
+          Goldilocks: 15,
+          Reflation: 12.5,
+          Stagflation: '25%',
+          Recession: 47.5,
+        }}
+      />
+    )
+    expect(screen.getByText('15%')).toBeInTheDocument()
+    expect(screen.getByText('13%')).toBeInTheDocument()
+    expect(screen.getByText('25%')).toBeInTheDocument()
+    expect(screen.getByText('48%')).toBeInTheDocument()
+  })
+
   it('probabilities ว่าง → ไม่ crash', () => {
     const { container } = render(<RegimeProbabilityChart probabilities={{}} />)
     expect(container.firstChild).not.toBeNull()

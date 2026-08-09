@@ -32,9 +32,14 @@ from tools.market.quant_scoring import (
     compute_solvency_score,
     compute_trading_liquidity,
     compute_composite_score,
+    compute_fcf_quality_score,
+    compute_debt_quality_score,
 )
 from tools.market.peer_valuation import fetch_peer_metrics, compute_peer_relative_score
 from tools.market.earnings_momentum import fetch_earnings_revision_data, compute_earnings_revision_score
+from tools.macro.evaluation import load_latest_macro_observables
+from tools.market.dcf_valuation import compute_dcf_valuation
+from tools.market.ownership import compute_smart_money_flags
 from .core import _yf_info
 
 log = get_logger(__name__)
@@ -199,11 +204,87 @@ def compute_equity_quant_signals(ticker: str, market: Literal["TH", "US"] = "US"
             compute_earnings_revision_score(revision_data)
         )
 
+        # Cash Flow & Capital Quality
+        fcf_raw = info.get("freeCashflow")
+        mcap_raw = info.get("marketCap")
+        fcf_yield_pct = round((fcf_raw / mcap_raw) * 100.0, 2) if (fcf_raw is not None and mcap_raw is not None and mcap_raw > 0) else None
+        
+        rev_raw = autopsy.periods[0].total_revenue if (autopsy and autopsy.periods) else None
+        fcf_margin_pct = round((fcf_raw / rev_raw) * 100.0, 2) if (fcf_raw is not None and rev_raw is not None and rev_raw > 0) else None
+
+        # FCF CAGR 3Y
+        fcf_cagr_3y = None
+        if autopsy and autopsy.periods and len(autopsy.periods) >= 4:
+            fcf_latest = autopsy.periods[0].free_cash_flow
+            fcf_3y_ago = autopsy.periods[3].free_cash_flow
+            if fcf_latest is not None and fcf_3y_ago is not None and fcf_latest > 0 and fcf_3y_ago > 0:
+                fcf_cagr_3y = round((((fcf_latest / fcf_3y_ago) ** (1.0 / 3.0)) - 1.0) * 100.0, 2)
+
+        ocf_raw = info.get("operatingCashflow")
+        net_inc_raw = autopsy.periods[0].net_income if (autopsy and autopsy.periods) else None
+        ocf_to_net_income = round(ocf_raw / net_inc_raw, 2) if (ocf_raw is not None and net_inc_raw is not None and net_inc_raw > 0) else None
+
+        ebitda_raw = info.get("ebitda")
+        total_debt_raw = info.get("totalDebt") or (autopsy.periods[0].total_debt if (autopsy and autopsy.periods) else None)
+        cash_raw = info.get("totalCash")
+        net_debt_ebitda = round((total_debt_raw - cash_raw) / ebitda_raw, 2) if (total_debt_raw is not None and cash_raw is not None and ebitda_raw is not None and ebitda_raw > 0) else None
+
+        latest_p = autopsy.periods[0] if (autopsy and autopsy.periods) else None
+        ebit_val = latest_p.ebit if latest_p else None
+        interest_exp = latest_p.interest_expense if latest_p else info.get("interestExpense")
+        tax_exp = latest_p.tax_expense if latest_p else None
+        pretax_inc = latest_p.income_before_tax if latest_p else None
+
+        interest_coverage = round(ebit_val / interest_exp, 2) if (ebit_val is not None and interest_exp is not None and interest_exp > 0) else None
+
+        # Effective Tax Rate Formula
+        if tax_exp is not None and pretax_inc is not None and pretax_inc > 0:
+            tax_rate = max(0.0, min(0.40, tax_exp / pretax_inc))
+        else:
+            tax_rate = 0.21 if market == "US" else 0.20
+
+        # ROIC Formula: NOPAT / Invested Capital
+        roic_pct = None
+        tot_eq = info.get("totalStockholderEquity") or info.get("stockholderEquity")
+        if ebit_val is not None and total_debt_raw is not None and tot_eq is not None and cash_raw is not None:
+            inv_cap = total_debt_raw + tot_eq - cash_raw
+            if inv_cap > 0:
+                nopat = ebit_val * (1.0 - tax_rate)
+                roic_pct = round((nopat / inv_cap) * 100.0, 2)
+
+        fcf_quality_score, fcf_q_flag = compute_fcf_quality_score(fcf_yield_pct, ocf_to_net_income)
+        debt_quality_score, debt_q_flag = compute_debt_quality_score(interest_coverage, net_debt_ebitda)
+
+        # DCF Valuation Engine
+        shares_out = info.get("sharesOutstanding")
+        fcf_per_share = (fcf_raw / shares_out) if (fcf_raw is not None and shares_out is not None and shares_out > 0) else 0.0
+        macro_registry = load_latest_macro_observables()
+
+        dcf_result, dcf_flags = compute_dcf_valuation(
+            ticker=resolved.raw_symbol.strip().upper(),
+            market=market,
+            current_price=current_price or 0.0,
+            beta=beta,
+            fcf_per_share=fcf_per_share,
+            market_cap=mcap_raw or 0.0,
+            total_debt=total_debt_raw or 0.0,
+            interest_expense=interest_exp,
+            tax_rate=tax_rate,
+            fcf_cagr_3y=fcf_cagr_3y,
+            macro_registry=macro_registry,
+            forward_eps=info.get("forwardEps"),
+            trailing_eps=info.get("trailingEps"),
+        )
+
+        # Smart Money & Ownership Flags
+        smart_money_flags, ownership_flags = compute_smart_money_flags(provider_symbol, info)
+
         flags = [
             f for f in [
                 value_flag, quality_flag, momentum_flag, *growth_flags, growth_score_flag,
                 dividend_flag, solvency_flag, liquidity_flag, composite_flag, peer_flag,
-                revision_fetch_flag or revision_score_flag,  # fetch_error เจาะจงกว่า ใช้ตัวนั้นก่อนถ้ามี
+                revision_fetch_flag or revision_score_flag, fcf_q_flag, debt_q_flag,
+                *dcf_flags, *ownership_flags,
             ] if f
         ]
         for name, q in [
@@ -234,6 +315,15 @@ def compute_equity_quant_signals(ticker: str, market: Literal["TH", "US"] = "US"
             de_ratio_pct=de_ratio_pct,
             current_ratio=current_ratio,
             solvency_score=solvency_score,
+            fcf_yield_pct=fcf_yield_pct,
+            fcf_margin_pct=fcf_margin_pct,
+            fcf_cagr_3y=fcf_cagr_3y,
+            interest_coverage=interest_coverage,
+            net_debt_ebitda=net_debt_ebitda,
+            roic_pct=roic_pct,
+            ocf_to_net_income=ocf_to_net_income,
+            fcf_quality_score=fcf_quality_score,
+            debt_quality_score=debt_quality_score,
             adtv_local_currency=adtv_local_currency,
             composite_score=composite_score,
             peer_sector=peer_sector,
@@ -245,6 +335,8 @@ def compute_equity_quant_signals(ticker: str, market: Literal["TH", "US"] = "US"
             eps_revision_net_30d=eps_revision_net_30d,
             eps_estimate_change_30d_pct=eps_estimate_change_30d_pct,
             earnings_momentum_score=earnings_momentum_score,
+            dcf_result=dcf_result,
+            smart_money_flags=smart_money_flags,
             evaluated_at=datetime.now(timezone.utc).isoformat(),
             data_quality_flags=flags,
         )

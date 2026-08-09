@@ -55,7 +55,7 @@ def main():
 
     print("=" * 60)
     print("  Investment Manager AI — Multi-Agent System")
-    print("  Supervisor: The Manager | Workers: The Archivist, The Researcher, The Bookkeeper")
+    print("  Supervisor: The Manager | Workers: The Archivist, The Bookkeeper")
     print("  พิมพ์ 'quit' 'exit' หรือ 'ออก' เพื่อออกจากโปรแกรม")
     print("=" * 60)
 

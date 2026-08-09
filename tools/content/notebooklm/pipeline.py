@@ -265,8 +265,8 @@ async def _poll_studio_status(session, notebook_id: str, artifact_id: str, timeo
 def _guess_extension(state: dict) -> str:
     """ดึงนามสกุลไฟล์จริงจาก URL ใน studio_status(include_details=True) — ไม่ฮาร์ดโค้ด
 
-    Fallback .mp4 เฉพาะกรณีหา URL ไม่เจอเลย — เรียงตามลำดับที่ docs ของ download_artifact ระบุ
-    ("audio: Audio Overview (MP4/MP3)", MP4 มาก่อน)
+    Fallback .m4a เฉพาะกรณีหา URL ไม่เจอเลย — Audio Overview เป็นไฟล์เสียงล้วน .m4a จึงตรงกับ
+    เนื้อหาจริงมากกว่า .mp4 (ที่สื่อถึงวิดีโอ)
     """
     for key in ("url", "media_url", "download_url", "audio_url"):
         val = state.get(key)
@@ -292,7 +292,7 @@ async def _download_audio(
     except Exception as e:
         # เจอจริง #AG-49: studio_status พังทั้งที่ Audio สร้างเสร็จสมบูรณ์แล้วจริง (ยืนยันจากเว็บ
         # NotebookLM เอง) — ไม่ให้ความล้มเหลวของ "เช็คนามสกุลไฟล์" มาบล็อกการดาวน์โหลดจริง แค่ใช้
-        # นามสกุล default แทน (_guess_extension คืน .mp4 เมื่อไม่มี state ให้ parse)
+        # นามสกุล default แทน (_guess_extension คืน .m4a เมื่อไม่มี state ให้ parse)
         logger.warning(
             "[NotebookLM Pipeline] เช็ค studio_status(include_details=True) ไม่สำเร็จ (artifact_id=%s): %s "
             "— ใช้นามสกุลไฟล์ default แทนแล้วลองดาวน์โหลดตรงๆ",

@@ -7,7 +7,7 @@ export interface FormModalProps {
   icon?: ReactNode
   onClose: () => void
   onSubmit: (e: React.FormEvent) => void
-  error?: string | null
+  error?: ReactNode
   loading?: boolean
   submitText: ReactNode
   loadingText?: ReactNode
@@ -60,9 +60,11 @@ export default function FormModal({
 
       <form onSubmit={onSubmit} className="mt-4 space-y-4 text-xs">
         {error && (
-          <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 font-semibold text-rose-800">
-            <span className="flex-shrink-0 mt-0.5">⚠️</span>
-            <span>{error}</span>
+          <div className="flex flex-col gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 font-semibold text-rose-800">
+            <div className="flex items-start gap-2">
+              <span className="flex-shrink-0 mt-0.5">⚠️</span>
+              <div className="flex-1">{error}</div>
+            </div>
           </div>
         )}
 

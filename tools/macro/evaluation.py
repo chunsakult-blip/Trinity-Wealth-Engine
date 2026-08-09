@@ -1,3 +1,4 @@
+from typing import Optional, Dict, Any, List
 from langsmith import traceable
 import concurrent.futures
 
@@ -370,7 +371,54 @@ def evaluate_macro_matrix() -> str:
             market_observables=market_observables,
         )
 
+        try:
+            _write_macro_observables_json_sidecar(market_observables, today_str, snapshots_dir)
+        except Exception as e:
+            log.warning("Could not write macro observables JSON sidecar: %s", e)
+
         return json.dumps(quant.model_dump(mode="json"), ensure_ascii=False, indent=2)
     except Exception as e:
         log.error(f"Failed to evaluate macro matrix: {e}")
         return f"Error: Failed to evaluate macro matrix - {str(e)}"
+
+
+def _write_macro_observables_json_sidecar(observables: list[MarketObservable], today_str: str, snapshots_dir: Path) -> Path:
+    """บันทึก list[MarketObservable] เป็น JSON Sidecar ป้องกันการ regex parse จาก prose Markdown"""
+    from tools._atomic_io import _atomic_write_to
+    sidecar_path = snapshots_dir / f"Macro_Observables_Snapshot_{today_str}.json"
+    snapshots_dir.mkdir(parents=True, exist_ok=True)
+    payload = [o.model_dump(mode="json") for o in observables]
+    _atomic_write_to(sidecar_path, json.dumps(payload, ensure_ascii=False, indent=2))
+    return sidecar_path
+
+
+def load_latest_macro_observables(vault_path: Optional[Path] = None) -> dict[str, MarketObservable]:
+    """โหลด MarketObservables ล่าสุดจากไฟล์ Macro_Observables_Snapshot_YYYY-MM-DD.json
+    หากไม่พบ ให้ fallback ไปรัน build_valuation_observables() พร้อมเตือนใน log
+    """
+    if vault_path is None:
+        vault_path = Path(os.environ.get("OBSIDIAN_VAULT_PATH", "./memories")).resolve()
+
+    snapshots_dir = vault_path / "30_Knowledge_Base" / "Macroeconomics" / "Daily_Snapshots"
+
+    if snapshots_dir.exists():
+        json_files = sorted(list(snapshots_dir.glob("Macro_Observables_Snapshot_*.json")), reverse=True)
+        if json_files:
+            try:
+                latest_json = json_files[0]
+                with open(latest_json, "r", encoding="utf-8") as f:
+                    raw_list = json.load(f)
+                from schemas.macro_schemas import MarketObservable
+                obs_list = [MarketObservable.model_validate(item) for item in raw_list]
+                return {o.observable_id: o for o in obs_list if getattr(o, "is_valid", True)}
+            except Exception as e:
+                log.warning("Failed to parse macro JSON sidecar %s: %s", json_files[0], e)
+
+    from .valuation import build_valuation_observables
+    log.info("[DCF Engine] No Daily Macro Snapshot JSON found. Seeding fresh Macro Observables.")
+    try:
+        obs_list = build_valuation_observables()
+        return {o.observable_id: o for o in obs_list if getattr(o, "is_valid", True)}
+    except Exception as e:
+        log.warning("Could not load macro observables: %s", e)
+        return {}

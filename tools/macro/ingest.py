@@ -371,3 +371,25 @@ def ingest_us_sectors() -> str:
         change_str = f"{r['direction']}{abs(r['change_pct']):.2f}%"
         md_lines.append(f"| {i} | **{r['name']}** | `{r['symbol']}` | {r['price']:.2f} | {change_str} | {r['description']} |")
     return "\n".join(md_lines)
+
+
+@traceable(run_type="chain")
+def fetch_and_save_macro_snapshots() -> None:
+    """ดึงข้อมูล Snapshots 3 ระดับ (Global, Regional, Country) และบันทึกลง Daily_Snapshots โดยตรง"""
+    from pathlib import Path
+    from tools._atomic_io import _atomic_write_to
+
+    today_str = os.environ.get("EVAL_DATE", datetime.now().strftime("%Y-%m-%d"))
+    vault_path = Path(os.environ.get("OBSIDIAN_VAULT_PATH", "./memories")).resolve()
+    snapshots_dir = vault_path / "30_Knowledge_Base" / "Macroeconomics" / "Daily_Snapshots"
+    snapshots_dir.mkdir(parents=True, exist_ok=True)
+
+    g_content = ingest_global_macro.invoke({})
+    _atomic_write_to(snapshots_dir / f"Global_Macro_Snapshot_{today_str}.md", g_content)
+
+    r_content = ingest_regional_macro.invoke({})
+    _atomic_write_to(snapshots_dir / f"Regional_Macro_Snapshot_{today_str}.md", r_content)
+
+    c_content = ingest_country_macro.invoke({})
+    _atomic_write_to(snapshots_dir / f"Country_Macro_Snapshot_{today_str}.md", c_content)
+

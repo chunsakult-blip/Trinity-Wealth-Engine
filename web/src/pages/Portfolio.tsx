@@ -409,6 +409,7 @@ export default function Portfolio() {
       {tradeModalOpen && (
         <TradeModal
           targets={portfolioState?.allocation_targets ?? []}
+          holdings={portfolioState?.holdings ?? []}
           onClose={() => setTradeModalOpen(false)}
           onSuccess={handlePortfolioStateSuccess}
         />

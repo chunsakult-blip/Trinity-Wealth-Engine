@@ -1,5 +1,6 @@
 import json
 import pytest
+from datetime import datetime, timezone
 from pathlib import Path
 from fastapi.testclient import TestClient
 
@@ -66,20 +67,24 @@ def test_get_equity_notes_integration(tmp_path, monkeypatch):
     stock_note = stocks_dir / "My_AAPL_Thesis.md"
     stock_note.write_text("# AAPL Deep Dive\nLong term holder.", encoding="utf-8")
 
+    # ใช้วันที่ปัจจุบัน (ไม่ hardcode) — endpoint กรองด้วย cutoff "days=3 ล่าสุด" นับจากวันที่รันจริง
+    # ถ้า hardcode วันที่ในอดีตไว้ เทสต์จะ fail เองเมื่อเวลาผ่านไปเกิน 3 วัน (calendar drift)
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
     # Analysis/News note in Stocks dir (now included as a markdown note)
-    agent_note = stocks_dir / "AAPL_Latest_News_2026-08-05.md"
+    agent_note = stocks_dir / f"AAPL_Latest_News_{today_str}.md"
     agent_note.write_text("---\nentity_type: Company_News\n---\nAgent news summary.", encoding="utf-8")
 
     # 1. Setup News dir with wikilink
     news_dir = vault_path / "30_Knowledge_Base" / "News"
     news_dir.mkdir(parents=True)
-    news_note = news_dir / "2026-08-05_Apple_Earnings.md"
+    news_note = news_dir / f"{today_str}_Apple_Earnings.md"
     news_note.write_text("Report on [[AAPL]] earnings growth.", encoding="utf-8")
 
     # 2. Setup YouTube_Summaries dir with hashtag
     yt_dir = vault_path / "30_Knowledge_Base" / "YouTube_Summaries"
     yt_dir.mkdir(parents=True)
-    yt_note = yt_dir / "2026-08-05_Morning_Brief.md"
+    yt_note = yt_dir / f"{today_str}_Morning_Brief.md"
     yt_note.write_text("Discussion about #AAPL market outlook.", encoding="utf-8")
 
     # Request GET /api/equity/AAPL/notes (default days=3)
@@ -95,8 +100,8 @@ def test_get_equity_notes_integration(tmp_path, monkeypatch):
     assert "youtube" in matched_types
 
     titles = [item["title"] for item in items]
-    assert "2026-08-05_Apple_Earnings" in titles
-    assert "2026-08-05_Morning_Brief" in titles
+    assert f"{today_str}_Apple_Earnings" in titles
+    assert f"{today_str}_Morning_Brief" in titles
 
     # Request GET /api/equity/AAPL/notes?days=0 (all time)
     response_all = client.get("/api/equity/AAPL/notes?days=0")

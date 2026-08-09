@@ -7,7 +7,8 @@ from core.logger import get_logger
 from core.retry import with_retry as _with_retry
 from core.nlp_utils import group_similar_news, select_representative_news, calculate_freshness
 from schemas.macro_schemas import ThemeCategory
-from .core import Market, _normalize_yf_ticker, _currency_for, _yf_info, _yf_news, _yf_financials, _fmt_number, _fmt_large, _fmt_fin
+from tools.market.asset_resolver import resolve_asset
+from .core import Market, _currency_for, _yf_info, _yf_news, _yf_financials, _fmt_number, _fmt_large, _fmt_fin
 
 log = get_logger(__name__)
 
@@ -27,8 +28,9 @@ def ingest_stock_news(ticker: str, market: Market = "US") -> str:
         ticker (str): Ticker symbol เช่น 'AAPL', 'PTT' (ห้ามมี .BK suffix — ระบบจะเติมให้)
         market (Market): 'TH' สำหรับหุ้นไทย (SET) หรือ 'US' สำหรับหุ้นอเมริกา (default)
     """
-    display_sym = ticker.strip().upper().removesuffix(".BK")
-    yf_sym = _normalize_yf_ticker(display_sym, market)
+    resolved = resolve_asset(ticker, market_hint=market)
+    display_sym = resolved.raw_symbol.removesuffix(".BK")
+    yf_sym = resolved.provider_symbol
     today = datetime.now().strftime("%Y-%m-%d")
     now_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 

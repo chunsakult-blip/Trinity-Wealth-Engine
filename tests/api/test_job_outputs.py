@@ -5,9 +5,9 @@ from api.jobs import _append_manager_summary
 def test_get_job_outputs_returns_manager_summary_and_latest_specialists(authed_client):
     conn = state_db.get_connection()
     state_db.create_job(conn, "job-output-1", "thread-1", "card-1", "key-1", "analyse", status="done")
-    state_db.append_job_log(conn, "job-output-1", "researcher", "initial research", role="reply", label="Researcher")
-    state_db.append_job_log(conn, "job-output-1", "post_researcher", "duplicate wrapper result", role="reply", label="post")
-    state_db.append_job_log(conn, "job-output-1", "researcher", "latest research", role="reply", label="Researcher")
+    state_db.append_job_log(conn, "job-output-1", "bookkeeper", "initial bookkeeping", role="reply", label="Bookkeeper")
+    state_db.append_job_log(conn, "job-output-1", "post_bookkeeper", "duplicate wrapper result", role="reply", label="post")
+    state_db.append_job_log(conn, "job-output-1", "bookkeeper", "latest bookkeeping", role="reply", label="Bookkeeper")
     state_db.append_job_log(conn, "job-output-1", "macro_quant", "quant result", role="reply", label="Macro Quant")
     state_db.append_job_log(conn, "job-output-1", "manager_summary", "# Manager summary", role="reply", label="Manager Summary")
     conn.close()
@@ -19,7 +19,7 @@ def test_get_job_outputs_returns_manager_summary_and_latest_specialists(authed_c
     assert body["executive_summary"] == "# Manager summary"
     assert body["last_seq"] == 5
     assert [(item["node_name"], item["content"]) for item in body["specialists"]] == [
-        ("researcher", "latest research"),
+        ("bookkeeper", "latest bookkeeping"),
         ("macro_quant", "quant result"),
     ]
 
@@ -42,14 +42,14 @@ def test_append_manager_summary_persists_generated_content(tmp_path, monkeypatch
     db_path = str(tmp_path / "state.sqlite")
     conn = state_db.get_connection(db_path)
     state_db.create_job(conn, "job-summary-1", "thread-1", None, "key-1", "original task", status="running")
-    state_db.append_job_log(conn, "job-summary-1", "researcher", "research result", role="reply")
-    state_db.append_job_log(conn, "job-summary-1", "post_researcher", "duplicate result", role="reply")
+    state_db.append_job_log(conn, "job-summary-1", "bookkeeper", "bookkeeping result", role="reply")
+    state_db.append_job_log(conn, "job-summary-1", "post_bookkeeper", "duplicate result", role="reply")
 
     _append_manager_summary(conn, "job-summary-1", "original task")
 
     logs = state_db.get_job_reply_logs(conn, "job-summary-1")
     conn.close()
-    assert captured == {"instruction": "original task", "deliverables": [("researcher", "research result")]}
+    assert captured == {"instruction": "original task", "deliverables": [("bookkeeper", "bookkeeping result")]}
     assert logs[-1]["node_name"] == "manager_summary"
     assert logs[-1]["content"] == "# Fresh manager summary"
 

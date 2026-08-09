@@ -1,7 +1,30 @@
 import pytest
-from tools.macro.valuation import build_valuation_observables, build_credit_spread_observable
+from tools.macro.valuation import build_valuation_observables, build_credit_spread_observable, _find_dgs10_in_observables
 from validators.valuation_guardrails import check_valuation_contradiction, check_credit_spread_warning
 from schemas.macro_schemas import MarketObservable, MacroStrategyDirection, AssetAllocationView
+
+
+def test_valuation_dgs10_static_fallback_marked_invalid(monkeypatch):
+    """เมื่อ DGS10 resolve ไม่ได้ทั้งจาก snapshot และ FRED (Static Fallback 4.25%),
+    observable ที่ append ต้อง is_valid=False เพื่อไม่ให้ downstream (เช่น dcf_valuation.py)
+    เข้าใจผิดว่าเป็นข้อมูลจริงและไม่ยอม flag hardcoded_us_risk_free:dcf"""
+    monkeypatch.delenv("FRED_API_KEY", raising=False)
+
+    def mock_getter(sym):
+        return {}
+
+    obs = build_valuation_observables(existing_observables=[], ticker_info_getter=mock_getter)
+    dgs10_obs = next(o for o in obs if "dgs10" in o.observable_id)
+
+    assert dgs10_obs.value == "4.25"
+    assert dgs10_obs.provider == "Static Fallback"
+    assert dgs10_obs.is_valid is False
+    assert dgs10_obs.stale_reason != ""
+
+    # downstream resolver ต้องมองข้าม observable ที่ invalid นี้ ไม่ใช่คืนค่ากลับมาเหมือนเป็นของจริง
+    resolved_val, resolved_id = _find_dgs10_in_observables(obs)
+    assert resolved_val is None
+    assert resolved_id is None
 
 
 def test_valuation_normal_erp():
@@ -12,9 +35,10 @@ def test_valuation_normal_erp():
         return {}
 
     obs = build_valuation_observables(ticker_info_getter=mock_getter, dgs10_value=4.25)
-    assert len(obs) == 2
+    assert len(obs) == 3
     ey_obs = next(o for o in obs if o.observable_id == "obs_ey_gspc")
     erp_obs = next(o for o in obs if o.observable_id == "obs_erp_gspc")
+    dgs10_obs = next(o for o in obs if "dgs10" in o.observable_id)
 
     assert ey_obs.is_valid is True
     assert ey_obs.value == "5.00"
@@ -22,6 +46,7 @@ def test_valuation_normal_erp():
     assert erp_obs.value == "0.75"
     assert erp_obs.metadata["is_rich"] is True
     assert erp_obs.metadata["symbol_used"] == "^GSPC"
+    assert dgs10_obs.value == "4.25"
 
 
 def test_valuation_missing_forward_pe_fallback():
@@ -32,9 +57,10 @@ def test_valuation_missing_forward_pe_fallback():
         return {}
 
     obs = build_valuation_observables(ticker_info_getter=mock_getter, dgs10_value=4.25)
-    assert len(obs) == 2
+    assert len(obs) == 3
     erp_obs = next(o for o in obs if o.observable_id == "obs_erp_gspc")
     tpe_obs = next(o for o in obs if o.observable_id == "obs_trailing_pe_gspc")
+    dgs10_obs = next(o for o in obs if "dgs10" in o.observable_id)
 
     assert erp_obs.is_valid is False
     assert "Missing forwardPE" in erp_obs.stale_reason
@@ -44,6 +70,7 @@ def test_valuation_missing_forward_pe_fallback():
     assert tpe_obs.value == "25.50"
     assert tpe_obs.unit == "ratio"
     assert tpe_obs.metadata["symbol_used"] == "SPY"
+    assert dgs10_obs.value == "4.25"
 
 
 def test_valuation_guardrail_rich_erp_downgrade():

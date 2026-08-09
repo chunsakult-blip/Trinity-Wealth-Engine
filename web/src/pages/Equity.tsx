@@ -6,6 +6,8 @@ import { EquityDetail } from '../components/equity/EquityDetail'
 import { sentimentClass } from '../lib/sentiment'
 import TextInput from '../components/ui/TextInput'
 import ScoreRing from '../components/equity/ScoreRing'
+import RunEquityAnalysisModal from '../components/equity/RunEquityAnalysisModal'
+import Toast from '../components/common/Toast'
 
 // For explicit mock mode
 const isMockMode = import.meta.env.VITE_EQUITY_MOCK === 'true' && import.meta.env.DEV
@@ -26,6 +28,10 @@ export default function Equity() {
   const [detailData, setDetailData] = useState<EquityDetailDTO | undefined>(undefined)
   const [detailStatus, setDetailStatus] = useState<'idle' | 'loading' | 'success' | 'error' | 'not-found'>('idle')
   const [detailError, setDetailError] = useState<string | undefined>(undefined)
+
+  const [modalTicker, setModalTicker] = useState<string | undefined>(undefined)
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [toastState, setToastState] = useState<{ message: string; actionLabel?: string; onAction?: () => void } | null>(null)
 
   useEffect(() => {
     const fetchList = async () => {
@@ -103,10 +109,12 @@ export default function Equity() {
     <div className="animate-page-in flex h-[calc(100vh-4rem)] flex-col md:flex-row">
       {/* Sidebar List */}
       <div className={`w-full md:w-1/3 md:min-w-[300px] md:max-w-[400px] border-r border-edge overflow-y-auto bg-surface p-4 ${ticker ? 'hidden md:block' : 'block'}`}>
-        <h2 className="text-xl font-bold mb-4 text-zinc-900">
-          Equity Analysis
-          {isMockMode && <span className="ml-2 text-xs bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full">MOCK</span>}
-        </h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold text-zinc-900">
+            Equity Analysis
+            {isMockMode && <span className="ml-2 text-xs bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full">MOCK</span>}
+          </h2>
+        </div>
 
         <div className="mb-4 space-y-3">
           <TextInput
@@ -195,10 +203,41 @@ export default function Equity() {
                 กลับไปหน้ารายการ
               </button>
             </div>
-            <EquityDetail status={detailStatus} data={detailData} errorMessage={detailError} />
+            <EquityDetail
+              status={detailStatus}
+              data={detailData}
+              errorMessage={detailError}
+              onOpenAnalysisModal={(t) => {
+                setModalTicker(t)
+                setIsModalOpen(true)
+              }}
+            />
           </div>
         )}
       </div>
+
+      {isModalOpen && (
+        <RunEquityAnalysisModal
+          initialTicker={modalTicker}
+          onClose={() => setIsModalOpen(false)}
+          onDispatched={(_jobId, _cardId, dispatchedTicker) => {
+            setToastState({
+              message: `สั่งงานวิเคราะห์หุ้น ${dispatchedTicker} และดึงข่าวเรียบร้อย`,
+              actionLabel: 'ดูสถานะใน Kanban',
+              onAction: () => navigate('/kanban'),
+            })
+          }}
+        />
+      )}
+
+      {toastState && (
+        <Toast
+          message={toastState.message}
+          actionLabel={toastState.actionLabel}
+          onAction={toastState.onAction}
+          onClose={() => setToastState(null)}
+        />
+      )}
     </div>
   )
 }

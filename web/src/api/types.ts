@@ -120,7 +120,7 @@ export interface MacroDashboardDTO {
   divergence_note?: string
   focus_themes?: string[]
   key_assumptions: string[]
-  regime_probabilities: Record<string, number>
+  regime_probabilities: Record<string, number | string>
   regime_evidence: RegimeEvidenceDTO[]
   asset_allocation?: AssetAllocationDTO[]
   pair_trades?: PairTradeDTO[]
@@ -521,6 +521,34 @@ export interface EquitySentimentContextDTO {
   report_references: any[]
 }
 
+export interface DCFScenarioDTO {
+  target_price: number
+  upside_pct: number
+  margin_of_safety_pct: number
+}
+
+export interface DCFResultDTO {
+  wacc_pct: number
+  cost_of_equity_pct: number
+  cost_of_debt_pct: number
+  risk_free_rate_pct: number
+  erp_pct: number
+  observable_refs: string[]
+  scenarios: Record<'bull' | 'base' | 'bear', DCFScenarioDTO>
+  valuation_verdict: 'undervalued' | 'fairly_valued' | 'overvalued'
+}
+
+export interface SmartMoneyFlagsDTO {
+  insider_signal: 'buying' | 'selling' | 'neutral'
+  insider_buy_count_90d: number
+  insider_sell_count_90d: number
+  institutional_ownership_pct: number | null
+  insider_ownership_pct: number | null
+  short_interest_pct: number | null
+  short_squeeze_risk: boolean
+  overall_smart_money_flag: 'bullish_signal' | 'bearish_signal' | 'neutral'
+}
+
 export interface QuantSignalsDTO {
   ticker: string
   market: 'TH' | 'US'
@@ -542,6 +570,15 @@ export interface QuantSignalsDTO {
   de_ratio_pct: number | null
   current_ratio: number | null
   solvency_score: number | null
+  fcf_yield_pct: number | null
+  fcf_margin_pct: number | null
+  fcf_cagr_3y: number | null
+  interest_coverage: number | null
+  net_debt_ebitda: number | null
+  roic_pct: number | null
+  ocf_to_net_income: number | null
+  fcf_quality_score: number | null
+  debt_quality_score: number | null
   adtv_local_currency: number | null
   composite_score: number | null
   peer_sector: string | null
@@ -553,6 +590,8 @@ export interface QuantSignalsDTO {
   eps_revision_net_30d: number | null
   eps_estimate_change_30d_pct: number | null
   earnings_momentum_score: number | null
+  dcf_result: DCFResultDTO | null
+  smart_money_flags: SmartMoneyFlagsDTO | null
   evaluated_at: string
   data_quality_flags: string[]
 }

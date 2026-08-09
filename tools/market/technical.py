@@ -5,7 +5,8 @@ import yfinance as yf
 from langchain_core.tools import tool
 from core.logger import get_logger
 from core.retry import with_retry as _with_retry
-from .core import Market, _normalize_yf_ticker, _currency_for, _yf_info, _yf_news, _yf_financials, _fmt_number, _fmt_large, _fmt_fin
+from tools.market.asset_resolver import resolve_asset
+from .core import Market, _currency_for, _yf_info, _yf_news, _yf_financials, _fmt_number, _fmt_large, _fmt_fin
 
 log = get_logger(__name__)
 
@@ -45,11 +46,13 @@ def _summarize_insider_transactions(tk: yf.Ticker) -> str:
 
 @tool
 def ingest_stock_momentum(ticker: str, market: Market = "US") -> str:
-    """ดึงข้อมูลสัญญาณเทคนิค/โมเมนตัมราคา และข้อมูลผู้ถือหุ้น (รองรับ TH/US)
+    """ดึงข้อมูลโมเมนตัมทางเทคนิคและสถิติราคา (Technical & Trading Momentum) จาก Yahoo Finance (รองรับ TH/US)
 
     [Usage/When to use]
-    ใช้เมื่อต้องการข้อมูลเชิงเทคนิคหรือความเคลื่อนไหวของผู้ถือหุ้นใหญ่
-    - ครอบคลุม: MA50, MA200, 52W High/Low, % Insider/Institution Hold, Short Ratio, Short % Float
+    ใช้เมื่อต้องการวิเคราะห์แนวโน้มราคา ความเคลื่อนไหวของผู้ถือหุ้นใหญ่ และการชอร์ตเซล
+    - ครอบคลุม: ราคาล่าสุด, Moving Averages (50D, 200D), High/Low 52 สัปดาห์, % Insider/Institution Hold,
+      สรุปซื้อ/ขายของคนวงใน 6 เดือนล่าสุด, Short Ratio, Short % of Float
+    - คำค้นที่เกี่ยวข้อง: "โมเมนตัม", "เทคนิค", "กราฟ", "ราคา", "Moving Average", "Insider", "Institution", "Short"
 
     [Caution]
     - หุ้นไทย (TH) อาจไม่มีข้อมูล Short หรือ Institution ครบถ้วนจาก Yahoo Finance
@@ -59,8 +62,9 @@ def ingest_stock_momentum(ticker: str, market: Market = "US") -> str:
         ticker (str): Ticker symbol เช่น 'AAPL', 'PTT' (ห้ามมี .BK suffix — ระบบจะเติมให้)
         market (Market): 'TH' สำหรับหุ้นไทย (SET) หรือ 'US' สำหรับหุ้นอเมริกา (default)
     """
-    display_sym = ticker.strip().upper().removesuffix(".BK")
-    yf_sym = _normalize_yf_ticker(display_sym, market)
+    resolved = resolve_asset(ticker, market_hint=market)
+    display_sym = resolved.raw_symbol.removesuffix(".BK")
+    yf_sym = resolved.provider_symbol
     currency = _currency_for(market)
     today = datetime.now().strftime("%Y-%m-%d")
     now_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

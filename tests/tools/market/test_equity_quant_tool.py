@@ -17,7 +17,7 @@ from tools.market.equity_quant_tool import (
     _INFO_CACHE,
     _INFO_ERROR_CACHE,
 )
-from schemas.micro_quant_schemas import QuantSignals
+from schemas.micro_quant_schemas import QuantSignals, SmartMoneyFlags
 
 
 def _resolved_asset(ticker="AAPL", market="US"):
@@ -40,6 +40,11 @@ def _autopsy_result(ticker="AAPL", market="US", two_periods=False):
             total_revenue=5000.0,
             net_income=800.0,
             payout_ratio_pct=25.0,
+            ebit=900.0,
+            operating_income=850.0,
+            interest_expense=50.0,
+            tax_expense=150.0,
+            income_before_tax=750.0,
         )
     ]
     if two_periods:
@@ -70,6 +75,9 @@ _INVALID_QUALITY = PriceSeriesQuality(trading_days=5, is_valid=False, stale_reas
 
 
 class TestComputeEquityQuantSignalsHappyPath:
+    @patch("tools.market.equity_quant_tool.compute_smart_money_flags")
+    @patch("tools.market.equity_quant_tool.compute_dcf_valuation")
+    @patch("tools.market.equity_quant_tool.load_latest_macro_observables")
     @patch("tools.market.equity_quant_tool.fetch_earnings_revision_data")
     @patch("tools.market.equity_quant_tool.compute_price_percentile")
     @patch("tools.market.equity_quant_tool.fetch_peer_metrics")
@@ -82,7 +90,7 @@ class TestComputeEquityQuantSignalsHappyPath:
     @patch("tools.market.equity_quant_tool.resolve_asset")
     def test_returns_valid_quant_signals_json(
         self, mock_resolve, mock_autopsy, mock_info, mock_beta, mock_vol, mock_mdd, mock_tech, mock_peers, mock_pctile,
-        mock_revisions,
+        mock_revisions, mock_macro_reg, mock_dcf, mock_smart_money,
     ):
         _INFO_CACHE.clear()
         _INFO_ERROR_CACHE.clear()
@@ -107,6 +115,14 @@ class TestComputeEquityQuantSignalsHappyPath:
             "currentRatio": 2.0,
             "averageVolume": 5_000_000,
             "averageVolume10Day": 6_000_000,
+            "freeCashflow": 500.0,
+            "marketCap": 10000.0,
+            "operatingCashflow": 700.0,
+            "ebitda": 1000.0,
+            "totalDebt": 1000.0,
+            "totalCash": 200.0,
+            "totalStockholderEquity": 3000.0,
+            "sharesOutstanding": 100.0,
         }
         mock_beta.return_value = (1.2, _VALID_QUALITY)
         mock_vol.return_value = (28.5, _VALID_QUALITY)
@@ -115,6 +131,9 @@ class TestComputeEquityQuantSignalsHappyPath:
         mock_peers.return_value = [{"symbol": "MSFT", "pe": 20.0}, {"symbol": "GOOGL", "pe": 22.0}]
         mock_pctile.return_value = (72.5, 1.1, _VALID_QUALITY)
         mock_revisions.return_value = ({"up_last_30d": 3, "down_last_30d": 1, "estimate_current": 9.0, "estimate_30d_ago": 8.5}, None)
+        mock_macro_reg.return_value = {}
+        mock_dcf.return_value = (None, [])
+        mock_smart_money.return_value = (SmartMoneyFlags(), [])
 
         result = compute_equity_quant_signals.invoke({"ticker": "AAPL", "market": "US"})
         assert not result.startswith("Error:")

@@ -53,6 +53,11 @@ class FinancialAutopsyPeriod(BaseModel):
     net_income: Optional[float] = None
     dividends_paid: Optional[float] = None
     payout_ratio_pct: Optional[float] = None
+    ebit: Optional[float] = None
+    operating_income: Optional[float] = None
+    interest_expense: Optional[float] = None
+    tax_expense: Optional[float] = None
+    income_before_tax: Optional[float] = None
 
 
 class FinancialAutopsySnapshot(BaseModel):
@@ -345,6 +350,11 @@ def get_financial_autopsy(resolved_asset: ResolvedAsset) -> FinancialAutopsyFetc
         # Financials / Income statement items
         rev = _extract_df_val_aligned(financials, col, ["Total Revenue", "Operating Revenue"])
         net_inc = _extract_df_val_aligned(financials, col, ["Net Income", "Net Income Common Stockholders"])
+        ebit_val = _extract_df_val_aligned(financials, col, ["EBIT", "Total Operating Income As Reported", "Operating Income"])
+        op_income_val = _extract_df_val_aligned(financials, col, ["Operating Income", "Total Operating Income As Reported", "EBIT"])
+        interest_exp = _extract_df_val_aligned(financials, col, ["Interest Expense", "Interest Expense Non Operating"])
+        tax_exp = _extract_df_val_aligned(financials, col, ["Tax Provision", "Tax Effect Of Unusual Items"])
+        pretax_inc = _extract_df_val_aligned(financials, col, ["Pretax Income", "Net Income From Continuing Operation Net Minority Interest"])
 
         # Payout ratio
         payout_pct = None
@@ -352,7 +362,7 @@ def get_financial_autopsy(resolved_asset: ResolvedAsset) -> FinancialAutopsyFetc
             payout_pct = round((abs(div_paid) / net_inc) * 100.0, 2)
 
         # Only add period if at least one quantitative metric exists
-        if any(v is not None for v in (fcf, ocf, capex, total_debt, rev, net_inc, div_paid)):
+        if any(v is not None for v in (fcf, ocf, capex, total_debt, rev, net_inc, div_paid, ebit_val, op_income_val)):
             periods.append(
                 FinancialAutopsyPeriod(
                     fiscal_period_end=dt_str,
@@ -364,6 +374,11 @@ def get_financial_autopsy(resolved_asset: ResolvedAsset) -> FinancialAutopsyFetc
                     net_income=net_inc,
                     dividends_paid=div_paid,
                     payout_ratio_pct=payout_pct,
+                    ebit=ebit_val,
+                    operating_income=op_income_val,
+                    interest_expense=interest_exp,
+                    tax_expense=tax_exp,
+                    income_before_tax=pretax_inc,
                 )
             )
 

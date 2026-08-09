@@ -3,25 +3,17 @@ import pytest
 
 
 import tools.market.core as core
-import tools.market.fundamentals as fundamentals
-import tools.market.financials as financials
 import tools.market.news as news
 import tools.market.technical as technical
 import tools.market.consensus as consensus
 from types import SimpleNamespace
 mt = SimpleNamespace(
-    ingest_stock_fundamentals=fundamentals.ingest_stock_fundamentals,
-    ingest_financial_health=fundamentals.ingest_financial_health,
-    ingest_financial_trends=financials.ingest_financial_trends,
     ingest_stock_news=news.ingest_stock_news,
     ingest_stock_momentum=technical.ingest_stock_momentum,
     ingest_stock_consensus=consensus.ingest_stock_consensus,
 )
 
 ALL_STOCK_TOOLS = [
-    "ingest_stock_fundamentals",
-    "ingest_financial_health",
-    "ingest_financial_trends",
     "ingest_stock_news",
     "ingest_stock_momentum",
     "ingest_stock_consensus",
@@ -42,7 +34,7 @@ MONEY_BEARING_TOOLS = [t for t in ALL_STOCK_TOOLS if t != "ingest_stock_news"]
 class TestBackCompatBareTickerCall:
     def test_us_default_when_market_omitted(self, mock_yf_ticker):
         """back-compat: tools เดิมที่ไม่ส่ง market ต้อง default 'US'"""
-        result = fundamentals.ingest_stock_fundamentals.invoke({"ticker": "MSFT"})
+        result = technical.ingest_stock_momentum.invoke({"ticker": "MSFT"})
         assert mock_yf_ticker["ticker"] == "MSFT"
         assert "USD" in result
 
@@ -127,24 +119,24 @@ class TestCurrencyLabelMatrix:
 
 class TestUserInputTolerance:
     def test_lowercase_ticker_normalized(self, mock_yf_ticker):
-        fundamentals.ingest_stock_fundamentals.invoke({"ticker": "ptt", "market": "TH"})
+        news.ingest_stock_news.invoke({"ticker": "ptt", "market": "TH"})
         assert mock_yf_ticker["ticker"] == "PTT.BK"
 
     def test_ticker_with_spaces_stripped(self, mock_yf_ticker):
-        fundamentals.ingest_stock_fundamentals.invoke({"ticker": "  AAPL  ", "market": "US"})
+        news.ingest_stock_news.invoke({"ticker": "  AAPL  ", "market": "US"})
         assert mock_yf_ticker["ticker"] == "AAPL"
 
     def test_user_supplied_bk_suffix_handled(self, mock_yf_ticker):
         """User เผลอใส่ PTT.BK เอง — ระบบไม่ควร double-suffix"""
-        fundamentals.ingest_stock_fundamentals.invoke({"ticker": "PTT.BK", "market": "TH"})
+        news.ingest_stock_news.invoke({"ticker": "PTT.BK", "market": "TH"})
         assert mock_yf_ticker["ticker"] == "PTT.BK"
         # ไม่ใช่ PTT.BK.BK
 
     def test_user_supplied_bk_stripped_for_display(self, mock_yf_ticker):
         """Display title ต้องโชว์ PTT ไม่ใช่ PTT.BK"""
-        result = fundamentals.ingest_stock_fundamentals.invoke({"ticker": "PTT.BK", "market": "TH"})
-        assert "title: PTT Fundamentals" in result
-        assert "PTT.BK Fundamentals" not in result
+        result = news.ingest_stock_news.invoke({"ticker": "PTT.BK", "market": "TH"})
+        assert "title: PTT Latest News" in result
+        assert "PTT.BK Latest News" not in result
 
 
 @pytest.mark.parametrize("tool_name", ALL_STOCK_TOOLS)
@@ -179,16 +171,16 @@ class TestYamlFrontmatterConsistency:
 class TestCrossMarketIsolation:
     def test_th_then_us_no_state_leak(self, mock_yf_ticker):
         """เรียก TH ก่อน → US ครั้งถัดไป — ticker ที่ส่งเข้า yfinance ต้องเป็นของ US ล้วน"""
-        fundamentals.ingest_stock_fundamentals.invoke({"ticker": "PTT", "market": "TH"})
+        news.ingest_stock_news.invoke({"ticker": "PTT", "market": "TH"})
         assert mock_yf_ticker["ticker"] == "PTT.BK"
 
-        fundamentals.ingest_stock_fundamentals.invoke({"ticker": "AAPL", "market": "US"})
+        news.ingest_stock_news.invoke({"ticker": "AAPL", "market": "US"})
         assert mock_yf_ticker["ticker"] == "AAPL"  # ไม่ใช่ AAPL.BK
 
     def test_us_then_th_no_state_leak(self, mock_yf_ticker):
-        fundamentals.ingest_stock_fundamentals.invoke({"ticker": "AAPL", "market": "US"})
+        news.ingest_stock_news.invoke({"ticker": "AAPL", "market": "US"})
         assert mock_yf_ticker["ticker"] == "AAPL"
 
-        fundamentals.ingest_stock_fundamentals.invoke({"ticker": "PTT", "market": "TH"})
+        news.ingest_stock_news.invoke({"ticker": "PTT", "market": "TH"})
         assert mock_yf_ticker["ticker"] == "PTT.BK"
 

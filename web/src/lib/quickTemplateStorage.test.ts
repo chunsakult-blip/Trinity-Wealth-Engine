@@ -27,30 +27,38 @@ describe('quickTemplateStorage', () => {
     expect(templates[0]?.label).toBeTruthy()
   })
 
-  it('save แล้ว load กลับมาได้ค่าเดิม (roundtrip) — ถ้ามี notebooklm template อยู่แล้วไม่ migrate ซ้ำ', () => {
+  it('save แล้ว load กลับมาได้ค่าเดิม (roundtrip) — ถ้ามี templates ครบอยู่แล้วไม่ migrate ซ้ำ', () => {
     const custom: QuickTemplate[] = [
       { label: 'ทดสอบ', instruction: 'คำสั่งทดสอบ', flow: 'manager', scope: 'both' },
+      { label: 'วิเคราะห์หุ้นและดึงข่าว (Equity & News)', instruction: 'วิเคราะห์หุ้น', flow: 'manager', scope: 'both' },
       { label: 'NotebookLM ของฉันเอง', instruction: '', flow: 'notebooklm', scope: 'both' },
     ]
     saveQuickTemplates(custom)
     expect(loadQuickTemplates()).toEqual(custom)
   })
 
-  it('default templates มีปุ่มลัด NotebookLM Audio', () => {
+  it('default templates มีปุ่มลัด NotebookLM Audio และ Equity & News', () => {
     const templates = loadQuickTemplates()
     const notebooklm = templates.find((t) => t.flow === 'notebooklm')
     expect(notebooklm).toBeTruthy()
     expect(notebooklm?.instruction).toBe('') // ต้องว่าง ไม่งั้น Drawer จะข้ามหน้าเลือกไฟล์ไปผิดๆ
+
+    const equityNews = templates.find((t) => t.label.includes('วิเคราะห์หุ้นและดึงข่าว'))
+    expect(equityNews).toBeTruthy()
   })
 
-  it('ผู้ใช้เดิมที่ save templates ไว้ก่อนมี flow นี้ (ไม่มี notebooklm) → เติมให้อัตโนมัติครั้งเดียว', () => {
+  it('ผู้ใช้เดิมที่ save templates ไว้ก่อนมี flow นี้ → เติมให้อัตโนมัติครั้งเดียว', () => {
     const legacy: QuickTemplate[] = [
       { label: 'ของเดิมที่ผู้ใช้ปรับแต่งเอง', instruction: 'คำสั่งเดิม', flow: 'manager', scope: 'both' },
     ]
     saveQuickTemplates(legacy)
 
     const migrated = loadQuickTemplates()
-    expect(migrated).toEqual([...legacy, { label: 'สร้าง Audio Overview (NotebookLM)', instruction: '', flow: 'notebooklm', scope: 'both' }])
+    expect(migrated).toEqual([
+      legacy[0],
+      { label: 'วิเคราะห์หุ้นและดึงข่าว (Equity & News)', instruction: 'วิเคราะห์หุ้น AAPL และดึงข่าวล่าสุดพร้อมประเมิน Valuation', flow: 'manager', scope: 'both' },
+      { label: 'สร้าง Audio Overview (NotebookLM)', instruction: '', flow: 'notebooklm', scope: 'both' },
+    ])
 
     // ต้อง persist กลับลง localStorage ด้วย ไม่ใช่แค่คืนค่าตอน runtime เฉยๆ — โหลดซ้ำต้องไม่เพิ่มซ้ำอีก
     const raw = window.localStorage.getItem(STORAGE_KEY)

@@ -43,6 +43,9 @@ def create_equity_narrative(model: BaseChatModel):
             {"role": "user", "content": harness.get_skill_text("HUMAN.md", ticker=ticker, context=context)},
         ])
 
-        return {"messages": [AIMessage(content=res.model_dump_json(), name="equity_narrative")]}
+        return {
+            "messages": [AIMessage(content=res.model_dump_json(), name="equity_narrative")],
+            "equity_news_raw": news_text,
+        }
 
     return RunnableLambda(_run_equity_narrative)

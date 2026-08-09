@@ -136,9 +136,9 @@ describe('EquityNotesTab', () => {
       expect(screen.getByText('AAPL Deep Dive')).toBeInTheDocument()
     })
 
-    // Click "ดูเนื้อหา"
     const viewButtons = screen.getAllByText('📄 ดูเนื้อหา')
-    fireEvent.click(viewButtons[0])
+    expect(viewButtons[0]).toBeDefined()
+    fireEvent.click(viewButtons[0]!)
 
     await waitFor(() => {
       expect(api.getEquityNoteContent).toHaveBeenCalledWith('30_Knowledge_Base/Stocks/AAPL/AAPL Deep Dive.md')

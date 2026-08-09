@@ -281,7 +281,20 @@ export default function Kanban() {
           .then(refresh)
           .catch((e) => setError(e instanceof ApiError ? e.message : 'อัปเดตสถานะการ์ดไม่สำเร็จ'))
       }
+      const activeDispatch = activeDispatches[cardId]
       removeActiveDispatch(cardId)
+
+      // Auto-resume-all เฉพาะเมื่อกด Play จากบอร์ดโดยตรง (ไม่ได้เปิด Drawer สำหรับ cardId นี้)
+      // และเป็น flow news_funnel ที่ได้ interrupt_payload เป็น news_funnel_approval
+      if (status === 'awaiting_approval' && cardId !== selectedCardId && card?.flow === 'news_funnel' && activeDispatch?.jobId) {
+        api.getJobStatus(activeDispatch.jobId).then(async (job) => {
+          if (job.interrupt_payload?.type === 'news_funnel_approval' && Array.isArray(job.interrupt_payload.candidates)) {
+            const allEventIds = job.interrupt_payload.candidates.map((c: any) => c.event_id).filter(Boolean)
+            await api.resumeJob(job.job_id, [], [], allEventIds)
+            await refresh()
+          }
+        }).catch((e) => console.error('Failed to auto-resume news_funnel job from board:', e))
+      }
     }
   }
 
@@ -393,6 +406,7 @@ export default function Kanban() {
         card={cards.find((c) => c.card_id === selectedCardId) ?? null}
         onClose={() => setSelectedCardId(null)}
         onCardTransition={refresh}
+        onDispatchCard={(c, flow) => dispatchCard(c, flow)}
       />
 
       {modalState && (

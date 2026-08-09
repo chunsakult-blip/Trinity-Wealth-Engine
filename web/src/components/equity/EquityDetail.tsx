@@ -5,18 +5,21 @@ import ScoreRing from './ScoreRing'
 import { sentimentClass } from '../../lib/sentiment'
 import { EquityNews } from './EquityNews'
 import { EquityNotesTab } from './EquityNotesTab'
+import { DCFScenariosChart } from './DCFScenariosChart'
+import { DataQualityFlagsCard } from './DataQualityFlagsCard'
 
 interface EquityDetailProps {
   status: 'loading' | 'error' | 'not-found' | 'success' | 'idle'
   data?: EquityDetailDTO
   errorMessage?: string
+  onOpenAnalysisModal?: (ticker: string) => void
 }
 
 const eyebrowClass = 'text-xs font-semibold uppercase tracking-wider text-sky-600'
 
 const QUANT_STAGGER_STEP_MS = 60
 
-export const EquityDetail: React.FC<EquityDetailProps> = ({ status, data, errorMessage }) => {
+export const EquityDetail: React.FC<EquityDetailProps> = ({ status, data, errorMessage, onOpenAnalysisModal }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'news' | 'notes'>('overview')
 
   if (status === 'idle') {
@@ -38,8 +41,8 @@ export const EquityDetail: React.FC<EquityDetailProps> = ({ status, data, errorM
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
         </svg>
         <h3 className="text-lg font-medium text-zinc-900 mb-1">ไม่พบข้อมูล</h3>
-        <p className="text-zinc-500 max-w-sm">
-          ยังไม่มีการวิเคราะห์สำหรับหุ้นตัวนี้ กรุณาสั่งงานผ่านผู้จัดการ (Manager Agent) เพื่อเริ่มต้นการวิเคราะห์
+        <p className="text-zinc-500 max-w-sm mb-4">
+          ยังไม่มีการวิเคราะห์สำหรับหุ้นตัวนี้ กรุณาสั่งงานผ่านผู้จัดการ (Manager Agent) หรือกดปุ่มด้านล่างเพื่อวิเคราะห์ใหม่
         </p>
       </div>
     )
@@ -60,9 +63,19 @@ export const EquityDetail: React.FC<EquityDetailProps> = ({ status, data, errorM
       <div className="flex flex-col gap-4 border-b border-edge pb-6 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-2">
           <div className={eyebrowClass}>Equity Report</div>
-          <h2 className="font-serif text-4xl font-semibold tracking-tight text-zinc-900">
-            {data.ticker} <span className="text-zinc-500 font-normal text-lg">({data.market})</span>
-          </h2>
+          <div className="flex items-center gap-3">
+            <h2 className="font-serif text-4xl font-semibold tracking-tight text-zinc-900">
+              {data.ticker} <span className="text-zinc-500 font-normal text-lg">({data.market})</span>
+            </h2>
+            <button
+              onClick={() => onOpenAnalysisModal?.(data.ticker)}
+              className="px-2.5 py-1 rounded-lg border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 text-xs font-semibold flex items-center gap-1 transition-colors"
+              title="วิเคราะห์ใหม่และดึงข่าวล่าสุด"
+            >
+              <span>🔄</span>
+              <span>อัปเดตบทวิเคราะห์และข่าว</span>
+            </button>
+          </div>
           {data.company_name && <p className="text-zinc-500">{data.company_name}</p>}
           <div className="flex flex-wrap items-center gap-2 pt-1">
             <span className={`px-2.5 py-0.5 rounded-full border text-xs font-medium uppercase tracking-wider ${sentimentClass(data.market_sentiment)}`}>
@@ -124,27 +137,7 @@ export const EquityDetail: React.FC<EquityDetailProps> = ({ status, data, errorM
       ) : (
 
         <>
-          {data.data_quality_flags && data.data_quality_flags.length > 0 && (
-            <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-xl">
-              <div className="flex">
-                <div className="flex-shrink-0">
-                  <svg className="h-5 w-5 text-amber-400" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <div className="ml-3">
-                  <h3 className="text-sm font-medium text-amber-800">Data Quality Flags</h3>
-                  <div className="mt-2 text-sm text-amber-700">
-                    <ul className="list-disc pl-5 space-y-1">
-                      {data.data_quality_flags.map((flag, idx) => (
-                        <li key={idx}>{flag}</li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+          <DataQualityFlagsCard flags={data.data_quality_flags} />
 
           {/* Secondary quant score rail (Composite lives in the masthead ring above) */}
           <div className="flex flex-wrap gap-4">
@@ -159,6 +152,67 @@ export const EquityDetail: React.FC<EquityDetailProps> = ({ status, data, errorM
               <ScoreCard key={m.title} title={m.title} icon={m.icon} score={m.score} tooltip={m.tooltip} delayMs={i * QUANT_STAGGER_STEP_MS} />
             ))}
           </div>
+
+          {/* DCF Valuation & Smart Money Cards */}
+          {(data.quant_signals.dcf_result || data.quant_signals.smart_money_flags) && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 my-6">
+              {data.quant_signals.dcf_result && (
+                <div className="rounded-xl border border-edge bg-panel p-5 shadow-sm">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className={eyebrowClass}>🎯 DCF Valuation Engine</h3>
+                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase border ${
+                      data.quant_signals.dcf_result.valuation_verdict === 'undervalued'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : data.quant_signals.dcf_result.valuation_verdict === 'overvalued'
+                        ? 'bg-rose-50 text-rose-700 border-rose-200'
+                        : 'bg-amber-50 text-amber-700 border-amber-200'
+                    }`}>
+                      {data.quant_signals.dcf_result.valuation_verdict}
+                    </span>
+                  </div>
+                  <DCFScenariosChart dcf={data.quant_signals.dcf_result} />
+                </div>
+              )}
+
+              {data.quant_signals.smart_money_flags && (
+                <div className="rounded-xl border border-edge bg-panel p-5 shadow-sm">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className={eyebrowClass}>🕵️ Smart Money Signals</h3>
+                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase border ${
+                      data.quant_signals.smart_money_flags.overall_smart_money_flag === 'bullish_signal'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : data.quant_signals.smart_money_flags.overall_smart_money_flag === 'bearish_signal'
+                        ? 'bg-rose-50 text-rose-700 border-rose-200'
+                        : 'bg-zinc-100 text-zinc-700 border-zinc-200'
+                    }`}>
+                      {data.quant_signals.smart_money_flags.overall_smart_money_flag}
+                    </span>
+                  </div>
+                  <div className="space-y-2 text-sm text-zinc-600">
+                    <div className="flex justify-between border-b border-edge/40 pb-1.5">
+                      <span>Insider Signal (90d)</span>
+                      <span className="font-semibold text-zinc-900 capitalize">{data.quant_signals.smart_money_flags.insider_signal} ({data.quant_signals.smart_money_flags.insider_buy_count_90d} Buys / {data.quant_signals.smart_money_flags.insider_sell_count_90d} Sells)</span>
+                    </div>
+                    <div className="flex justify-between border-b border-edge/40 pb-1.5">
+                      <span>Institutional Ownership</span>
+                      <span className="font-semibold text-zinc-900">{data.quant_signals.smart_money_flags.institutional_ownership_pct != null ? `${data.quant_signals.smart_money_flags.institutional_ownership_pct}%` : 'N/A'}</span>
+                    </div>
+                    <div className="flex justify-between border-b border-edge/40 pb-1.5">
+                      <span>Insider Ownership</span>
+                      <span className="font-semibold text-zinc-900">{data.quant_signals.smart_money_flags.insider_ownership_pct != null ? `${data.quant_signals.smart_money_flags.insider_ownership_pct}%` : 'N/A'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Short Interest</span>
+                      <span className={`font-semibold ${data.quant_signals.smart_money_flags.short_squeeze_risk ? 'text-amber-600' : 'text-zinc-900'}`}>
+                        {data.quant_signals.smart_money_flags.short_interest_pct != null ? `${data.quant_signals.smart_money_flags.short_interest_pct}%` : 'N/A'}
+                        {data.quant_signals.smart_money_flags.short_squeeze_risk && ' ⚡ Squeeze Risk'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Editorial reading grid: main narrative (7/12) + sentiment rail (5/12) */}
           <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">

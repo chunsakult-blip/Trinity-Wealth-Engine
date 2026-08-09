@@ -36,7 +36,7 @@ def _parse_val_to_float(val_str: Any) -> Optional[float]:
     return None
 
 
-def _find_dgs10_in_observables(observables: list[MarketObservable]) -> Optional[float]:
+def _find_dgs10_in_observables(observables: list[MarketObservable]) -> tuple[Optional[float], Optional[str]]:
     for obs in observables:
         if not obs.is_valid:
             continue
@@ -49,8 +49,8 @@ def _find_dgs10_in_observables(observables: list[MarketObservable]) -> Optional[
             val = _parse_val_to_float(obs.value)
             if val is not None and val > 0:
                 # If from ^TNX, Yahoo usually gives yield directly, e.g. 4.35
-                return val
-    return None
+                return val, obs.observable_id
+    return None, None
 
 
 def build_valuation_observables(
@@ -74,8 +74,12 @@ def build_valuation_observables(
 
     # 1. Resolve 10Y Treasury Yield (DGS10)
     resolved_dgs10 = dgs10_value
+    dgs10_obs_id: Optional[str] = None
+    provider_source = "Provided Input"
     if resolved_dgs10 is None:
-        resolved_dgs10 = _find_dgs10_in_observables(existing_observables)
+        resolved_dgs10, dgs10_obs_id = _find_dgs10_in_observables(existing_observables)
+        if resolved_dgs10 is not None:
+            provider_source = "Snapshot Observables"
     if resolved_dgs10 is None:
         # Try fetching from FRED or fallback default
         try:
@@ -85,12 +89,37 @@ def build_valuation_observables(
                 s = fred.get_series("DGS10").dropna()
                 if not s.empty:
                     resolved_dgs10 = float(s.iloc[-1])
+                    provider_source = "FRED API"
         except Exception as e:
             log.debug(f"Could not fetch DGS10 from FRED: {e}")
 
     if resolved_dgs10 is None:
         resolved_dgs10 = 4.25  # Reasonable fallback if offline
+        provider_source = "Static Fallback"
         log.info(f"Using default DGS10 fallback: {resolved_dgs10}%")
+
+    if not dgs10_obs_id:
+        dgs10_obs_id = f"obs_fred_dgs10_{datetime.now().strftime('%Y%m%d')}"
+
+    # Always ensure standalone DGS10 observable is appended so downstream tools (e.g. dcf_valuation) can find it
+    if not any(o.observable_id == dgs10_obs_id for o in existing_observables):
+        obs_dgs10 = MarketObservable(
+            observable_id=dgs10_obs_id,
+            asset_bucket="fixed_income",
+            region="US",
+            indicator="10Y Treasury Yield",
+            value=f"{resolved_dgs10:.2f}",
+            unit="%",
+            observed_at=today_str,
+            source_file="valuation.py",
+            provider=provider_source,
+            confidence="high" if provider_source != "Static Fallback" else "medium",
+            is_valid=provider_source != "Static Fallback",
+            stale_reason="" if provider_source != "Static Fallback" else "DGS10 unavailable from snapshot/FRED — using static offline fallback (4.25%)",
+            observable_type="rates",
+            calculation_method=f"Direct Observable ({provider_source})",
+        )
+        results.append(obs_dgs10)
 
     # 2. Strict lookup order for Forward P/E
     lookup_order = ["^GSPC", "SPY", "VOO"]
@@ -183,7 +212,7 @@ def build_valuation_observables(
             is_valid=True,
             observable_type="valuation",
             calculation_method="(1 / ForwardPE) - 10Y Treasury Yield",
-            input_observable_ids=["obs_ey_gspc", "obs_dgs10"],
+            input_observable_ids=["obs_ey_gspc"] + ([dgs10_obs_id] if dgs10_obs_id else []),
             metadata={
                 "forward_pe": round(forward_pe, 2),
                 "dgs10": round(resolved_dgs10, 2),

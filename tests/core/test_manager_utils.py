@@ -3,48 +3,49 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agents.manager_agent import _has_researcher_frontmatter, _msg_role, generate_manager_summary
+from agents.manager_agent import _has_entity_frontmatter, _msg_role, generate_manager_summary
 from langchain_core.messages import HumanMessage, AIMessage
 
 
-class TestHasResearcherFrontmatter:
+class TestHasEntityFrontmatter:
     def test_valid_frontmatter(self):
         text = "---\nentity_type: article_note\ntitle: Test\n---\n\n# Body"
-        assert _has_researcher_frontmatter(text)
+        assert _has_entity_frontmatter(text)
 
     def test_missing_entity_type(self):
         text = "---\ntitle: Test\n---\n\n# Body"
-        assert not _has_researcher_frontmatter(text)
+        assert not _has_entity_frontmatter(text)
 
     def test_no_frontmatter_at_all(self):
-        assert not _has_researcher_frontmatter("Just plain text")
+        assert not _has_entity_frontmatter("Just plain text")
 
     def test_markdown_horizontal_rule_not_mistaken(self):
         # "---" as HR in middle of text must not match
         text = "Some content\n\n---\n\nMore content"
-        assert not _has_researcher_frontmatter(text)
+        assert not _has_entity_frontmatter(text)
 
     def test_horizontal_rule_after_whitespace_not_mistaken(self):
         text = "\n\n---\n\nMore content without entity_type"
-        assert not _has_researcher_frontmatter(text)
+        assert not _has_entity_frontmatter(text)
 
     def test_entity_type_in_first_30_lines(self):
         lines = ["---"] + [f"field_{i}: val" for i in range(28)] + ["entity_type: book_note", "---"]
-        assert _has_researcher_frontmatter("\n".join(lines))
+        assert _has_entity_frontmatter("\n".join(lines))
 
     def test_entity_type_beyond_30_lines_not_matched(self):
         lines = ["---"] + [f"field_{i}: val" for i in range(35)] + ["entity_type: article_note", "---"]
-        assert not _has_researcher_frontmatter("\n".join(lines))
+        assert not _has_entity_frontmatter("\n".join(lines))
 
     def test_empty_string(self):
-        assert not _has_researcher_frontmatter("")
+        assert not _has_entity_frontmatter("")
 
     def test_only_dashes(self):
-        assert not _has_researcher_frontmatter("---")
+        assert not _has_entity_frontmatter("---")
 
     def test_leading_whitespace_ignored(self):
         text = "   \n---\nentity_type: holding\n---"
-        assert _has_researcher_frontmatter(text)
+        assert _has_entity_frontmatter(text)
+
 
 
 class TestMsgRole:

@@ -2,15 +2,16 @@ import { useState } from 'react'
 import FormModal, { FormField, FormInput, FormSelect } from './FormModal'
 import { TradeIcon } from '../icons/PortfolioIcons'
 import { api } from '../../../api/client'
-import type { AllocationTargetDTO, ActualPortfolioStateDTO } from '../../../api/types'
+import type { AllocationTargetDTO, ActualPortfolioStateDTO, ActualHoldingDTO } from '../../../api/types'
 
 interface Props {
   targets: AllocationTargetDTO[]
+  holdings?: ActualHoldingDTO[]
   onClose: () => void
   onSuccess: (state: ActualPortfolioStateDTO) => void
 }
 
-export default function TradeModal({ targets, onClose, onSuccess }: Props) {
+export default function TradeModal({ targets, holdings, onClose, onSuccess }: Props) {
   const [symbol, setSymbol] = useState('')
   const [assetType, setAssetType] = useState('Stock')
   const [action, setAction] = useState<'buy' | 'sell'>('buy')
@@ -24,6 +25,51 @@ export default function TradeModal({ targets, onClose, onSuccess }: Props) {
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const cashUsd = holdings?.find((h) => h.symbol === 'CASH_USD')?.units ?? 0
+  const cashThb = holdings?.find((h) => h.symbol === 'CASH_THB')?.units ?? 0
+  const availableCash = currency === 'USD' ? cashUsd : cashThb
+  const totalRequired = (parseFloat(units) || 0) * (parseFloat(price) || 0)
+  const missingAmount = Math.max(0, totalRequired - availableCash)
+
+  const handleQuickTopupAndBuy = async () => {
+    if (!symbol.trim() || !units || !price) return
+    const topupAmount = missingAmount > 0 ? missingAmount : totalRequired
+    setLoading(true)
+    setError(null)
+    try {
+      // 1. Top-up cash
+      await api.manageCashFlow({
+        action: 'deposit',
+        amount: topupAmount,
+        currency,
+        exchange_rate: exchangeRate ? parseFloat(exchangeRate) : null,
+        date: date || null,
+        notes: `Auto top-up for ${symbol.trim().toUpperCase()} buy trade`,
+      })
+
+      // 2. Auto retry buy trade
+      const state = await api.executeTrade({
+        symbol: symbol.trim().toUpperCase(),
+        asset_type: assetType,
+        action: 'buy',
+        units: parseFloat(units),
+        price: parseFloat(price),
+        currency,
+        exchange_rate: exchangeRate ? parseFloat(exchangeRate) : null,
+        date: date || null,
+        notes: notes.trim(),
+        bucket_id: bucketId || null,
+      })
+
+      onSuccess(state)
+      onClose()
+    } catch (err: any) {
+      setError(err?.message || 'เติมเงินสดและสั่งซื้อไม่สำเร็จ')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -55,6 +101,30 @@ export default function TradeModal({ targets, onClose, onSuccess }: Props) {
     }
   }
 
+  const renderErrorNode = () => {
+    if (!error) return null
+    const isInsufficientCash = error.includes('Insufficient cash balance') && action === 'buy'
+
+    return (
+      <div className="space-y-2">
+        <div>{error}</div>
+        {isInsufficientCash && (
+          <button
+            type="button"
+            onClick={handleQuickTopupAndBuy}
+            disabled={loading}
+            className="mt-1 flex items-center justify-center gap-1.5 w-full rounded-xl bg-amber-600 px-3.5 py-2 text-xs font-bold text-white shadow-md hover:bg-amber-700 disabled:opacity-50 transition-colors cursor-pointer"
+          >
+            <span>💵</span>
+            <span>
+              เติมเงินสดเพิ่ม {missingAmount > 0 ? missingAmount.toFixed(2) : totalRequired.toFixed(2)} {currency} & ยืนยันการซื้อทันที
+            </span>
+          </button>
+        )}
+      </div>
+    )
+  }
+
   return (
     <FormModal
       titleId="trade-modal-title"
@@ -62,11 +132,25 @@ export default function TradeModal({ targets, onClose, onSuccess }: Props) {
       icon={<TradeIcon className="w-5 h-5 text-flow-blue" />}
       onClose={onClose}
       onSubmit={handleSubmit}
-      error={error}
+      error={renderErrorNode()}
       loading={loading}
       submitText={action === 'buy' ? '✅ ยืนยันการซื้อ (BUY)' : '🚨 ยืนยันการขาย (SELL)'}
       submitClassName={action === 'buy' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'}
     >
+      <div className="flex items-center justify-between rounded-xl bg-zinc-50 border border-zinc-200/80 px-3 py-2 text-xs">
+        <span className="font-semibold text-zinc-600 flex items-center gap-1.5">
+          <span>💵</span> เงินสดคงเหลือในพอร์ต:
+        </span>
+        <div className="flex items-center gap-2 font-mono font-bold">
+          <span className={cashUsd > 0 ? 'text-emerald-700' : 'text-zinc-500'}>
+            ${cashUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+          </span>
+          <span className="text-zinc-300">|</span>
+          <span className={cashThb > 0 ? 'text-emerald-700' : 'text-zinc-500'}>
+            ฿{cashThb.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} THB
+          </span>
+        </div>
+      </div>
       <div className="grid grid-cols-2 gap-3">
         <FormField label="ประเภทรายการ">
           <div className="flex rounded-xl bg-zinc-100 p-1 font-bold">

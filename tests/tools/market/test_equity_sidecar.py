@@ -27,8 +27,6 @@ def mock_output():
     )
 
 def test_write_equity_sidecar_success(mock_output, tmp_vault, monkeypatch):
-    monkeypatch.setattr("tools.market.equity_sidecar.VAULT_PATH", Path(tmp_vault))
-    
     write_equity_sidecar(mock_output)
     
     expected_path = Path(tmp_vault) / "30_Knowledge_Base/Stocks/AAPL/AAPL Equity Analysis 2026-08-03.json"
@@ -42,22 +40,18 @@ def test_write_equity_sidecar_success(mock_output, tmp_vault, monkeypatch):
     assert data["analysis_date"] == "2026-08-03"
 
 def test_write_equity_sidecar_invalid_date(mock_output, tmp_vault, monkeypatch):
-    monkeypatch.setattr("tools.market.equity_sidecar.VAULT_PATH", Path(tmp_vault))
     mock_output.analysis_date = "08/03/2026"
     
     with pytest.raises(ValueError, match="Invalid analysis_date format"):
         write_equity_sidecar(mock_output)
 
 def test_write_equity_sidecar_invalid_ticker(mock_output, tmp_vault, monkeypatch):
-    monkeypatch.setattr("tools.market.equity_sidecar.VAULT_PATH", Path(tmp_vault))
     mock_output.ticker = "AAPL/../secret"
     
     with pytest.raises(ValueError, match="Invalid ticker format"):
         write_equity_sidecar(mock_output)
 
 def test_write_equity_sidecar_overwrite(mock_output, tmp_vault, monkeypatch):
-    monkeypatch.setattr("tools.market.equity_sidecar.VAULT_PATH", Path(tmp_vault))
-    
     # Write first time
     write_equity_sidecar(mock_output)
     

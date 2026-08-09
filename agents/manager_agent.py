@@ -15,7 +15,6 @@ from pydantic import BaseModel, Field
 
 from agents.archivist_agent import create_archivist
 from agents.bookkeeper_agent import create_bookkeeper
-from agents.researcher_agent import create_researcher
 from agents.macro_quant_agent import create_macro_quant
 from agents.macro_economist_agent import create_macro_economist
 from agents.strategic_allocator import invoke_strategic_allocator
@@ -25,6 +24,7 @@ from agents.equity_synthesizer import invoke_equity_synthesizer
 from schemas.macro_schemas import MarketObservable
 from schemas.micro_quant_schemas import QuantSignals, EquitySentimentContext, MicroQuantOutput
 from tools.macro.report_formatter import format_macro_strategy_report, write_strategy_json_sidecar
+from tools.macro.ingest import fetch_and_save_macro_snapshots
 from tools.market.equity_report_formatter import format_equity_analysis_report
 from tools.market.quant_history import save_equity_quant_snapshot
 from tools.market.equity_sidecar import write_equity_sidecar
@@ -42,13 +42,6 @@ def _msg_role(m) -> str:
     return "human" if isinstance(m, HumanMessage) else "assistant"
 
 
-def _sanitize_researcher_instruction(instruction: str) -> str:
-    """ตัดคำที่อาจชักจูงให้ Researcher พยายามเรียก tool บันทึกไฟล์เอง"""
-    sanitized = re.sub(r'(แล้ว)?(ให้)?บันทึก(\s*(ลง|ใน|ไปที่|ไปยัง)?\s*(Vault|วอลท์|vault)?)?', '', instruction, flags=re.IGNORECASE)
-    sanitized = re.sub(r'\bsave\s+(to\s+)?vault\b', '', sanitized, flags=re.IGNORECASE)
-    return sanitized.strip()
-
-
 # Single-tier config: ทุก agent ใช้ gemini-3.1-flash-lite-preview เป็น default
 # Fallback chain (core/llm_factory.FALLBACK_MODEL) = openai/gpt-oss-120b:free (OpenRouter)
 # ค่า default ของแต่ละ slot มาจาก core.model_registry (single source of truth ที่ /api/debug/models
@@ -58,7 +51,6 @@ def _sanitize_researcher_instruction(instruction: str) -> str:
 _MANAGER_MODEL = get_model_name("manager")
 _ROUTER_MODEL = os.getenv("ROUTER_MODEL", _MANAGER_MODEL)
 _ARCHIVIST_MODEL = get_model_name("archivist")
-_RESEARCHER_MODEL = get_model_name("researcher")
 _BOOKKEEPER_MODEL = get_model_name("bookkeeper")
 _MACRO_QUANT_MODEL = get_model_name("macro_quant")
 _MACRO_ECONOMIST_MODEL = get_model_name("economist")
@@ -117,8 +109,8 @@ def generate_manager_summary(instruction: str, deliverables: list[tuple[str, str
 
 class RouteMeta(TypedDict, total=False):
     """Routing metadata เพิ่มใน state ของ graph — แทน string prefix แบบเดิม"""
-    source: str   # "manager" | "researcher"
-    target: str   # "archivist" | "researcher" | "bookkeeper" | "user"
+    source: str   # "manager" | "macro_quant" | "equity_intel"
+    target: str   # "archivist" | "bookkeeper" | "user"
     save_to_vault: bool
     worker_started_at: float | None
 
@@ -143,6 +135,7 @@ class AgentState(MessagesState):
     equity_narrative_context: Optional[dict]
     equity_save_to_vault: Optional[bool]
     equity_output: Optional[dict[str, Any]]
+    equity_news_raw: Optional[str]
 
 
 # ROUTER_PROMPT ถูกย้ายไปที่ prompts/skills/manager/SKILL.md ผ่านระบบ PromptHarness
@@ -150,14 +143,14 @@ class AgentState(MessagesState):
 
 class WorkerTask(BaseModel):
     """งานย่อย 1 ชิ้น ที่ route ไปยัง worker หนึ่งตัว"""
-    target: Literal["archivist", "researcher", "bookkeeper", "macro_intel", "equity_intel"]
+    target: Literal["archivist", "bookkeeper", "macro_intel", "equity_intel"]
     instruction: str = Field(
         description="คำสั่งสำหรับ worker ตัวนี้ — กระชับ ชัดเจน ตัดคำนำหน้า/คำพ่วงที่ไม่เกี่ยวออก"
     )
     save_to_vault: bool = Field(
         default=True,
-        description="ใช้กับ target == 'researcher' หรือ 'equity_intel' เท่านั้น — True = ส่งผลให้ Archivist บันทึก, "
-                    "False = แค่ดึงข้อมูล/วิเคราะห์แล้วแสดง ไม่เซฟ "
+        description="ใช้กับ target == 'equity_intel' เท่านั้น — True = ส่งผลให้ Archivist บันทึก, "
+                    "False = แค่วิเคราะห์แล้วแสดง ไม่เซฟ "
                     "(เลือก False เมื่อผู้ใช้บอกชัดเจน เช่น 'ดูเฉยๆ', 'ไม่ต้องเซฟ', 'แค่อยากรู้')",
     )
 
@@ -179,8 +172,7 @@ class RouterDecision(BaseModel):
     )
     response_text: str = Field(
         default="",
-        description="คำตอบที่ส่งกลับให้ผู้ใช้โดยตรง (ภาษาไทย กระชับ) — ใช้เมื่อ tasks ว่างเท่านั้น "
-                    "ไม่นำข้อมูลดิบจาก Researcher มาวิเคราะห์ซ้ำ",
+        description="คำตอบที่ส่งกลับให้ผู้ใช้โดยตรง (ภาษาไทย กระชับ) — ใช้เมื่อ tasks ว่างเท่านั้น",
     )
 
 
@@ -200,7 +192,7 @@ def _msg_role(m) -> str:
     return "human" if isinstance(m, HumanMessage) else "assistant"
 
 
-def _has_researcher_frontmatter(text: str) -> bool:
+def _has_entity_frontmatter(text: str) -> bool:
     stripped = text.lstrip()
     if not stripped.startswith("---"):
         return False
@@ -212,12 +204,6 @@ def _has_researcher_frontmatter(text: str) -> bool:
 def _get_archivist_graph():
     provider = detect_provider(_ARCHIVIST_MODEL)
     return create_archivist(get_llm(provider=provider, model_name=_ARCHIVIST_MODEL, use_fallback=True))
-
-
-@lru_cache(maxsize=1)
-def _get_researcher_graph():
-    provider = detect_provider(_RESEARCHER_MODEL)
-    return create_researcher(get_llm(provider=provider, model_name=_RESEARCHER_MODEL, use_fallback=True))
 
 
 @lru_cache(maxsize=1)
@@ -282,36 +268,8 @@ def _get_elapsed(meta: dict) -> float | None:
     return elapsed if elapsed >= 0 else None
 
 
-def _ensure_macro_intel_after_snapshots(tasks: list[WorkerTask]) -> list[WorkerTask]:
-    """Safety-net เชิงโค้ด — เดิมพึ่ง prompt (SKILL.md) บอก LLM router ว่าต้องตามด้วย
-    macro_intel เสมอหลังดึง Global/Regional/Country Snapshot แต่ตรวจ Vault จริงพบว่า
-    ทำไม่ครบ 5/8 ครั้งที่ผ่านมา (ดึง snapshot ครบแต่ไม่เคยได้ Macro_Strategy_Direction)
-    เลยบังคับด้วยโค้ดแทนไว้ทับอีกชั้น ไม่พึ่ง LLM ทำถูกทุกครั้งอย่างเดียว
-    """
-    researcher_text = " ".join(
-        t.instruction.lower() for t in tasks if t.target == "researcher"
-    )
-    mentions_all_snapshots = (
-        "macro" in researcher_text
-        and "global" in researcher_text
-        and "regional" in researcher_text
-        and "country" in researcher_text
-    )
-    has_macro_intel = any(t.target == "macro_intel" for t in tasks)
-
-    if mentions_all_snapshots and not has_macro_intel:
-        log.warning("router plan missing macro_intel after macro snapshots — auto-appending")
-        tasks.append(WorkerTask(
-            target="macro_intel",
-            instruction="วิเคราะห์สภาวะเศรษฐกิจมหภาคและจัดสรรสินทรัพย์ตามข้อมูล Snapshot ล่าสุด",
-            save_to_vault=True,
-        ))
-    return tasks
-
-
 def build_graph(checkpointer=None) -> StateGraph:
     archivist_graph = _get_archivist_graph()
-    researcher_graph = _get_researcher_graph()
     bookkeeper_graph = _get_bookkeeper_graph()
     macro_quant_graph = _get_macro_quant_graph()
     macro_economist_graph = _get_macro_economist_graph()
@@ -319,7 +277,7 @@ def build_graph(checkpointer=None) -> StateGraph:
     equity_narrative_graph = _get_equity_narrative_graph()
     router_model = _get_router_model()
 
-    def supervisor_node(state: AgentState) -> Command[Literal["prepare_archivist", "researcher", "bookkeeper", "macro_quant", "equity_quant", "__end__"]]:
+    def supervisor_node(state: AgentState) -> Command[Literal["prepare_archivist", "bookkeeper", "macro_quant", "equity_quant", "__end__"]]:
         messages = state["messages"]
         turn_id = state.get("turn_id")
 
@@ -348,7 +306,6 @@ def build_graph(checkpointer=None) -> StateGraph:
                         "turn_id": turn_id,
                     },
                 )
-            decision.tasks = _ensure_macro_intel_after_snapshots(decision.tasks)
             log_manager_plan(turn_id, [t.model_dump() for t in decision.tasks])
             queue = [t.model_dump() for t in decision.tasks]
             messages_update = []
@@ -364,8 +321,7 @@ def build_graph(checkpointer=None) -> StateGraph:
                 replan_hint = HumanMessage(
                     content=(
                         f"[REPLAN] งานก่อนหน้าล้มเหลว: {error_msg}\n"
-                        "กรุณาวางแผนงานใหม่เพื่อแก้ปัญหา — "
-                        "อาจต้องสั่ง Researcher ดึงข้อมูลที่ขาดก่อน แล้วค่อยทำงานต่อ"
+                        "กรุณาวางแผนงานใหม่เพื่อแก้ปัญหาโดยปรับเปลี่ยนแนวทางเดิมที่ล้มเหลว"
                     ),
                     name="manager",
                 )
@@ -392,7 +348,6 @@ def build_graph(checkpointer=None) -> StateGraph:
                             "turn_id": turn_id,
                         },
                     )
-                decision.tasks = _ensure_macro_intel_after_snapshots(decision.tasks)
                 log_manager_plan(turn_id, [t.model_dump() for t in decision.tasks])
                 queue = [t.model_dump() for t in decision.tasks]
                 messages_update = [replan_hint]
@@ -424,7 +379,7 @@ def build_graph(checkpointer=None) -> StateGraph:
         task, rest = queue[0], queue[1:]
         target = task["target"]
         meta: RouteMeta = {"source": "manager", "target": target}
-        if target in ("researcher", "equity_intel"):
+        if target in ("equity_intel",):
             meta["save_to_vault"] = task.get("save_to_vault", True)
 
         meta["worker_started_at"] = time.monotonic()
@@ -437,10 +392,7 @@ def build_graph(checkpointer=None) -> StateGraph:
         elif target == "equity_intel":
             goto_target = "equity_quant"
 
-        if target == "researcher":
-            instruction = _sanitize_researcher_instruction(task["instruction"])
-        else:
-            instruction = task["instruction"]
+        instruction = task["instruction"]
 
         # equity_save_to_vault เป็น top-level state field แยกจาก route_meta โดยตั้งใจ — post_equity_quant/
         # post_equity_narrative/equity_synthesizer_node ทับ route_meta ใหม่ทั้งก้อนทุก hop ถ้าเก็บ
@@ -455,13 +407,15 @@ def build_graph(checkpointer=None) -> StateGraph:
         if target == "equity_intel":
             state_update["equity_save_to_vault"] = task.get("save_to_vault", True)
             state_update["equity_output"] = None
+            state_update["equity_news_raw"] = None
 
         return Command(goto=goto_target, update=state_update)
 
     def prepare_archivist_node(state: AgentState) -> Command[Literal["archivist"]]:
         meta = state.get("route_meta") or {}
+        source = meta.get("source")
 
-        if meta.get("source") in ["researcher", "macro_intel", "equity_intel"]:
+        if source == "macro_intel":
             last_msg = extract_worker_reply(state["messages"])
 
             # write_raw_markdown ให้ Archivist LLM ตัดสินใจ filename เอง — พบว่าไม่ deterministic
@@ -478,6 +432,43 @@ def build_graph(checkpointer=None) -> StateGraph:
                 if title else ""
             )
             task = f"คุณต้องเรียกใช้เครื่องมือ write_raw_markdown เพื่อบันทึกข้อมูลดิบต่อไปนี้ลง Vault ทันที ห้ามตอบกลับเป็นข้อความโดยไม่เรียกใช้เครื่องมือ{filename_directive}\n\n[ข้อมูลดิบ]\n{last_msg}"
+        elif source == "equity_intel":
+            last_msg = extract_worker_reply(state["messages"])
+            from tools.archivist.parser import extract_yaml_frontmatter_value
+            report_title = extract_yaml_frontmatter_value(last_msg, "title")
+
+            news_raw = state.get("equity_news_raw")
+            valid_news = (
+                isinstance(news_raw, str)
+                and news_raw.lstrip().startswith("---")
+                and bool(extract_yaml_frontmatter_value(news_raw, "title"))
+            )
+
+            if valid_news:
+                news_title = extract_yaml_frontmatter_value(news_raw, "title")
+                news_directive = (
+                    f"filename='{news_title}' เป๊ะๆ ตามนี้เท่านั้น ห้ามดัดแปลง เปลี่ยนช่องว่างเป็นขีดล่าง หรือเปลี่ยนรูปแบบใดๆ ทั้งสิ้น"
+                    if news_title else ""
+                )
+                report_directive = (
+                    f"filename='{report_title}' เป๊ะๆ ตามนี้เท่านั้น ห้ามดัดแปลง เปลี่ยนช่องว่างเป็นขีดล่าง หรือเปลี่ยนรูปแบบใดๆ ทั้งสิ้น"
+                    if report_title else ""
+                )
+                directives = (
+                    f"\nคุณต้องเรียกใช้เครื่องมือ write_raw_markdown ทั้งหมด 2 ครั้งเพื่อบันทึกทั้งข่าวหุ้นและบทวิเคราะห์หุ้นดังนี้:\n"
+                    f"1. บันทึกข่าวหุ้นล่าสุดด้วย {news_directive} (เพื่อให้ re-run วันเดียวกัน overwrite ไฟล์เดิมแทนสร้างไฟล์ซ้ำ)\n"
+                    f"[ข้อมูลดิบ - ข่าวหุ้นล่าสุด]\n{news_raw}\n\n"
+                    f"2. บันทึกบทวิเคราะห์หุ้นด้วย {report_directive} (เพื่อให้ re-run วันเดียวกัน overwrite ไฟล์เดิมแทนสร้างไฟล์ซ้ำ)\n"
+                    f"[ข้อมูลดิบ - บทวิเคราะห์หุ้น]\n{last_msg}"
+                )
+                task = f"คุณต้องเรียกใช้เครื่องมือ write_raw_markdown ทั้งหมด 2 ครั้งเพื่อบันทึกข้อมูลดิบลง Vault ทันที ห้ามตอบกลับเป็นข้อความโดยไม่เรียกใช้เครื่องมือ{directives}"
+            else:
+                filename_directive = (
+                    f"\nต้องใช้ filename='{report_title}' เป๊ะๆ ตามนี้เท่านั้น ห้ามดัดแปลง เปลี่ยนช่องว่างเป็นขีดล่าง "
+                    f"หรือเปลี่ยนรูปแบบใดๆ ทั้งสิ้น (เพื่อให้ re-run วันเดียวกัน overwrite ไฟล์เดิมแทนสร้างไฟล์ซ้ำ)"
+                    if report_title else ""
+                )
+                task = f"คุณต้องเรียกใช้เครื่องมือ write_raw_markdown เพื่อบันทึกข้อมูลดิบต่อไปนี้ลง Vault ทันที ห้ามตอบกลับเป็นข้อความโดยไม่เรียกใช้เครื่องมือ{filename_directive}\n\n[ข้อมูลดิบ]\n{last_msg}"
         else:
             last_msg = normalize_content(state["messages"][-1].content)
             msgs = state["messages"]
@@ -490,7 +481,7 @@ def build_graph(checkpointer=None) -> StateGraph:
                 isinstance(m, AIMessage) and normalize_content(m.content).strip()
                 for m in msgs[last_human_idx + 1:-1]
             )
-            if not mid_drain and _has_researcher_frontmatter(raw_user) and len(raw_user) > len(last_msg) * 2:
+            if not mid_drain and _has_entity_frontmatter(raw_user) and len(raw_user) > len(last_msg) * 2:
                 task = f"บันทึกข้อมูลดิบต่อไปนี้ลง Vault ทันที\n\n[ข้อมูลดิบ]\n{raw_user}"
             else:
                 task = last_msg
@@ -531,37 +522,6 @@ def build_graph(checkpointer=None) -> StateGraph:
             update={
                 "messages": [AIMessage(content=archivist_reply)],
                 "route_meta": {"source": "archivist", "target": "user"},
-                "turn_id": turn_id,
-            }
-        )
-
-    def post_researcher_node(state: AgentState) -> Command[Literal["supervisor", "prepare_archivist"]]:
-        meta = state.get("route_meta") or {}
-        save_to_vault = meta.get("save_to_vault", True)
-        researcher_reply = extract_worker_reply(state["messages"])
-        turn_id = state.get("turn_id", "unknown")
-        elapsed = _get_elapsed(meta)
-
-        if not _has_researcher_frontmatter(researcher_reply) or not save_to_vault:
-            status = "info" if save_to_vault else "info"
-            if _has_researcher_frontmatter(researcher_reply) is False and save_to_vault is True:
-                status = "warning"
-            log_worker_result(turn_id, "researcher", researcher_reply, status=status, elapsed_sec=elapsed)
-            return Command(
-                goto="supervisor",
-                update={
-                    "messages": [AIMessage(content=researcher_reply)],
-                    "route_meta": {"source": "researcher", "target": "user"},
-                    "turn_id": turn_id,
-                }
-            )
-
-        log_worker_result(turn_id, "researcher", researcher_reply, status="success", elapsed_sec=elapsed)
-        return Command(
-            goto="prepare_archivist",
-            update={
-                "messages": [AIMessage(content=researcher_reply)],
-                "route_meta": {"source": "researcher", "target": "archivist", "worker_started_at": time.monotonic()},
                 "turn_id": turn_id,
             }
         )
@@ -743,7 +703,7 @@ def build_graph(checkpointer=None) -> StateGraph:
         turn_id = state.get("turn_id", "unknown")
         elapsed = _get_elapsed(state.get("route_meta") or {})
 
-        if _has_researcher_frontmatter(report):
+        if _has_entity_frontmatter(report):
             log_worker_result(turn_id, "strategic_allocator", report, status="success", elapsed_sec=elapsed)
             return Command(
                 goto="prepare_archivist",
@@ -770,21 +730,14 @@ def build_graph(checkpointer=None) -> StateGraph:
     # ต้นทาง — supervisor_node/prepare_archivist_node/post_quant_node — ออกแบบให้ self-contained
     # อยู่แล้ว) แทนที่จะส่ง state ทั้งก้อนที่สะสมมาทั้งเทิร์น เดิมส่ง state เต็มทำให้ instruction
     # ของ worker ตัวก่อนหน้า (เช่น "ต้องเรียก write_raw_markdown ทันที" ที่ตั้งใจส่งให้ Archivist)
-    # รั่วเข้าไปในบริบทของ worker ตัวถัดไปในเทิร์นเดียวกัน (เจอจริงจาก live test: Researcher
-    # หลุดไปเรียก write_raw_markdown ที่ตัวเองไม่มีสิทธิ์ตาม instruction ของ Archivist ที่ยังค้าง
-    # อยู่ในประวัติสนทนา) — extract_worker_reply ไม่ต้องแก้ เพราะหา HumanMessage(name="manager")
-    # ตัวล่าสุดแล้วอ่านจากตรงนั้นอยู่แล้ว พอ input มีข้อความเดียวตั้งแต่ต้นก็ยังถูกต้อง
+    # รั่วเข้าไปในบริบทของ worker ตัวถัดไปในเทิร์นเดียวกัน (เจอจริงจาก live test) —
+    # extract_worker_reply ไม่ต้องแก้ เพราะหา HumanMessage(name="manager") ตัวล่าสุดแล้วอ่านจาก
+    # ตรงนั้นอยู่แล้ว พอ input มีข้อความเดียวตั้งแต่ต้นก็ยังถูกต้อง
     def archivist_wrapper(state: AgentState, config: RunnableConfig):
         task_message = state["messages"][-1]
         result = archivist_graph.invoke({"messages": [task_message]}, config=config)
         reply = extract_worker_reply(result["messages"])
         return {"messages": [AIMessage(content=reply, name="archivist")]}
-
-    def researcher_wrapper(state: AgentState, config: RunnableConfig):
-        task_message = state["messages"][-1]
-        result = researcher_graph.invoke({"messages": [task_message]}, config=config)
-        reply = extract_worker_reply(result["messages"])
-        return {"messages": [AIMessage(content=reply, name="researcher")]}
 
     def bookkeeper_wrapper(state: AgentState, config: RunnableConfig):
         task_message = state["messages"][-1]
@@ -793,11 +746,11 @@ def build_graph(checkpointer=None) -> StateGraph:
         return {"messages": [AIMessage(content=reply, name="bookkeeper")]}
 
     builder.add_node("archivist", archivist_wrapper)
-    builder.add_node("researcher", researcher_wrapper)
     builder.add_node("bookkeeper", bookkeeper_wrapper)
 
     # Macro Intel Pipeline
     def macro_quant_wrapper(state: AgentState, config: RunnableConfig):
+        fetch_and_save_macro_snapshots()
         task_message = state["messages"][-1]
         result = macro_quant_graph.invoke({"messages": [task_message]}, config=config)
         reply = extract_worker_reply(result["messages"])
@@ -833,7 +786,11 @@ def build_graph(checkpointer=None) -> StateGraph:
             config=config,
         )
         reply = extract_worker_reply(result["messages"])
-        return {"messages": [AIMessage(content=reply, name="equity_narrative")]}
+        update_dict = {"messages": [AIMessage(content=reply, name="equity_narrative")]}
+        news_raw = result.get("equity_news_raw")
+        if news_raw:
+            update_dict["equity_news_raw"] = news_raw
+        return update_dict
 
     def post_equity_quant_node(state: AgentState) -> Command[Literal["equity_narrative", "supervisor"]]:
         reply = extract_worker_reply(state["messages"])
@@ -939,7 +896,7 @@ def build_graph(checkpointer=None) -> StateGraph:
         if save_to_vault is None:
             save_to_vault = True
 
-        if _has_researcher_frontmatter(report) and save_to_vault:
+        if _has_entity_frontmatter(report) and save_to_vault:
             log_worker_result(turn_id, "equity_synthesizer", report, status="success", elapsed_sec=elapsed)
             return Command(
                 goto="prepare_archivist",
@@ -967,7 +924,6 @@ def build_graph(checkpointer=None) -> StateGraph:
     builder.add_node("post_equity_intel", post_equity_intel_node)
 
     builder.add_node("post_archivist", post_archivist_node)
-    builder.add_node("post_researcher", post_researcher_node)
     builder.add_node("post_bookkeeper", post_bookkeeper_node)
 
     builder.add_node("post_quant", post_quant_node)
@@ -977,7 +933,6 @@ def build_graph(checkpointer=None) -> StateGraph:
     builder.add_edge(START, "supervisor")
 
     builder.add_edge("archivist", "post_archivist")
-    builder.add_edge("researcher", "post_researcher")
     builder.add_edge("bookkeeper", "post_bookkeeper")
 
     builder.add_edge("macro_quant", "post_quant")
@@ -988,3 +943,4 @@ def build_graph(checkpointer=None) -> StateGraph:
     builder.add_edge("equity_narrative", "post_equity_narrative")
 
     return builder.compile(checkpointer=checkpointer)
+

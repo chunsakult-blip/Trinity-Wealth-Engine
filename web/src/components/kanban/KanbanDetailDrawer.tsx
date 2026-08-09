@@ -7,6 +7,7 @@ import ApprovalPanel from '../ApprovalPanel'
 import NewsFunnelPromptViewer from './NewsFunnelPromptViewer'
 import NotebookLMCardDetail from './NotebookLMCardDetail'
 import YoutubePitchDateControls from './YoutubePitchDateControls'
+import EquityStockControls from './EquityStockControls'
 import { FLOW_TAG } from '../../lib/flows'
 import { columnForStatus, type TerminalStatus } from '../../lib/agentStatus'
 import type { JobOutputsDTO } from '../../api/types'
@@ -15,6 +16,7 @@ interface Props {
   card: KanbanCardDTO | null
   onClose: () => void
   onCardTransition: () => void
+  onDispatchCard?: (card: KanbanCardDTO, flow: string) => void
 }
 
 const WIDTH_STORAGE_KEY = 'kanban-drawer-width'
@@ -40,7 +42,7 @@ function loadStoredWidth(): number {
  * งานล่าสุดที่เพิ่ง dispatch ก็ตาม — SSE endpoint replay log ทั้งหมดจาก seq 0 เสมอตอนเปิด
  * connection ใหม่ จึงใช้งานกับ job เก่าที่ทำเสร็จไปแล้วได้ปกติ
  */
-export default function KanbanDetailDrawer({ card, onClose, onCardTransition }: Props) {
+export default function KanbanDetailDrawer({ card, onClose, onCardTransition, onDispatchCard }: Props) {
   const [approvalPayload, setApprovalPayload] = useState<ApprovalPayload | null>(null)
   const [approving, setApproving] = useState(false)
   const [terminalKey, setTerminalKey] = useState(0)
@@ -49,6 +51,7 @@ export default function KanbanDetailDrawer({ card, onClose, onCardTransition }: 
   const [error, setError] = useState<string | null>(null)
   const [width, setWidth] = useState(loadStoredWidth)
   const [resizing, setResizing] = useState(false)
+  const [preSelectedEventIds, setPreSelectedEventIds] = useState<string[] | null>(null)
   const widthRef = useRef(width)
   const outputsRefreshTimer = useRef<number | null>(null)
 
@@ -58,6 +61,7 @@ export default function KanbanDetailDrawer({ card, onClose, onCardTransition }: 
     setTerminalCollapsed(false)
     setOutputsRefreshVersion(0)
     setError(null)
+    setPreSelectedEventIds(null)
   }, [card?.card_id])
 
   useEffect(() => {
@@ -149,6 +153,16 @@ export default function KanbanDetailDrawer({ card, onClose, onCardTransition }: 
     }
   }
 
+  function handleAwaitingApproval(payload: ApprovalPayload) {
+    if (card?.flow === 'news_funnel' && preSelectedEventIds !== null) {
+      const selectedIds = preSelectedEventIds
+      setPreSelectedEventIds(null)
+      handleApprove([], [], selectedIds)
+    } else {
+      setApprovalPayload(payload)
+    }
+  }
+
   return (
     <aside
       style={{ width }}
@@ -224,9 +238,34 @@ export default function KanbanDetailDrawer({ card, onClose, onCardTransition }: 
                     className="mt-3.5"
                   />
                 )}
+                {(card.title.includes('วิเคราะห์หุ้น') || (card.prompt && card.prompt.includes('วิเคราะห์หุ้น'))) && (
+                  <EquityStockControls
+                    prompt={card.prompt || ''}
+                    title={card.title}
+                    onChange={async ({ title: newTitle, prompt: newPrompt }) => {
+                      try {
+                        await api.updateKanbanCard(card.card_id, newTitle, newPrompt, card.flow, card.scope)
+                        onCardTransition()
+                      } catch (e) {
+                        setError(e instanceof ApiError ? e.message : 'อัปเดตข้อมูลหุ้นไม่สำเร็จ')
+                      }
+                    }}
+                    className="mt-3.5"
+                  />
+                )}
                 {card.prompt && card.flow !== 'notebooklm' && (
                   card.flow === 'news_funnel' ? (
-                    <NewsFunnelPromptViewer prompt={card.prompt} onItemDeleted={onCardTransition} />
+                    <NewsFunnelPromptViewer
+                      prompt={card.prompt}
+                      onItemDeleted={onCardTransition}
+                      onSelectionChange={(selectedIds) => setPreSelectedEventIds(selectedIds)}
+                      onDispatch={() => {
+                        if (card && onDispatchCard) {
+                          onDispatchCard(card, 'news_funnel')
+                        }
+                      }}
+                      isExecOrDone={!!card.job_id}
+                    />
                   ) : (
                     <div className="mt-3.5 rounded-xl border border-edge bg-surface p-3.5 text-xs text-zinc-700 leading-relaxed shadow-sm">
                       <ReactMarkdown
@@ -288,7 +327,7 @@ export default function KanbanDetailDrawer({ card, onClose, onCardTransition }: 
                             key={terminalKey}
                             jobId={card.job_id}
                             onStatusChange={handleTerminalStatusChange}
-                            onAwaitingApproval={setApprovalPayload}
+                            onAwaitingApproval={handleAwaitingApproval}
                             onLogEntry={scheduleOutputsRefresh}
                           />
                         </div>
@@ -300,7 +339,7 @@ export default function KanbanDetailDrawer({ card, onClose, onCardTransition }: 
                         key={terminalKey}
                         jobId={card.job_id}
                         onStatusChange={handleTerminalStatusChange}
-                        onAwaitingApproval={setApprovalPayload}
+                        onAwaitingApproval={handleAwaitingApproval}
                         onLogEntry={scheduleOutputsRefresh}
                       />
                       {approvalPayload && (

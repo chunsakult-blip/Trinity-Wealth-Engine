@@ -46,12 +46,11 @@ def tmp_vault(tmp_path, monkeypatch):
 def equity_tmp_vault(tmp_path, monkeypatch):
     """แยก Vault per test สำหรับ Equity (Monkeypatch ตัวแปร VAULT_PATH โดยตรงโดยไม่เคลียร์ Module Cache)"""
     import tools.archivist.core
-    import tools.market.equity_sidecar
     import api.routes_equity
-    
-    monkeypatch.setattr(tools.archivist.core, "VAULT_PATH", tmp_path)
-    monkeypatch.setattr(tools.market.equity_sidecar, "VAULT_PATH", tmp_path)
-    monkeypatch.setattr(api.routes_equity, "VAULT_PATH", tmp_path)
+
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+    monkeypatch.setattr(tools.archivist.core, "VAULT_PATH", tmp_path, raising=False)
+    monkeypatch.setattr(api.routes_equity, "VAULT_PATH", tmp_path, raising=False)
     
     yield tmp_path
 

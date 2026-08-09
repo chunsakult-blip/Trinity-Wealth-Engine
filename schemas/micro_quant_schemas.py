@@ -8,6 +8,34 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field
 
 
+class DCFScenario(BaseModel):
+    target_price: float
+    upside_pct: float
+    margin_of_safety_pct: float
+
+
+class DCFResult(BaseModel):
+    wacc_pct: float
+    cost_of_equity_pct: float
+    cost_of_debt_pct: float
+    risk_free_rate_pct: float
+    erp_pct: float
+    observable_refs: list[str] = Field(default_factory=list)
+    scenarios: dict[str, DCFScenario]
+    valuation_verdict: Literal["undervalued", "fairly_valued", "overvalued"]
+
+
+class SmartMoneyFlags(BaseModel):
+    insider_signal: Literal["buying", "selling", "neutral"] = "neutral"
+    insider_buy_count_90d: int = 0
+    insider_sell_count_90d: int = 0
+    institutional_ownership_pct: Optional[float] = None
+    insider_ownership_pct: Optional[float] = None
+    short_interest_pct: Optional[float] = None
+    short_squeeze_risk: bool = False
+    overall_smart_money_flag: Literal["bullish_signal", "bearish_signal", "neutral"] = "neutral"
+
+
 class QuantSignals(BaseModel):
     """ผลลัพธ์จาก compute_equity_quant_signals — deterministic 100% ไม่มี field ไหนมาจาก LLM"""
     ticker: str
@@ -36,6 +64,16 @@ class QuantSignals(BaseModel):
     de_ratio_pct: Optional[float] = Field(default=None, description="debtToEquity จาก yfinance ตรงๆ (150.0 = D/E 1.5x)")
     current_ratio: Optional[float] = None
     solvency_score: Optional[float] = None
+    # Cash Flow & Capital Quality
+    fcf_yield_pct: Optional[float] = None
+    fcf_margin_pct: Optional[float] = None
+    fcf_cagr_3y: Optional[float] = None
+    interest_coverage: Optional[float] = None
+    net_debt_ebitda: Optional[float] = None
+    roic_pct: Optional[float] = None
+    ocf_to_net_income: Optional[float] = None
+    fcf_quality_score: Optional[float] = None
+    debt_quality_score: Optional[float] = None
     # Trading Liquidity
     adtv_local_currency: Optional[float] = Field(
         default=None,
@@ -59,6 +97,10 @@ class QuantSignals(BaseModel):
     eps_revision_net_30d: Optional[int] = Field(default=None, description="จำนวนนักวิเคราะห์ที่ปรับกำไรขึ้น ลบด้วยปรับลง ใน 30 วันล่าสุด (ปีบัญชีปัจจุบัน)")
     eps_estimate_change_30d_pct: Optional[float] = None
     earnings_momentum_score: Optional[float] = None
+    # DCF Engine & Valuation
+    dcf_result: Optional[DCFResult] = None
+    # Smart Money Signals
+    smart_money_flags: Optional[SmartMoneyFlags] = None
     evaluated_at: str = Field(description="ISO format string (ไม่ใช่ datetime object)")
     data_quality_flags: list[str] = Field(
         default_factory=list,

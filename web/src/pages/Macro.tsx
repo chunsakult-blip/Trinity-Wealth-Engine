@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import type { MacroDashboardDTO } from '../api/types'
 import WarningPanel from '../components/WarningPanel'
@@ -8,6 +9,7 @@ import PortfolioStanceBar from '../components/PortfolioStanceBar'
 import MacroReferenceDrawer from '../components/MacroReferenceDrawer'
 import MacroContentReferences from '../components/MacroContentReferences'
 import MacroIndicatorPanel from '../components/MacroIndicatorPanel'
+import Toast from '../components/common/Toast'
 import { stanceCategory, type StanceCategory } from '../lib/stance'
 
 const STANCE_CLASS: Record<StanceCategory, string> = {
@@ -41,16 +43,65 @@ const STANCE_FILTER_TABS: { key: StanceFilter; label: string }[] = [
 ]
 
 export default function Macro() {
+  const navigate = useNavigate()
   const [data, setData] = useState<MacroDashboardDTO | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [stanceFilter, setStanceFilter] = useState<StanceFilter>('all')
   const [isRefDrawerOpen, setIsRefDrawerOpen] = useState(false)
+  const [updating, setUpdating] = useState(false)
+  const [toastState, setToastState] = useState<{
+    message: string
+    actionLabel?: string
+    onAction?: () => void
+    type?: 'info' | 'success' | 'error'
+  } | null>(null)
 
   const handleStanceFilterChange = (nextFilter: StanceFilter) => {
     if (typeof document !== 'undefined' && 'startViewTransition' in document) {
       document.startViewTransition(() => setStanceFilter(nextFilter))
     } else {
       setStanceFilter(nextFilter)
+    }
+  }
+
+  const handleUpdateMacro = async () => {
+    if (updating) return
+    setUpdating(true)
+    const cardTitle = 'วิเคราะห์ภาวะเศรษฐกิจมหภาค (Macro Analysis)'
+    const instruction = 'วิเคราะห์ภาวะเศรษฐกิจมหภาค (Macro Intelligence & Regime Analysis) ล่าสุดพร้อมประเมิน Asset Allocation'
+
+    let cardId: string | undefined
+    try {
+      const { card } = await api.createKanbanCard(cardTitle, 'manager', instruction, 'both')
+      cardId = card.card_id
+    } catch (err) {
+      console.error('Failed to create macro kanban card:', err)
+      setToastState({
+        message: err instanceof ApiError ? err.message : 'เกิดข้อผิดพลาดในการสร้างการ์ดวิเคราะห์เศรษฐกิจ',
+        type: 'error',
+      })
+      setUpdating(false)
+      return
+    }
+
+    try {
+      await api.dispatchJob(instruction, cardId, 'manager', 'both')
+      setToastState({
+        message: 'สั่งงานวิเคราะห์ภาวะเศรษฐกิจมหภาคเรียบร้อย',
+        actionLabel: 'ดูสถานะใน Kanban',
+        onAction: () => navigate('/kanban'),
+        type: 'success',
+      })
+    } catch (err) {
+      console.error('Failed to dispatch macro job:', err)
+      setToastState({
+        message:
+          (err instanceof ApiError ? err.message : 'เกิดข้อผิดพลาดในการเริ่มงานวิเคราะห์') +
+          ' — สร้างการ์ดไว้ที่ Backlog แล้ว กด dispatch เองในการ์ดนั้นได้',
+        type: 'error',
+      })
+    } finally {
+      setUpdating(false)
     }
   }
 
@@ -140,13 +191,25 @@ export default function Macro() {
           </div>
 
           <div className="flex flex-col items-end justify-between gap-2">
-            <button
-              onClick={() => setIsRefDrawerOpen(true)}
-              className="flex items-center gap-1.5 rounded-xl border border-edge bg-panel px-3.5 py-2 text-xs font-semibold text-zinc-800 shadow-sm transition-all hover:bg-surface-strong hover:shadow"
-            >
-              <span>📚</span>
-              <span>แหล่งอ้างอิงข้อมูล (References)</span>
-            </button>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <button
+                onClick={handleUpdateMacro}
+                disabled={updating}
+                className="flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-3.5 py-2 text-xs font-semibold text-sky-700 shadow-sm transition-all hover:bg-sky-100 disabled:opacity-50"
+                title="สร้างการ์ดใหม่ใน Kanban และเริ่มวิเคราะห์ภาวะเศรษฐกิจมหภาค"
+              >
+                <span>{updating ? '⏳' : '🔄'}</span>
+                <span>{updating ? 'กำลังสั่งงาน...' : 'อัปเดตบทวิเคราะห์'}</span>
+              </button>
+
+              <button
+                onClick={() => setIsRefDrawerOpen(true)}
+                className="flex items-center gap-1.5 rounded-xl border border-edge bg-panel px-3.5 py-2 text-xs font-semibold text-zinc-800 shadow-sm transition-all hover:bg-surface-strong hover:shadow"
+              >
+                <span>📚</span>
+                <span>แหล่งอ้างอิงข้อมูล (References)</span>
+              </button>
+            </div>
             {data.evaluated_at && (
               <div className="text-right text-xs text-zinc-400">
                 Evaluated: {data.evaluated_at}
@@ -189,11 +252,11 @@ export default function Macro() {
             </div>
           )}
 
-          {data.regime_evidence.length > 0 && (
+          {(data.regime_evidence ?? []).length > 0 && (
             <div className="rounded-xl border border-edge bg-panel p-5 shadow-sm shadow-black/5">
               <h2 className="mb-3 text-base font-semibold text-zinc-900">5-Dimension Evidence</h2>
               <div className="space-y-3">
-                {data.regime_evidence.map((re, idx) => (
+                {(data.regime_evidence ?? []).map((re, idx) => (
                   <div key={idx} className="rounded-lg border border-edge bg-zinc-50/60 p-3">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-xs font-semibold uppercase tracking-wide text-zinc-800">
@@ -441,6 +504,16 @@ export default function Macro() {
         isOpen={isRefDrawerOpen}
         onClose={() => setIsRefDrawerOpen(false)}
       />
+
+      {toastState && (
+        <Toast
+          message={toastState.message}
+          type={toastState.type}
+          actionLabel={toastState.actionLabel}
+          onAction={toastState.onAction}
+          onClose={() => setToastState(null)}
+        />
+      )}
     </div>
   )
 }

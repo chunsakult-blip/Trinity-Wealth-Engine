@@ -2,6 +2,11 @@ import { useState } from 'react'
 import Modal from '../../ui/Modal'
 import { api } from '../../../api/client'
 import { DEFAULT_ALLOCATION_TARGETS, type AllocationTargetDTO, type ActualPortfolioStateDTO } from '../../../api/types'
+import {
+  getUniqueBucketColor,
+  getRandomizedBucketColor,
+  randomizeAllBucketColors,
+} from '../../../lib/bucketColors'
 
 interface Props {
   initialTargets: AllocationTargetDTO[]
@@ -22,7 +27,23 @@ export default function BucketTargetModal({ initialTargets, onClose, onSuccess }
 
   const handleAdd = () => {
     const newId = `bucket_${Date.now().toString().slice(-4)}`
-    setTargets([...targets, { bucket_id: newId, name: 'New Bucket', target_percent: 0, color: '#3B82F6' }])
+    const existingColors = targets.map((t) => t.color).filter(Boolean) as string[]
+    const autoColor = getUniqueBucketColor(existingColors)
+    setTargets([...targets, { bucket_id: newId, name: 'New Bucket', target_percent: 0, color: autoColor }])
+  }
+
+  const handleRandomizeRow = (index: number) => {
+    const next = [...targets]
+    const current = next[index]
+    if (!current) return
+    const existingColors = targets.map((t) => t.color).filter(Boolean) as string[]
+    const randomColor = getRandomizedBucketColor(existingColors, current.color)
+    next[index] = { ...current, color: randomColor }
+    setTargets(next)
+  }
+
+  const handleRandomizeAll = () => {
+    setTargets(randomizeAllBucketColors(targets))
   }
 
   const handleRemove = (index: number) => {
@@ -69,9 +90,19 @@ export default function BucketTargetModal({ initialTargets, onClose, onSuccess }
         <h3 id="bucket-target-modal-title" className="text-lg font-bold text-zinc-900">
           ⚙️ ตั้งค่าสัดส่วนกลยุทธ์ (Allocation Targets)
         </h3>
-        <button type="button" onClick={onClose} className="text-zinc-400 hover:text-zinc-600">
-          ✕
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleRandomizeAll}
+            className="flex items-center gap-1 rounded-xl border border-purple-200 bg-purple-50 px-2.5 py-1 text-xs font-semibold text-purple-700 transition-colors hover:bg-purple-100 hover:border-purple-300"
+            title="สุ่มสีใหม่ทุก Bucket ให้ไม่ซ้ำกัน"
+          >
+            🎨 สุ่มสีทั้งหมด
+          </button>
+          <button type="button" onClick={onClose} className="text-zinc-400 hover:text-zinc-600">
+            ✕
+          </button>
+        </div>
       </div>
 
       <form onSubmit={handleSubmit} className="mt-4 space-y-4">
@@ -84,13 +115,23 @@ export default function BucketTargetModal({ initialTargets, onClose, onSuccess }
         <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
           {targets.map((t, idx) => (
             <div key={t.bucket_id || idx} className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50/50 p-2.5 text-xs">
-              <input
-                type="color"
-                value={t.color || '#3B82F6'}
-                onChange={(e) => handleChange(idx, 'color', e.target.value)}
-                className="h-8 w-8 cursor-pointer rounded border-0 bg-transparent p-0"
-                title="เลือกสี"
-              />
+              <div className="flex items-center gap-1">
+                <input
+                  type="color"
+                  value={t.color || '#3B82F6'}
+                  onChange={(e) => handleChange(idx, 'color', e.target.value)}
+                  className="h-8 w-8 cursor-pointer rounded border-0 bg-transparent p-0"
+                  title="เลือกสี"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleRandomizeRow(idx)}
+                  className="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-purple-50 hover:text-purple-600"
+                  title="สุ่มสีใหม่สำหรับ Bucket นี้"
+                >
+                  🎲
+                </button>
+              </div>
               <div className="flex-1 space-y-1">
                 <input
                   type="text"

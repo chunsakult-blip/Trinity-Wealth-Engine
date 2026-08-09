@@ -1,9 +1,9 @@
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from schemas.micro_quant_schemas import MicroQuantOutput
 from tools._atomic_io import _atomic_write_to
-from tools.archivist.core import VAULT_PATH
 from langsmith import traceable
 
 @traceable(run_type="tool")
@@ -26,7 +26,8 @@ def write_equity_sidecar(output: MicroQuantOutput) -> None:
     if not ticker.isalnum() and not all(c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_" for c in ticker):
         raise ValueError(f"Invalid ticker format for path: {ticker}")
         
-    sidecar_dir = VAULT_PATH / "30_Knowledge_Base" / "Stocks" / ticker
+    vault_path = Path(os.getenv("OBSIDIAN_VAULT_PATH", "./memories"))
+    sidecar_dir = vault_path / "30_Knowledge_Base" / "Stocks" / ticker
     sidecar_dir.mkdir(parents=True, exist_ok=True)
     
     sidecar_path = sidecar_dir / f"{ticker} Equity Analysis {date_str}.json"

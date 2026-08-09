@@ -61,13 +61,13 @@ def datetime_to_date_str():
     from datetime import datetime
     return datetime.now().strftime("%Y-%m-%d")
 
-@patch("agents.manager_agent._get_researcher_graph")
+@patch("agents.manager_agent.fetch_and_save_macro_snapshots")
 @patch("agents.manager_agent._get_macro_quant_graph")
 @patch("agents.manager_agent._get_macro_economist_graph")
 @patch("agents.manager_agent._get_archivist_graph")
 @patch("agents.manager_agent._get_router_model")
 @patch("agents.manager_agent.get_llm")
-def test_macro_analysis_flow_mocked_router(mock_llm, mock_router, mock_archivist, mock_eco, mock_quant, mock_res, equity_tmp_vault, monkeypatch):
+def test_macro_analysis_flow_mocked_router(mock_llm, mock_router, mock_archivist, mock_eco, mock_quant, mock_snapshots, equity_tmp_vault, monkeypatch):
     # กัน strategic_allocator_node เขียน JSON sidecar จริงลง Obsidian Vault ของผู้ใช้ —
     # test นี้ build_graph() จริงและรัน strategic_allocator_node จริง (แค่ mock LLM เท่านั้น)
     import tools.macro.report_formatter as report_formatter_module
@@ -78,7 +78,6 @@ def test_macro_analysis_flow_mocked_router(mock_llm, mock_router, mock_archivist
         def invoke(self, *args, **kwargs):
             return RouterDecision(
                 tasks=[
-                    WorkerTask(target="researcher", instruction="test", save_to_vault=True),
                     WorkerTask(target="macro_intel", instruction="test")
                 ]
             )
@@ -97,8 +96,6 @@ def test_macro_analysis_flow_mocked_router(mock_llm, mock_router, mock_archivist
         def invoke(self, state, *args, **kwargs):
             return self.return_val
 
-    mock_res.return_value = MockGraph({"messages": [AIMessage(content="research done", name="researcher")]})
-    
     quant_valid = '{"evaluated_at": "2024-05-20T10:00:00Z", "regions": {"USA": {"growth_score": 0.5, "inflation_score": 0.2, "monetary_score": 0.0, "economic_state": "Goldilocks", "confidence": 0.8}}, "global_geopolitics_score": -0.2, "recession_probability": 0.1, "data_freshness_note": "Test"}'
     mock_quant.return_value = MockGraph({"messages": [AIMessage(content=quant_valid, name="macro_quant")]})
     
@@ -144,15 +141,16 @@ def test_macro_analysis_flow_mocked_router(mock_llm, mock_router, mock_archivist
             nodes_visited.append(node_name)
             
     assert "supervisor" in nodes_visited
-    assert "researcher" in nodes_visited
     assert "macro_quant" in nodes_visited
     assert "macro_economist" in nodes_visited
     assert "strategic_allocator" in nodes_visited
     assert "prepare_archivist" in nodes_visited
     assert "archivist" in nodes_visited
+    mock_snapshots.assert_called_once()
     
     final_state = graph.get_state(config).values
     assert "quant_score" in final_state and final_state["quant_score"] is not None
     assert "USA" in final_state["quant_score"]["regions"]
     assert "narrative_context" in final_state and final_state["narrative_context"] is not None
     assert final_state["narrative_context"]["market_sentiment"] == "neutral"
+

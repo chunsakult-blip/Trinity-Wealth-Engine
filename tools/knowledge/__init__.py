@@ -1,6 +1,5 @@
 """Knowledge extraction & search tools package"""
 from .article import ingest_article_url
-from .document import ingest_pdf
 from .search_youtube_insights import (
     extract_first_bullet_of_key_takeaways,
     extract_sections,
@@ -13,7 +12,6 @@ from .youtube_monitor import generate_weekly_youtube_digest, load_recent_youtube
 
 __all__ = [
     "ingest_article_url",
-    "ingest_pdf",
     "ingest_youtube_transcript",
     "generate_weekly_youtube_digest",
     "load_recent_youtube_insights",

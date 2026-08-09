@@ -92,4 +92,68 @@ describe('NewsFunnelPromptViewer', () => {
       expect(screen.getByText(/Score below threshold/)).toBeInTheDocument()
     })
   })
+
+  it('handles checkbox selection, toggle all, and dispatch button callback', async () => {
+    vi.mocked(api.getNewsFunnelPending).mockResolvedValue([
+      {
+        event_id: 'ev-1',
+        canonical_title: 'News 1',
+        comprehensive_summary: 'Summary 1',
+        macro_impact_score: 8,
+        asset_impact_score: 7,
+        extracted_tickers: [],
+        extracted_themes: [],
+        primary_tags: [],
+        sources: [],
+        links: [],
+      },
+      {
+        event_id: 'ev-2',
+        canonical_title: 'News 2',
+        comprehensive_summary: 'Summary 2',
+        macro_impact_score: 9,
+        asset_impact_score: 8,
+        extracted_tickers: [],
+        extracted_themes: [],
+        primary_tags: [],
+        sources: [],
+        links: [],
+      },
+    ])
+    vi.mocked(api.getNewsFunnelFiltered).mockResolvedValue([])
+
+    const onSelectionChange = vi.fn()
+    const onDispatch = vi.fn()
+
+    render(
+      <NewsFunnelPromptViewer
+        prompt="### News Funnel"
+        onSelectionChange={onSelectionChange}
+        onDispatch={onDispatch}
+        isExecOrDone={false}
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('News 1')).toBeInTheDocument()
+    })
+
+    // Selected by default
+    expect(onSelectionChange).toHaveBeenCalledWith(['ev-1', 'ev-2'])
+
+    // Deselect all button
+    const toggleAllBtn = screen.getByText('ยกเลิกทั้งหมด')
+    fireEvent.click(toggleAllBtn)
+    expect(onSelectionChange).toHaveBeenLastCalledWith([])
+
+    // Select all button
+    const selectAllBtn = screen.getByText('เลือกทั้งหมด')
+    fireEvent.click(selectAllBtn)
+    expect(onSelectionChange).toHaveBeenLastCalledWith(['ev-1', 'ev-2'])
+
+    // Dispatch button
+    const dispatchBtn = screen.getByText(/🚀 เริ่มสังเคราะห์ \(2 รายการ\)/)
+    fireEvent.click(dispatchBtn)
+    expect(onDispatch).toHaveBeenCalledTimes(1)
+  })
 })

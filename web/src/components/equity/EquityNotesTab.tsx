@@ -17,8 +17,8 @@ function parseNoteContent(raw: string): ParsedNote {
     return { frontmatter: null, body: raw }
   }
 
-  const yamlBlock = match[1]
-  const body = match[2]
+  const yamlBlock = match[1] ?? ''
+  const body = match[2] ?? ''
 
   const frontmatter: { key: string; value: string }[] = []
   for (const line of yamlBlock.split('\n')) {

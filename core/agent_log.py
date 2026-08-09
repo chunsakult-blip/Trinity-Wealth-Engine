@@ -11,15 +11,14 @@ from typing import Literal
 
 from core.security import anonymize_pii
 
-_VAULT_PATH = Path(os.getenv("OBSIDIAN_VAULT_PATH", "./memories"))
-_LOG_DIR = _VAULT_PATH / "01_Daily_Logs"
 _PREVIEW_LIMIT = 3000
 _lock = Lock()
 
 
 def _today_path() -> Path:
     day = datetime.now().strftime("%Y-%m-%d")
-    return _LOG_DIR / f"Agent_Log_{day}.md"
+    vault_path = Path(os.getenv("OBSIDIAN_VAULT_PATH", "./memories"))
+    return vault_path / "01_Daily_Logs" / f"Agent_Log_{day}.md"
 
 
 def _ensure_file(path: Path) -> None:

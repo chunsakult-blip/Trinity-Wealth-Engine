@@ -39,29 +39,29 @@ class TestPrefixMultiline:
 
 class TestLogRouting:
     def test_legacy_log_routing_no_turn_id(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(agent_log, "_LOG_DIR", tmp_path)
+        monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
         agent_log.log_routing("manager", "bookkeeper")
-        content = list(tmp_path.glob("Agent_Log_*.md"))[0].read_text(encoding="utf-8")
+        content = list(tmp_path.glob("01_Daily_Logs/Agent_Log_*.md"))[0].read_text(encoding="utf-8")
         assert "Legacy routing" in content
         assert "Turn: `legacy`" in content
         assert "Source: manager" in content
 
     def test_elapsed_sec_none(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(agent_log, "_LOG_DIR", tmp_path)
+        monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
         agent_log.log_worker_result("test-turn", "researcher", "result", elapsed_sec=None)
-        content = list(tmp_path.glob("Agent_Log_*.md"))[0].read_text(encoding="utf-8")
+        content = list(tmp_path.glob("01_Daily_Logs/Agent_Log_*.md"))[0].read_text(encoding="utf-8")
         import re
         assert re.search(r"Worker: Researcher \[\d{2}:\d{2}:\d{2}\]", content)
 
     def test_elapsed_sec_provided(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(agent_log, "_LOG_DIR", tmp_path)
+        monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
         agent_log.log_worker_result("test-turn", "researcher", "result", elapsed_sec=2.5)
-        content = list(tmp_path.glob("Agent_Log_*.md"))[0].read_text(encoding="utf-8")
+        content = list(tmp_path.glob("01_Daily_Logs/Agent_Log_*.md"))[0].read_text(encoding="utf-8")
         assert " | 2.5s]" in content
 
     def test_replan_warning(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(agent_log, "_LOG_DIR", tmp_path)
+        monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
         agent_log.log_system_action("test-turn", "Re-plan Triggered", "Error info", status="warning")
-        content = list(tmp_path.glob("Agent_Log_*.md"))[0].read_text(encoding="utf-8")
+        content = list(tmp_path.glob("01_Daily_Logs/Agent_Log_*.md"))[0].read_text(encoding="utf-8")
         assert "> [!warning] 🔄 System: Re-plan Triggered" in content
         assert "Error info" in content

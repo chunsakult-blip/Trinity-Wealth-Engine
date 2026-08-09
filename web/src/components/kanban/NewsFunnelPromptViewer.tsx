@@ -6,14 +6,18 @@ import ReactMarkdown from 'react-markdown'
 interface Props {
   prompt: string
   onItemDeleted?: () => void
+  onSelectionChange?: (selectedIds: string[]) => void
+  onDispatch?: () => void
+  isExecOrDone?: boolean
 }
 
-export default function NewsFunnelPromptViewer({ prompt }: Props) {
+export default function NewsFunnelPromptViewer({ prompt, onSelectionChange, onDispatch, isExecOrDone }: Props) {
   const [items, setItems] = useState<NewsFunnelPendingItem[] | null>(null)
   const [filteredItems, setFilteredItems] = useState<NewsFunnelFilteredItem[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showFiltered, setShowFiltered] = useState(false)
+  const [selectedEventIds, setSelectedEventIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     let mounted = true
@@ -22,7 +26,12 @@ export default function NewsFunnelPromptViewer({ prompt }: Props) {
     api
       .getNewsFunnelPending()
       .then((data) => {
-        if (mounted) setItems(data)
+        if (mounted) {
+          setItems(data)
+          const allIds = data.map((i) => i.event_id)
+          setSelectedEventIds(new Set(allIds))
+          onSelectionChange?.(allIds)
+        }
       })
       .catch((err) => {
         if (mounted) setError(err?.message || 'ไม่สามารถโหลดรายการข่าวรอสังเคราะห์ได้')
@@ -44,6 +53,28 @@ export default function NewsFunnelPromptViewer({ prompt }: Props) {
       mounted = false
     }
   }, [prompt])
+
+  function toggle(id: string) {
+    const next = new Set(selectedEventIds)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setSelectedEventIds(next)
+    onSelectionChange?.(Array.from(next))
+  }
+
+  function toggleAll() {
+    if (!items) return
+    if (selectedEventIds.size === items.length && items.length > 0) {
+      setSelectedEventIds(new Set())
+      onSelectionChange?.([])
+    } else {
+      const allIds = items.map((i) => i.event_id)
+      setSelectedEventIds(new Set(allIds))
+      onSelectionChange?.(allIds)
+    }
+  }
+
+  const allSelected = items ? items.length > 0 && selectedEventIds.size === items.length : false
 
   // ถ้าโหลดไม่สำเร็จหรือไม่มีรายการ pending จาก API ให้ fallback เป็น ReactMarkdown เดิม
   if (!loading && (!items || items.length === 0) && error) {
@@ -83,7 +114,13 @@ export default function NewsFunnelPromptViewer({ prompt }: Props) {
           </span>
         </div>
         {!loading && items && items.length > 0 && (
-          <span className="text-[11px] font-medium text-sky-700">สามารถเลือกอนุมัติข่าวที่ต้องการได้ในการ์ด</span>
+          <button
+            type="button"
+            onClick={toggleAll}
+            className="text-xs font-semibold text-sky-700 hover:underline"
+          >
+            {allSelected ? 'ยกเลิกทั้งหมด' : 'เลือกทั้งหมด'}
+          </button>
         )}
       </div>
 
@@ -108,74 +145,99 @@ export default function NewsFunnelPromptViewer({ prompt }: Props) {
                 ...(item.extracted_tickers || []).map(cleanTag),
                 ...(item.extracted_themes || []).map(cleanTag),
               ].filter(Boolean)
+              const isChecked = selectedEventIds.has(item.event_id)
 
               return (
-                <div
+                <label
                   key={item.event_id}
-                  className="relative flex flex-col gap-2 rounded-xl border border-edge bg-surface p-4 text-xs text-zinc-700 shadow-sm transition-colors hover:border-zinc-300"
+                  className={`relative flex cursor-pointer items-start gap-3 rounded-xl border p-4 text-xs text-zinc-700 shadow-sm transition-colors ${
+                    isChecked ? 'border-sky-300 bg-sky-50/20' : 'border-edge bg-surface hover:border-zinc-300'
+                  }`}
                 >
-                  <div className="flex flex-wrap items-center gap-2 font-semibold text-zinc-900">
-                    <span className="rounded bg-sky-100 px-2 py-0.5 text-[11px] font-bold text-sky-800">
-                      #{idx + 1}
-                    </span>
-                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800">
-                      Score: {maxScore}/10
-                    </span>
-                    {item.triage_source === 'heuristic_fallback' && (
-                      <span
-                        title={`คะแนนจาก heuristic fallback (${item.triage_fallback_reason ? `สาเหตุ: ${item.triage_fallback_reason}` : 'LLM triage ล้มเหลวรอบ ingest'}) — โปรดตรวจสอบเนื้อหาก่อนอนุมัติ`}
-                        className="rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-700"
-                      >
-                        ⚠️ Heuristic{item.triage_fallback_reason ? ` (${item.triage_fallback_reason})` : ''}
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => toggle(item.event_id)}
+                    className="mt-1 h-4 w-4 shrink-0 accent-sky-500"
+                  />
+                  <div className="flex-1 space-y-2 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 font-semibold text-zinc-900">
+                      <span className="rounded bg-sky-100 px-2 py-0.5 text-[11px] font-bold text-sky-800">
+                        #{idx + 1}
                       </span>
-                    )}
-                    <span className="text-sm leading-snug">{item.canonical_title}</span>
-                  </div>
-
-                  <div className="mt-1 flex flex-wrap gap-4 text-zinc-600">
-                    <span>
-                      <b>Macro Impact:</b> {item.macro_impact_score}/10
-                    </span>
-                    <span>
-                      <b>Asset Impact:</b> {item.asset_impact_score}/10
-                    </span>
-                  </div>
-
-                  {item.comprehensive_summary && (
-                    <p className="mt-1 leading-relaxed text-zinc-600">
-                      <b>สรุปเนื้อหา:</b> {item.comprehensive_summary}
-                    </p>
-                  )}
-
-                  {allTags.length > 0 && (
-                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                      <b className="mr-1 text-zinc-700">แท็กที่เกี่ยวข้อง:</b>
-                      {allTags.map((tag, tIdx) => (
+                      <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800">
+                        Score: {maxScore}/10
+                      </span>
+                      {item.triage_source === 'heuristic_fallback' && (
                         <span
-                          key={tIdx}
-                          className="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[10px] font-medium text-zinc-700"
+                          title={`คะแนนจาก heuristic fallback (${item.triage_fallback_reason ? `สาเหตุ: ${item.triage_fallback_reason}` : 'LLM triage ล้มเหลวรอบ ingest'}) — โปรดตรวจสอบเนื้อหาก่อนอนุมัติ`}
+                          className="rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-700"
                         >
-                          {tag}
+                          ⚠️ Heuristic{item.triage_fallback_reason ? ` (${item.triage_fallback_reason})` : ''}
                         </span>
-                      ))}
+                      )}
+                      <span className="text-sm leading-snug">{item.canonical_title}</span>
                     </div>
-                  )}
 
-                  {firstLink && (
-                    <div className="mt-1">
-                      <a
-                        href={firstLink}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 font-medium text-sky-700 underline underline-offset-2 hover:text-sky-900"
-                      >
-                        🔗 อ่านข่าวต้นฉบับ
-                      </a>
+                    <div className="flex flex-wrap gap-4 text-zinc-600">
+                      <span>
+                        <b>Macro Impact:</b> {item.macro_impact_score}/10
+                      </span>
+                      <span>
+                        <b>Asset Impact:</b> {item.asset_impact_score}/10
+                      </span>
                     </div>
-                  )}
-                </div>
+
+                    {item.comprehensive_summary && (
+                      <p className="leading-relaxed text-zinc-600">
+                        <b>สรุปเนื้อหา:</b> {item.comprehensive_summary}
+                      </p>
+                    )}
+
+                    {allTags.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                        <b className="mr-1 text-zinc-700">แท็กที่เกี่ยวข้อง:</b>
+                        {allTags.map((tag, tIdx) => (
+                          <span
+                            key={tIdx}
+                            className="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[10px] font-medium text-zinc-700"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {firstLink && (
+                      <div className="pt-0.5">
+                        <a
+                          href={firstLink}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 font-medium text-sky-700 underline underline-offset-2 hover:text-sky-900"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          🔗 อ่านข่าวต้นฉบับ
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                </label>
               )
             })}
+
+          {!isExecOrDone && onDispatch && items && items.length > 0 && (
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={onDispatch}
+                disabled={selectedEventIds.size === 0}
+                className="w-full rounded-xl bg-sky-600 px-4 py-2.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                🚀 เริ่มสังเคราะห์ ({selectedEventIds.size} รายการ)
+              </button>
+            </div>
+          )}
         </div>
       )}
 

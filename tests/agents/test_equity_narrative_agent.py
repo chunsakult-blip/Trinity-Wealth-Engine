@@ -33,6 +33,7 @@ class TestCreateEquityNarrative:
         content = result["messages"][0].content
         assert "bullish" in content
         assert result["messages"][0].name == "equity_narrative"
+        assert result["equity_news_raw"] == "AAPL beats earnings"
 
     @patch("tools.market.news.ingest_stock_news")
     @patch("tools.archivist.search.search_all_memories")

@@ -304,3 +304,52 @@ def compute_composite_score(
     total_weight = sum(_COMPOSITE_WEIGHTS[k] for k in available)
     composite = sum(v * _COMPOSITE_WEIGHTS[k] for k, v in available.items()) / total_weight
     return round(composite, 1), None
+
+
+@traceable(run_type="parser")
+def compute_fcf_quality_score(
+    fcf_yield_pct: Optional[float],
+    ocf_to_net_income: Optional[float] = None,
+) -> Tuple[Optional[float], Optional[str]]:
+    """Normalize FCF Yield % (หลัก) + OCF/NetIncome (คุณภาพกำไร) เป็นคะแนน 0-100
+    Threshold: FCF Yield >= 6% -> 100, <= 0% -> 0 | OCF/NI >= 1.2 -> 100, <= 0.5 -> 0
+    """
+    sub_scores = []
+    if fcf_yield_pct is not None:
+        s = _linear_score(fcf_yield_pct, best=6.0, worst=0.0)
+        if s is not None:
+            sub_scores.append(s)
+    if ocf_to_net_income is not None:
+        s = _linear_score(ocf_to_net_income, best=1.2, worst=0.5)
+        if s is not None:
+            sub_scores.append(s)
+
+    score = _avg_sub_scores(sub_scores)
+    if score is None:
+        return None, "missing_fcf_quality_data:fcf_quality"
+    return score, None
+
+
+@traceable(run_type="parser")
+def compute_debt_quality_score(
+    interest_coverage: Optional[float],
+    net_debt_ebitda: Optional[float] = None,
+) -> Tuple[Optional[float], Optional[str]]:
+    """Normalize Interest Coverage + Net Debt / EBITDA เป็น Risk Score 0-100
+    Threshold: Interest Coverage >= 5.0x -> 100, <= 1.5x -> 0 | Net Debt/EBITDA <= 1.5x -> 100, >= 4.0x -> 0
+    """
+    sub_scores = []
+    if interest_coverage is not None:
+        s = _linear_score(interest_coverage, best=5.0, worst=1.5)
+        if s is not None:
+            sub_scores.append(s)
+    if net_debt_ebitda is not None:
+        s = _linear_score(net_debt_ebitda, best=1.5, worst=4.0)
+        if s is not None:
+            sub_scores.append(s)
+
+    score = _avg_sub_scores(sub_scores)
+    if score is None:
+        return None, "missing_debt_quality_data:debt_quality"
+    flag = "high_debt_risk:debt_quality" if score < 30 else None
+    return score, flag

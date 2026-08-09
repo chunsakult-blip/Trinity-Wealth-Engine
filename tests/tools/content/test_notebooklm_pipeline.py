@@ -132,9 +132,10 @@ def _happy_responses(**overrides) -> dict:
         "server_info": {"auth_status": "configured"},
         "notebook_create": {"notebook_id": "nb-1"},
         "source_add": {"source_id": "src-1"},
+        "source_describe": {"status": "success"},
         "studio_create": {"artifact_id": "art-1"},
         "studio_status": _studio_status_handler(
-            poll_sequence=[{"status": "generating"}, {"status": "completed"}],
+            poll_sequence=[{"status": "generating", "artifact_id": "art-1"}, {"status": "completed", "artifact_id": "art-1"}],
             detail_response={"status": "completed", "url": "https://example.com/audio.mp3"},
         ),
         "download_artifact": _fake_download(),
@@ -292,7 +293,7 @@ async def test_idempotent_when_already_completed(monkeypatch, briefing_file, tmp
 
 async def test_studio_terminal_failure_rolls_back_to_source_added(monkeypatch, briefing_file):
     fake = _install_fake_adapter(monkeypatch, _happy_responses(
-        studio_status=lambda args: {"status": "failed"},
+        studio_status=lambda args: {"status": "failed", "artifact_id": "art-1"},
         # recovery-download ต้องล้มเหลวด้วย ไม่งั้น pipeline จะกู้คืนสำเร็จแทนที่จะ rollback
         # (ดู test_studio_terminal_failure_recovers_via_direct_download สำหรับกรณีกู้คืนสำเร็จ)
         download_artifact=RuntimeError("recovery download ก็ล้มเหลวเหมือนกัน"),
@@ -317,7 +318,7 @@ async def test_studio_terminal_failure_rolls_back_to_research_done_not_source_ad
         research_completed=True, status="research_done",
     )
     fake = _install_fake_adapter(monkeypatch, _happy_responses(
-        studio_status=lambda args: {"status": "failed"},
+        studio_status=lambda args: {"status": "failed", "artifact_id": "art-1"},
         download_artifact=RuntimeError("recovery download ก็ล้มเหลวเหมือนกัน"),
     ))
 
@@ -405,7 +406,7 @@ async def test_recovery_download_falls_back_to_default_extension_when_status_che
     )
 
     assert result.status == "completed"
-    assert result.audio_path.suffix == ".mp4"  # fallback default เพราะเช็คนามสกุลจริงไม่ได้
+    assert result.audio_path.suffix == ".m4a"  # fallback default เพราะเช็คนามสกุลจริงไม่ได้
 
 
 async def test_studio_terminal_failure_recovery_fails_falls_back_to_rollback(monkeypatch, briefing_file):
@@ -558,7 +559,7 @@ async def test_studio_terminal_failure_rolls_back_to_prompts_queried(monkeypatch
         notebook_id="nb-1", source_id="src-1", prompts_queried=True, status="prompts_queried",
     )
     fake = _install_fake_adapter(monkeypatch, _happy_responses(
-        studio_status=lambda args: {"status": "failed"},
+        studio_status=lambda args: {"status": "failed", "artifact_id": "art-1"},
         download_artifact=RuntimeError("recovery download ก็ล้มเหลวเหมือนกัน"),
     ))
 
@@ -587,7 +588,7 @@ async def test_poll_studio_status_recovers_from_single_call_hang(monkeypatch, br
     """
     _install_fake_adapter(monkeypatch, _happy_responses(
         studio_status=_studio_status_hang_once_then(
-            poll_sequence=[{"status": "completed"}],
+            poll_sequence=[{"status": "completed", "artifact_id": "art-1"}],
             detail_response={"status": "completed", "url": "https://example.com/audio.mp3"},
         ),
     ))
@@ -606,7 +607,7 @@ async def test_poll_studio_status_continues_and_logs_on_unrecognized_status(monk
     caplog.set_level(logging.WARNING, logger="tools.content.notebooklm.pipeline")
     _install_fake_adapter(monkeypatch, _happy_responses(
         studio_status=_studio_status_handler(
-            poll_sequence=[{"status": "some_unrecognized_value"}, {"status": "completed"}],
+            poll_sequence=[{"status": "some_unrecognized_value", "artifact_id": "art-1"}, {"status": "completed", "artifact_id": "art-1"}],
             detail_response={"status": "completed", "url": "https://example.com/audio.mp3"},
         ),
     ))
@@ -623,7 +624,7 @@ async def test_poll_studio_status_continues_and_logs_on_unrecognized_status(monk
 async def test_download_uses_real_extension_and_hash_prefix(monkeypatch, briefing_file):
     _install_fake_adapter(monkeypatch, _happy_responses(
         studio_status=_studio_status_handler(
-            poll_sequence=[{"status": "completed"}],
+            poll_sequence=[{"status": "completed", "artifact_id": "art-1"}],
             detail_response={"status": "completed", "url": "https://cdn.example.com/x/audio-final.mp3?sig=abc"},
         ),
     ))
@@ -638,17 +639,17 @@ async def test_download_uses_real_extension_and_hash_prefix(monkeypatch, briefin
     assert result.audio_path.stem.startswith("test_briefing_")
 
 
-async def test_download_falls_back_to_mp4_when_no_url_found(monkeypatch, briefing_file):
+async def test_download_falls_back_to_m4a_when_no_url_found(monkeypatch, briefing_file):
     _install_fake_adapter(monkeypatch, _happy_responses(
         studio_status=_studio_status_handler(
-            poll_sequence=[{"status": "completed"}],
+            poll_sequence=[{"status": "completed", "artifact_id": "art-1"}],
             detail_response={"status": "completed"},  # ไม่มี url ให้ parse เลย
         ),
     ))
     result = await pipeline.run_notebooklm_post_production_pipeline(
         briefing_file, confirm_generation=True,
     )
-    assert result.audio_path.suffix == ".mp4"
+    assert result.audio_path.suffix == ".m4a"
 
 
 # ── Download failure ─────────────────────────────────────────────────────
