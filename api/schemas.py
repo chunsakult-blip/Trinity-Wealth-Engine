@@ -483,15 +483,34 @@ class ActualWatchlistStateDTO(BaseModel):
     items: list[ActualWatchlistItemDTO] = []
 
 
+class PortfolioMetaDTO(BaseModel):
+    id: str
+    name: str
+    is_default: bool = False
+    created_at: Optional[str] = None
+
+
+class CreatePortfolioRequestDTO(BaseModel):
+    name: str
+    portfolio_id: Optional[str] = None
+
+
+class RenamePortfolioRequestDTO(BaseModel):
+    name: str
+
+
+
 class ActualGoalItemDTO(BaseModel):
     name: str
     target_amount_thb: float
-    goal_type: str  # 'nav_target', 'cash_target', 'passive_income_ytd'
+    goal_type: str  # 'nav_target', 'cash_target', 'passive_income_ytd', 'bucket_target'
     current_amount_thb: float = 0.0
     progress_pct: float = 0.0
     deadline: Optional[str] = None
     deadline_days_left: Optional[int] = None
     notes: Optional[str] = None
+    portfolio_id: Optional[str] = "default"
+    bucket_id: Optional[str] = None
 
 
 class ActualGoalsResponseDTO(BaseModel):
@@ -578,11 +597,13 @@ class UpsertWatchlistItemRequestDTO(BaseModel):
 
 
 class UpsertGoalRequestDTO(BaseModel):
-    goal_type: Literal["nav_target", "cash_target", "passive_income_ytd"]
+    goal_type: Literal["nav_target", "cash_target", "passive_income_ytd", "bucket_target"]
     target_amount_thb: float
     deadline: Optional[str] = None
     years_from_now: Optional[int] = None
     notes: Optional[str] = None
+    portfolio_id: Optional[str] = "default"
+    bucket_id: Optional[str] = None
 
 
 class AppendJournalRequestDTO(BaseModel):

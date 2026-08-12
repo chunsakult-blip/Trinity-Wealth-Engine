@@ -37,7 +37,7 @@ describe('Modal', () => {
     const { onClose, container } = renderModal()
     await userEvent.click(screen.getByRole('button', { name: 'ปุ่มแรก' }))
     expect(onClose).not.toHaveBeenCalled()
-    const backdrop = container.querySelector('[aria-hidden="true"]')
+    const backdrop = document.body.querySelector('[aria-hidden="true"]')
     expect(backdrop).not.toBeNull()
     await userEvent.click(backdrop as HTMLElement)
     expect(onClose).toHaveBeenCalledOnce()

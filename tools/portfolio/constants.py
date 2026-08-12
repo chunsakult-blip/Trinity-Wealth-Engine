@@ -5,6 +5,7 @@ VAULT_PATH = Path(os.getenv("OBSIDIAN_VAULT_PATH", "./memories"))
 
 PORTFOLIO_REL = os.getenv("PORTFOLIO_FILE", "20_Portfolio_Management/Current_Holdings/Portfolio_Holdings.md")
 PORTFOLIO_PATH = VAULT_PATH / PORTFOLIO_REL
+PORTFOLIOS_DIR = VAULT_PATH / "20_Portfolio_Management/Current_Holdings/Portfolios"
 
 TRADING_JOURNAL_REL = os.getenv("TRADING_JOURNAL_FILE", "20_Portfolio_Management/Journals_and_Reports/Trading_Journal.md")
 TRADING_JOURNAL_PATH = VAULT_PATH / TRADING_JOURNAL_REL

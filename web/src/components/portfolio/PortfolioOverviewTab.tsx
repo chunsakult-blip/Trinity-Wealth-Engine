@@ -202,20 +202,20 @@ export default function PortfolioOverviewTab({ targets, summaries, warning, onSe
                     >
                       {activeSummary.name}
                     </span>
-                    <div className="text-2xl font-black font-mono tabular-nums text-zinc-900 tracking-tight leading-none pt-0.5">
+                    <div className="text-2xl font-black font-sans tabular-nums text-zinc-900 tracking-tight leading-none pt-0.5">
                       {activeSummary.actual_percent.toFixed(1)}%
                     </div>
-                    <div className="text-[11px] font-mono tabular-nums text-zinc-500">
+                    <div className="text-[11px] font-sans tabular-nums text-zinc-500">
                       Target: {activeTarget ? `${activeTarget.target_percent.toFixed(1)}%` : 'N/A'}
                     </div>
-                    <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-mono tabular-nums font-bold ${activeSummary.variance > 0 ? 'bg-amber-50 text-amber-700 border border-amber-200' : activeSummary.variance < 0 ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
+                    <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-sans tabular-nums font-bold ${activeSummary.variance > 0 ? 'bg-amber-50 text-amber-700 border border-amber-200' : activeSummary.variance < 0 ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
                       <span>Diff: {activeSummary.variance > 0 ? '+' : ''}{activeSummary.variance.toFixed(1)}%</span>
                     </div>
                   </div>
                 ) : (
                   <div className="space-y-1 animate-fade-in flex flex-col items-center justify-center">
                     <span className="text-[11px] font-extrabold text-zinc-400 uppercase tracking-wider">Total Variance</span>
-                    <div className={`text-3xl font-black font-mono tabular-nums tracking-tight leading-none my-1 ${totalVariance <= 10 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                    <div className={`text-3xl font-black font-sans tabular-nums tracking-tight leading-none my-1 ${totalVariance <= 10 ? 'text-emerald-600' : 'text-amber-600'}`}>
                       {totalVariance.toFixed(1)}%
                     </div>
                     <div className="text-[10px] font-medium text-zinc-400 max-w-[130px] leading-tight">
@@ -304,19 +304,19 @@ export default function PortfolioOverviewTab({ targets, summaries, warning, onSe
                           <div className="text-[11px] font-mono tabular-nums text-zinc-400">{s.bucket_id}</div>
                         </div>
                       </td>
-                      <td className="px-4 py-3.5 text-right font-mono tabular-nums text-zinc-700">
+                      <td className="px-4 py-3.5 text-right font-sans tabular-nums text-zinc-700">
                         {s.target_percent.toFixed(1)}%
                       </td>
-                      <td className="px-4 py-3.5 text-right font-mono tabular-nums font-semibold text-zinc-900">
+                      <td className="px-4 py-3.5 text-right font-sans tabular-nums font-semibold text-zinc-900">
                         {formatTHB(s.actual_value_thb)}
                       </td>
-                      <td className="px-4 py-3.5 text-right font-mono tabular-nums font-bold text-zinc-900">
+                      <td className="px-4 py-3.5 text-right font-sans tabular-nums font-bold text-zinc-900">
                         {s.actual_percent.toFixed(1)}%
                       </td>
                       <td className="px-4 py-3.5 text-right align-middle">
                         <div className="flex flex-col items-end gap-1">
                           <span
-                            className={`inline-block rounded-lg border px-2 py-0.5 text-xs font-mono tabular-nums font-bold ${varColorClass}`}
+                            className={`inline-block rounded-lg border px-2 py-0.5 text-xs font-sans tabular-nums font-bold ${varColorClass}`}
                           >
                             {s.variance > 0 ? '+' : ''}
                             {s.variance.toFixed(1)}%

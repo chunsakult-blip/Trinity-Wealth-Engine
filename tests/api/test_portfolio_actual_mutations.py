@@ -209,3 +209,35 @@ def test_append_journal_endpoint(authed_client, isolated_mutation_portfolio):
     assert r.status_code == 200
     data = r.json()
     assert any("Bought more PTT on dip." in e["content"] for e in data)
+
+
+def test_rename_portfolio_endpoint(authed_client, isolated_mutation_portfolio):
+    # 1. Create custom portfolio
+    r_create = authed_client.post("/api/portfolio/create", json={"name": "พอร์ตเกษียณสุข"})
+    assert r_create.status_code == 200
+    port_id = r_create.json()["id"]
+
+    # 2. Rename custom portfolio
+    r_rename = authed_client.put(f"/api/portfolio/{port_id}/rename", json={"name": "พอร์ตอิสรภาพทางการเงิน"})
+    assert r_rename.status_code == 200
+    assert r_rename.json()["name"] == "พอร์ตอิสรภาพทางการเงิน"
+
+    # 3. Verify in portfolio list
+    r_list = authed_client.get("/api/portfolio/list")
+    assert r_list.status_code == 200
+    meta = next(p for p in r_list.json() if p["id"] == port_id)
+    assert meta["name"] == "พอร์ตอิสรภาพทางการเงิน"
+
+
+def test_rename_default_portfolio_endpoint(authed_client, isolated_mutation_portfolio):
+    # Rename default portfolio
+    r_rename = authed_client.put("/api/portfolio/default/rename", json={"name": "พอร์ตลงทุนหลัก (VIP)"})
+    assert r_rename.status_code == 200
+    assert r_rename.json()["name"] == "พอร์ตลงทุนหลัก (VIP)"
+
+    # Verify default portfolio name updated in list
+    r_list = authed_client.get("/api/portfolio/list")
+    assert r_list.status_code == 200
+    meta = next(p for p in r_list.json() if p["id"] == "default")
+    assert meta["name"] == "พอร์ตลงทุนหลัก (VIP)"
+

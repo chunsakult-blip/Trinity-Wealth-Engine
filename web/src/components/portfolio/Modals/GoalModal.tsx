@@ -1,19 +1,21 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import FormModal, { FormField, FormInput, FormSelect } from './FormModal'
 import { GoalIcon } from '../icons/PortfolioIcons'
 import { api } from '../../../api/client'
-import type { ActualGoalItemDTO, ActualGoalsResponseDTO } from '../../../api/types'
+import type { ActualGoalItemDTO, ActualGoalsResponseDTO, PortfolioMetaDTO } from '../../../api/types'
 
 interface Props {
   initialGoal?: ActualGoalItemDTO | null
+  portfolios?: PortfolioMetaDTO[]
+  selectedPortfolioId?: string
   onClose: () => void
   onSuccess: (response: ActualGoalsResponseDTO) => void
 }
 
-export default function GoalModal({ initialGoal, onClose, onSuccess }: Props) {
+export default function GoalModal({ initialGoal, portfolios = [], selectedPortfolioId = 'default', onClose, onSuccess }: Props) {
   const isEdit = !!initialGoal
   const [name, setName] = useState(initialGoal?.name || '')
-  const [goalType, setGoalType] = useState<'nav_target' | 'cash_target' | 'passive_income_ytd'>(
+  const [goalType, setGoalType] = useState<'nav_target' | 'cash_target' | 'passive_income_ytd' | 'bucket_target'>(
     (initialGoal?.goal_type as any) || 'nav_target'
   )
   const [targetAmountThb, setTargetAmountThb] = useState<string>(
@@ -22,6 +24,8 @@ export default function GoalModal({ initialGoal, onClose, onSuccess }: Props) {
   const [deadline, setDeadline] = useState<string>(initialGoal?.deadline || '')
   const [yearsFromNow, setYearsFromNow] = useState<string>('')
   const [notes, setNotes] = useState(initialGoal?.notes || '')
+  const [portfolioId, setPortfolioId] = useState<string>(initialGoal?.portfolio_id || selectedPortfolioId || 'default')
+  const [bucketId, setBucketId] = useState<string>(initialGoal?.bucket_id || '')
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -41,6 +45,8 @@ export default function GoalModal({ initialGoal, onClose, onSuccess }: Props) {
         deadline: deadline || null,
         years_from_now: yearsFromNow ? parseInt(yearsFromNow, 10) : null,
         notes: notes.trim() || null,
+        portfolio_id: portfolioId,
+        bucket_id: goalType === 'bucket_target' ? bucketId || null : null,
       })
       onSuccess(res)
       onClose()
@@ -64,13 +70,30 @@ export default function GoalModal({ initialGoal, onClose, onSuccess }: Props) {
       submitClassName="bg-flow-blue hover:bg-sky-600"
       panelClassName="max-w-md rounded-2xl border border-sky-100 bg-white p-6 shadow-2xl"
     >
+      <FormField label="เชื่อมโยงกับพอร์ตการลงทุน (Portfolio)">
+        <FormSelect
+          value={portfolioId}
+          onChange={(e) => setPortfolioId(e.target.value)}
+        >
+          {portfolios.length > 0 ? (
+            portfolios.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} {p.is_default ? '(หลัก)' : ''}
+              </option>
+            ))
+          ) : (
+            <option value="default">พอร์ตลงทุนหลัก</option>
+          )}
+        </FormSelect>
+      </FormField>
+
       <FormField label="ชื่อเป้าหมาย (Goal Name)" required>
         <FormInput
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
           disabled={isEdit}
-          placeholder="e.g. พอร์ต 10 ล้านแรก, เงินปันผลเดือนละ 2 หมื่น"
+          placeholder="e.g. พอร์ต 10 ล้านแรก, เงินสำรองฉุกเฉิน 100k"
           className="font-bold"
           required
         />
@@ -85,6 +108,7 @@ export default function GoalModal({ initialGoal, onClose, onSuccess }: Props) {
             <option value="nav_target">มูลค่าพอร์ตรวม (Total NAV)</option>
             <option value="cash_target">เงินสำรองในพอร์ต (Cash Target)</option>
             <option value="passive_income_ytd">ปันผลสะสมปีนี้ (Passive Income YTD)</option>
+            <option value="bucket_target">มูลค่าตาม Bucket กลยุทธ์ (Bucket Target)</option>
           </FormSelect>
         </FormField>
 
@@ -101,6 +125,17 @@ export default function GoalModal({ initialGoal, onClose, onSuccess }: Props) {
           />
         </FormField>
       </div>
+
+      {goalType === 'bucket_target' && (
+        <FormField label="รหัส Bucket ที่ต้องการติดตาม (Bucket ID)">
+          <FormInput
+            type="text"
+            value={bucketId}
+            onChange={(e) => setBucketId(e.target.value)}
+            placeholder="e.g. core_wealth, growth, liquidity"
+          />
+        </FormField>
+      )}
 
       <div className="grid grid-cols-2 gap-3">
         <FormField label="วันที่เป้าหมาย (Deadline - เลือกได้)">

@@ -373,15 +373,25 @@ export interface ActualWatchlistStateDTO {
   items: ActualWatchlistItemDTO[]
 }
 
+export interface PortfolioMetaDTO {
+  id: string
+  name: string
+  is_default?: boolean
+  created_at?: string | null
+}
+
+
 export interface ActualGoalItemDTO {
   name: string
   target_amount_thb: number
-  goal_type: string
+  goal_type: 'nav_target' | 'cash_target' | 'passive_income_ytd' | 'bucket_target'
   current_amount_thb: number
   progress_pct: number
   deadline: string | null
   deadline_days_left: number | null
   notes: string | null
+  portfolio_id?: string | null
+  bucket_id?: string | null
 }
 
 export interface ActualGoalsResponseDTO {
@@ -468,11 +478,13 @@ export interface UpsertWatchlistItemPayload {
 }
 
 export interface UpsertGoalPayload {
-  goal_type: 'nav_target' | 'cash_target' | 'passive_income_ytd'
+  goal_type: 'nav_target' | 'cash_target' | 'passive_income_ytd' | 'bucket_target'
   target_amount_thb: number
   deadline?: string | null
   years_from_now?: number | null
   notes?: string | null
+  portfolio_id?: string | null
+  bucket_id?: string | null
 }
 
 export interface AppendJournalPayload {

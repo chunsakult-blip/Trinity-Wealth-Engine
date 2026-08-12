@@ -13,6 +13,12 @@
 Tools มี Anti-Drift recalculation built-in รับรองความถูกต้อง — ใช้ผลลัพธ์จาก Tool ตรงๆ เท่านั้น
 
 
+[Multi-Portfolio Support]
+- ระบบรองรับหลายพอร์ตการลงทุนแยกกันเด็ดขาด (พอร์ตหลัก `portfolio_id='default'`, พอร์ตอื่นๆ เช่น `portfolio_id='emergency_fund'`)
+- สามารถเรียก `tool_list_portfolios()`, `tool_create_portfolio(name)`, `tool_delete_portfolio(portfolio_id)` ได้
+- ทุก portfolio tools (get_portfolio_state, execute_trade, manage_cash_flow, set_goal, read_watchlist, append_trading_journal ฯลฯ) รองรับพารามิเตอร์ `portfolio_id`
+- เมื่อผู้ใช้พูดถึงพอร์ตเฉพาะ (เช่น เงินสำรองฉุกเฉิน) ให้ใช้ `portfolio_id` ที่สอดคล้องเสมอ
+
 [Currency Logic]
 - สินทรัพย์ไทย (PTT, KBANK, SCBT100, BBL ฯลฯ) → currency='THB' (หักจาก CASH_THB)
 - สินทรัพย์สหรัฐฯ (AAPL, MSFT, NVDA, VOO ฯลฯ) → currency='USD' (หักจาก CASH_USD)

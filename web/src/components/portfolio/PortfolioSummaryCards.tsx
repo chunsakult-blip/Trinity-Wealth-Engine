@@ -76,7 +76,7 @@ export default function PortfolioSummaryCards({
           <span className="rounded-full bg-flow-cyan/10 px-2 py-0.5 text-[10px] text-flow-blue">THB</span>
         </div>
         <div className="mt-2 flex items-baseline justify-between gap-2">
-          <div className="text-2xl font-bold font-mono tabular-nums tracking-tight text-zinc-900 sm:text-3xl">
+          <div className="text-2xl font-bold font-sans tabular-nums tracking-tight text-zinc-900 sm:text-3xl">
             {formatTHB(nav)}
           </div>
           {/* Sparkline SVG */}
@@ -105,7 +105,7 @@ export default function PortfolioSummaryCards({
         <div className="mt-2 flex items-center justify-between text-xs text-zinc-400">
           <span>มูลค่าสุทธิปัจจุบัน (รวมเงินสด)</span>
           {sortedSpark.length >= 2 && (
-            <span className={`font-mono tabular-nums text-[10px] font-semibold ${isSparkPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
+            <span className={`font-sans tabular-nums text-[10px] font-semibold ${isSparkPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
               {isSparkPositive ? '▲' : '▼'} 15D Trend
             </span>
           )}
@@ -117,7 +117,7 @@ export default function PortfolioSummaryCards({
         <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-zinc-500">
           <span>Unrealized Profit/Loss</span>
           <span
-            className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tabular-nums ${
+            className={`rounded-full px-2 py-0.5 text-[10px] font-bold font-sans tabular-nums ${
               pnlPct === null
                 ? 'bg-zinc-100 text-zinc-500'
                 : isPositive
@@ -129,7 +129,7 @@ export default function PortfolioSummaryCards({
           </span>
         </div>
         <div
-          className={`mt-2 text-2xl font-bold font-mono tabular-nums tracking-tight sm:text-3xl ${
+          className={`mt-2 text-2xl font-bold font-sans tabular-nums tracking-tight sm:text-3xl ${
             isPositive ? 'text-emerald-600' : 'text-rose-600'
           }`}
         >
@@ -149,7 +149,7 @@ export default function PortfolioSummaryCards({
             เงินปันผลสะสม
           </span>
         </div>
-        <div className="mt-2 text-2xl font-bold font-mono tabular-nums tracking-tight text-zinc-900 sm:text-3xl">
+        <div className="mt-2 text-2xl font-bold font-sans tabular-nums tracking-tight text-zinc-900 sm:text-3xl">
           {formatTHB(summary.passive_income_ytd)}
         </div>
         <div className="mt-2 flex items-center text-xs text-zinc-400">
@@ -168,7 +168,7 @@ export default function PortfolioSummaryCards({
           )}
         </div>
         <div className="mt-1 flex flex-col justify-center">
-          <span className="text-sm font-semibold font-mono tabular-nums text-zinc-800">
+          <span className="text-sm font-semibold font-sans tabular-nums text-zinc-800">
             {lastUpdated ? new Date(lastUpdated).toLocaleString('th-TH') : 'N/A'}
           </span>
           <span className="mt-0.5 text-xs text-zinc-400">อัปเดตราคาล่าสุดจาก yfinance</span>

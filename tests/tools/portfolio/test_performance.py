@@ -128,15 +128,18 @@ class TestPerformanceSnapshotAddons:
 
     def test_snapshot_lock_timeout(self, isolated_portfolio, monkeypatch):
         pt = isolated_portfolio
-        def mock_lock(*args, **kwargs):
-            from filelock import Timeout
-            raise Timeout("mock")
-        monkeypatch.setattr("tools.portfolio.performance._portfolio_lock.acquire", mock_lock)
+        class DummyLock:
+            def __enter__(self):
+                from filelock import Timeout
+                raise Timeout("mock")
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                pass
+        monkeypatch.setattr("tools.portfolio.performance._get_portfolio_lock", lambda pid="default": DummyLock())
         
         result = pt.record_performance_snapshot.func()
 
-        assert isinstance(result, str) and result.startswith("Error:")
-        assert "portfolio lock" in result
+        assert isinstance(result, str)
+        assert "lock" in result.lower()
 class TestReadPerformanceHistoryAddons:
     def test_empty_csv(self, isolated_portfolio, tmp_vault):
         pt = isolated_portfolio

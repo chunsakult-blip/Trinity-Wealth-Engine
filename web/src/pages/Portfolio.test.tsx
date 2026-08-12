@@ -12,12 +12,16 @@ vi.mock('../api/client', () => ({
     getActualGoals: vi.fn(),
     getActualPerformance: vi.fn(),
     getActualJournal: vi.fn(),
+    listPortfolios: vi.fn(),
   },
 }))
 
 describe('Portfolio Page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(api.listPortfolios).mockResolvedValue([
+      { id: 'default', name: 'พอร์ตลงทุนหลัก', is_default: true, created_at: '2026-07-16T10:00:00Z' },
+    ])
     vi.mocked(api.getActualPortfolioState).mockResolvedValue({
       last_updated: '2026-07-16T10:00:00Z',
       fx_rates: { USD: 35.0 },
@@ -99,7 +103,7 @@ describe('Portfolio Page', () => {
     expect(screen.getByText('Actual Portfolio Hub')).toBeInTheDocument()
 
     await waitFor(() => {
-      expect(api.getActualPortfolioState).toHaveBeenCalledWith(false, false)
+      expect(api.getActualPortfolioState).toHaveBeenCalledWith(false, false, 'default')
       expect(api.getActualBucketAllocations).toHaveBeenCalled()
     })
 
@@ -169,7 +173,7 @@ describe('Portfolio Page', () => {
     expect(screen.getByText('Retirement Fund')).toBeInTheDocument()
 
     // Switch to Performance history inside Executive Dashboard
-    const perfBtn = screen.getByRole('button', { name: /Performance History/i })
+    const perfBtn = screen.getByRole('button', { name: /Performance Analytics/i })
     fireEvent.click(perfBtn)
 
     await waitFor(() => {

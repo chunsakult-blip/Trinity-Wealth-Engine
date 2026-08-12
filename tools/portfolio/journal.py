@@ -52,10 +52,20 @@ _portfolio_lock = FileLock(_PORTFOLIO_LOCK_PATH, timeout=_LOCK_TIMEOUT)
 
 
 
+from .core import _get_portfolio_lock, _load_or_init, _save
+
+
+def _get_journal_filepath(portfolio_id: str = "default") -> Path:
+    pid = portfolio_id.strip().lower() if portfolio_id else "default"
+    if pid == "default":
+        return TRADING_JOURNAL_PATH
+    pdir = VAULT_PATH / "20_Portfolio_Management/Current_Holdings/Portfolios"
+    pdir.mkdir(parents=True, exist_ok=True)
+    return pdir / f"{pid}_journal.md"
+
+
 def _inject_journal_wikilinks(content: str) -> str:
-    """เติม ' — [[SYMBOL]]' หลัง trade title เพื่อเชื่อม Layer 3 → Layer 1 ใน Graph
-    Skip cash holdings (CASH_THB/CASH_USD) — ไม่ใช่ entity ที่ต้องการ hub node
-    """
+    """เติม ' — [[SYMBOL]]' หลัง trade title เพื่อเชื่อม Layer 3 → Layer 1 ใน Graph"""
     def _replace(m: re.Match) -> str:
         symbol = m.group(2)
         if symbol in _CASH_SYMBOLS:
@@ -64,11 +74,10 @@ def _inject_journal_wikilinks(content: str) -> str:
     return _TRADE_TITLE_RE.sub(_replace, content)
 
 
-def _write_journal_entry(content: str, date_str: str | None = None) -> str:
-    """Append timestamped block ลง Trading_Journal.md — คืน timestamp ที่ใช้
-    ใช้ได้ทั้งจาก @tool append_trading_journal และจากภายใน locked ops อื่น (เช่น edit_holding)
-    """
-    TRADING_JOURNAL_PATH.parent.mkdir(parents=True, exist_ok=True)
+def _write_journal_entry(content: str, date_str: str | None = None, portfolio_id: str = "default") -> str:
+    """Append timestamped block ลง Trading Journal — คืน timestamp ที่ใช้"""
+    jpath = _get_journal_filepath(portfolio_id)
+    jpath.parent.mkdir(parents=True, exist_ok=True)
     if date_str and date_str.strip():
         val = date_str.strip()
         if len(val) == 10:  # YYYY-MM-DD
@@ -79,13 +88,13 @@ def _write_journal_entry(content: str, date_str: str | None = None) -> str:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     linked = _inject_journal_wikilinks(content)
     block = f"\n## [{timestamp}]\n\n{linked}\n"
-    with TRADING_JOURNAL_PATH.open("a", encoding="utf-8") as f:
+    with jpath.open("a", encoding="utf-8") as f:
         f.write(block)
     return timestamp
 
 
 @tool
-def append_trading_journal(entry: str) -> str:
+def append_trading_journal(entry: str, portfolio_id: str = "default") -> str:
     """บันทึกการเทรดและข้อคิดเห็น (Trading Journal)
 
     [Usage/When to use]
@@ -97,12 +106,13 @@ def append_trading_journal(entry: str) -> str:
 
     Args:
         entry (str): เนื้อหาที่จะบันทึก (ระบบจะลง Timestamp ให้อัตโนมัติ)
+        portfolio_id (str): พอร์ตการลงทุนที่ต้องการบันทึก (ค่าเริ่มต้น 'default')
     """
     content = (entry or "").strip()
     if not content:
         return validation_error("entry ต้องไม่ว่าง")
 
-    timestamp = _write_journal_entry(content)
+    timestamp = _write_journal_entry(content, portfolio_id=portfolio_id)
     return f"[JOURNAL] บันทึกสำเร็จ | [{timestamp}] | {len(content)} chars"
 
 
@@ -111,6 +121,7 @@ def read_trading_journal(
     days: int = 30,
     keyword: str | None = None,
     limit: int = 20,
+    portfolio_id: str = "default",
 ) -> str:
     """อ่านบันทึกการเทรด (Trading Journal) ย้อนหลัง
 
@@ -122,6 +133,7 @@ def read_trading_journal(
         days (int): จำนวนวันย้อนหลังที่ต้องการดึง
         keyword (str | None): คำที่ต้องการค้นหา
         limit (int): จำนวนบันทึกสูงสุดที่จะแสดง
+        portfolio_id (str): พอร์ตการลงทุนที่ต้องการอ่าน (ค่าเริ่มต้น 'default')
     Returns:
         str: JSON string: {n_total_in_window, n_returned, filters_used, entries:[{timestamp, content}]}
         entries เรียงจากใหม่สุดไปเก่าสุด
@@ -131,15 +143,15 @@ def read_trading_journal(
     if limit <= 0:
         return validation_error("limit ต้องมากกว่า 0")
 
-    if not TRADING_JOURNAL_PATH.exists():
+    jpath = _get_journal_filepath(portfolio_id)
+    if not jpath.exists():
         return json.dumps(
             {"error": "ยังไม่มี Trading_Journal.md — ใช้ append_trading_journal บันทึกก่อน"},
             ensure_ascii=False,
         )
 
-    returned = get_structured_journal(days=days, keyword=keyword, limit=limit)
-    # Count total in window before limit
-    all_in_window = get_structured_journal(days=days, keyword=keyword, limit=1000000)
+    returned = get_structured_journal(days=days, keyword=keyword, limit=limit, portfolio_id=portfolio_id)
+    all_in_window = get_structured_journal(days=days, keyword=keyword, limit=1000000, portfolio_id=portfolio_id)
 
     return json.dumps(
         {
@@ -153,13 +165,14 @@ def read_trading_journal(
     )
 
 
-def get_structured_journal(days: int | None = 365, keyword: str | None = None, limit: int = 100) -> list[dict]:
-    """Structured read accessor คืนค่า entries จาก Trading_Journal.md เป็น list of dicts"""
+def get_structured_journal(days: int | None = 365, keyword: str | None = None, limit: int = 100, portfolio_id: str = "default") -> list[dict]:
+    """Structured read accessor คืนค่า entries จาก Trading Journal เป็น list of dicts"""
     if days is None:
         days = 365
-    if not TRADING_JOURNAL_PATH.exists():
+    jpath = _get_journal_filepath(portfolio_id)
+    if not jpath.exists():
         return []
-    text = TRADING_JOURNAL_PATH.read_text(encoding="utf-8")
+    text = jpath.read_text(encoding="utf-8")
     cutoff = datetime.now() - timedelta(days=days)
     kw = keyword.strip().lower() if keyword else None
 
@@ -181,13 +194,13 @@ def get_structured_journal(days: int | None = 365, keyword: str | None = None, l
     return entries[:limit]
 
 
-def structured_append_journal(entry: str) -> list[dict]:
+def structured_append_journal(entry: str, portfolio_id: str = "default") -> list[dict]:
     """Structured mutation accessor สำหรับบันทึก Trading Journal คืนรายการล่าสุดเป็น list of dicts"""
     content = (entry or "").strip()
     if not content:
         raise ValueError("entry ต้องไม่ว่าง")
-    _write_journal_entry(content)
-    return get_structured_journal(days=365, limit=100)
+    _write_journal_entry(content, portfolio_id=portfolio_id)
+    return get_structured_journal(days=365, limit=100, portfolio_id=portfolio_id)
 
 
 

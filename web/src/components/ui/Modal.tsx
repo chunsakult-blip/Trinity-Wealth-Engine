@@ -1,4 +1,5 @@
 import { type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 
 interface Props {
@@ -18,11 +19,11 @@ const DEFAULT_PANEL_CLASS =
 export default function Modal({ titleId, onClose, children, panelClassName, zIndexClassName = 'z-50' }: Props) {
   const dialogRef = useFocusTrap<HTMLDivElement>(true, onClose)
 
-  return (
+  return createPortal(
     <div className={`animate-fade-in fixed inset-0 flex items-center justify-center p-4 ${zIndexClassName}`}>
       {/* backdrop เป็น sibling แยกจาก dialog (ไม่ใช่ parent) — ปิดด้วยคลิกได้โดยไม่ต้อง
           stopPropagation และใส่ aria-hidden ได้เพราะเป็นแค่ฉากหลังตกแต่ง (คีย์บอร์ดใช้ Escape) */}
-      <div aria-hidden="true" onClick={onClose} className="absolute inset-0 bg-black/40" />
+      <div aria-hidden="true" onClick={onClose} className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
       <div
         ref={dialogRef}
         role="dialog"
@@ -32,6 +33,8 @@ export default function Modal({ titleId, onClose, children, panelClassName, zInd
       >
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
+

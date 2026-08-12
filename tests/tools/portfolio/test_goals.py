@@ -283,7 +283,7 @@ class TestGetGoalsProgressExceptions:
         def mock_lock(*args, **kwargs):
             from filelock import Timeout
             raise Timeout("mock")
-        monkeypatch.setattr("tools.portfolio.goals._portfolio_lock.acquire", mock_lock)
+        monkeypatch.setattr("tools.portfolio.goals._goals_lock.acquire", mock_lock)
         
         result = pt.get_goals_progress.func()
         import json

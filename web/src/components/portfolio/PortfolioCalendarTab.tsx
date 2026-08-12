@@ -3,7 +3,11 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../../api/client'
 import type { CalendarEventDTO, PortfolioCalendarDTO } from '../../api/types'
 
-export default function PortfolioCalendarTab() {
+interface Props {
+  selectedPortfolioId?: string
+}
+
+export default function PortfolioCalendarTab({ selectedPortfolioId = 'default' }: Props) {
   const navigate = useNavigate()
   const [data, setData] = useState<PortfolioCalendarDTO | null>(null)
   const [loading, setLoading] = useState(true)
@@ -17,7 +21,7 @@ export default function PortfolioCalendarTab() {
       try {
         setLoading(true)
         setError(null)
-        const res = await api.getPortfolioCalendar()
+        const res = await api.getPortfolioCalendar(selectedPortfolioId)
         if (isMounted) {
           setData(res)
         }
@@ -35,7 +39,7 @@ export default function PortfolioCalendarTab() {
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [selectedPortfolioId])
 
   // Month navigation helpers
   const year = currentDate.getFullYear()
@@ -58,6 +62,14 @@ export default function PortfolioCalendarTab() {
     setCurrentDate(new Date())
   }
 
+  // Helper to format Date in local time YYYY-MM-DD (prevents UTC shift bugs)
+  const formatLocalDate = (d: Date): string => {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
+
   // Days grid generation for current month view
   const gridDays = useMemo(() => {
     const firstDayOfMonth = new Date(year, month, 1)
@@ -72,23 +84,20 @@ export default function PortfolioCalendarTab() {
     const prevMonthLastDay = new Date(year, month, 0).getDate()
     for (let i = startingDayOfWeek - 1; i >= 0; i--) {
       const d = new Date(year, month - 1, prevMonthLastDay - i)
-      const dateStr = d.toISOString().slice(0, 10)
-      days.push({ date: d, dateStr, isCurrentMonth: false })
+      days.push({ date: d, dateStr: formatLocalDate(d), isCurrentMonth: false })
     }
 
     // Current month days
     for (let day = 1; day <= daysInMonth; day++) {
       const d = new Date(year, month, day)
-      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-      days.push({ date: d, dateStr, isCurrentMonth: true })
+      days.push({ date: d, dateStr: formatLocalDate(d), isCurrentMonth: true })
     }
 
     // Next month padding to complete 35 or 42 cells grid
     const remainingCells = (7 - (days.length % 7)) % 7
     for (let day = 1; day <= remainingCells; day++) {
       const d = new Date(year, month + 1, day)
-      const dateStr = d.toISOString().slice(0, 10)
-      days.push({ date: d, dateStr, isCurrentMonth: false })
+      days.push({ date: d, dateStr: formatLocalDate(d), isCurrentMonth: false })
     }
 
     return days
@@ -113,7 +122,7 @@ export default function PortfolioCalendarTab() {
       .sort((a, b) => a.days_until - b.days_until)
   }, [data])
 
-  const todayStr = new Date().toISOString().split('T')[0]
+  const todayStr = formatLocalDate(new Date())
 
   if (loading) {
     return (

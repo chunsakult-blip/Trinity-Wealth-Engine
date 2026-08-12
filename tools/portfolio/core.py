@@ -5,6 +5,7 @@ import json
 import os
 import re
 import tempfile
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Literal
@@ -19,12 +20,11 @@ from core.logger import get_logger
 
 log = get_logger(__name__)
 
-_TOP_LEVEL_KEY_ORDER = ("schema_version", "doc_type", "last_updated", "base_currency", "summary", "fx_rates", "allocation_targets", "holdings", "price_refresh_info")
+_TOP_LEVEL_KEY_ORDER = ("name", "schema_version", "doc_type", "last_updated", "base_currency", "summary", "fx_rates", "allocation_targets", "holdings", "price_refresh_info")
 
 from tools._atomic_io import _atomic_write_to
 from tools.tool_errors import LOCK_TIMEOUT, validation_error
-from .models import _now_iso, _coerce_iso_string, AllocationTarget, default_allocation_targets, Holding, Summary, PortfolioState, WatchlistItem, WatchlistState, GoalItem, GoalsState
-
+from .models import _now_iso, _coerce_iso_string, AllocationTarget, default_allocation_targets, Holding, Summary, PortfolioState, WatchlistItem, WatchlistState, GoalItem, GoalsState, PortfolioMeta
 
 
 from .constants import *
@@ -43,10 +43,263 @@ _PCT_DP = 2
 _LOCK_TIMEOUT = 15  # seconds — wait up to 15s for another process to release
 _PRICE_FETCH_TIMEOUT = 6  # seconds per symbol when refreshing
 
+import threading
+
+_locks: dict[str, FileLock] = {}
+_locks_registry_lock = threading.Lock()
+
+
+def _get_portfolio_lock_path(portfolio_id: str = "default") -> str:
+    pid = portfolio_id.strip().lower() if portfolio_id else "default"
+    if pid == "default":
+        return str(PORTFOLIO_PATH) + ".lock"
+    PORTFOLIOS_DIR.mkdir(parents=True, exist_ok=True)
+    return str(PORTFOLIOS_DIR / f"{pid}.md.lock")
+
+
+def _get_portfolio_lock(portfolio_id: str = "default") -> FileLock:
+    pid = portfolio_id.strip().lower() if portfolio_id else "default"
+    lock_path = _get_portfolio_lock_path(pid)
+    with _locks_registry_lock:
+        if pid not in _locks:
+            _locks[pid] = FileLock(lock_path, timeout=_LOCK_TIMEOUT)
+        return _locks[pid]
+
+
 _PORTFOLIO_LOCK_PATH = str(PORTFOLIO_PATH) + ".lock"
-_portfolio_lock = FileLock(_PORTFOLIO_LOCK_PATH, timeout=_LOCK_TIMEOUT)
+_portfolio_lock = _get_portfolio_lock("default")
 
 
+def _get_portfolios_dir() -> Path:
+    return VAULT_PATH / "20_Portfolio_Management/Current_Holdings/Portfolios"
+
+
+def _get_portfolio_filepath(portfolio_id: str = "default") -> Path:
+    pid = portfolio_id.strip().lower() if portfolio_id else "default"
+    if pid == "default":
+        return PORTFOLIO_PATH
+    pdir = _get_portfolios_dir()
+    pdir.mkdir(parents=True, exist_ok=True)
+    return pdir / f"{pid}.md"
+
+
+def list_portfolios() -> list[PortfolioMeta]:
+    """คืนรายการพอร์ตการลงทุนทั้งหมดในระบบ"""
+    default_name = "พอร์ตลงทุนหลัก"
+    default_fpath = _get_portfolio_filepath("default")
+    if default_fpath.exists():
+        try:
+            with default_fpath.open("r", encoding="utf-8") as f:
+                post = frontmatter.load(f)
+                if post.metadata and post.metadata.get("name"):
+                    default_name = post.metadata.get("name")
+        except Exception as e:
+            log.warning("Failed to load default portfolio meta: %s", e)
+
+    results = [
+        PortfolioMeta(id="default", name=default_name, is_default=True)
+    ]
+    pdir = _get_portfolios_dir()
+    if pdir.exists():
+        for pfile in sorted(pdir.glob("*.md")):
+            if pfile.name.endswith(".lock") or pfile.name.endswith("_watchlist.md") or pfile.name.endswith("_journal.md"):
+                continue
+            pid = pfile.stem
+            if pid == "default":
+                continue
+            try:
+                with pfile.open("r", encoding="utf-8") as f:
+                    post = frontmatter.load(f)
+                    name = post.metadata.get("name") if post.metadata else None
+                    if not name:
+                        name = pid.replace("_", " ").title()
+                    created_at = post.metadata.get("created_at") if post.metadata else _now_iso()
+                    results.append(PortfolioMeta(id=pid, name=name, is_default=False, created_at=created_at))
+            except Exception as e:
+                log.warning("Failed to load portfolio meta for %s: %s", pfile, e)
+                results.append(PortfolioMeta(id=pid, name=pid.replace("_", " ").title(), is_default=False))
+    return results
+
+
+def create_portfolio(name: str, portfolio_id: str | None = None) -> PortfolioMeta:
+    """สร้างพอร์ตการลงทุนใหม่"""
+    if not name or not name.strip():
+        raise ValueError("ชื่อพอร์ตการลงทุนต้องไม่เป็นค่าว่าง")
+
+    clean_name = name.strip()
+    raw_id = portfolio_id.strip().lower() if portfolio_id and portfolio_id.strip() else clean_name.lower()
+    pid = re.sub(r'[^a-zA-Z0-9_-]', '_', raw_id)
+    # ชื่อที่เป็นภาษาไทย/ไม่ใช่ ASCII ล้วนๆ (เช่น "พอร์ตเงินสำรองฉุกเฉิน") จะถูก regex แทนที่ด้วย
+    # ขีดล่างทั้งหมด กลายเป็น id ที่อ่านไม่ออกและชนกันได้ง่ายระหว่างชื่อไทยคนละความหมายที่ยาวเท่ากัน
+    # — ต้องเช็คว่าเหลือตัวอักษร/ตัวเลขจริงอย่างน้อย 1 ตัวหลัง sub ไม่ใช่แค่เช็ค falsy/"default"
+    if not pid or pid == "default" or not re.search(r'[a-zA-Z0-9]', pid):
+        # ต่อท้ายด้วย hex สุ่มสั้นๆ กัน id ชนกันเมื่อสร้างพอร์ต 2 พอร์ตในวินาทีเดียวกัน (timestamp
+        # ที่ int() แล้วมีความละเอียดแค่ระดับวินาที ชนกันได้ง่ายถ้าเรียกติดกันเร็วๆ)
+        pid = f"port_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:6]}"
+
+    if pid == "default":
+        raise ValueError("ไม่สามารถใช้ id 'default' สำหรับพอร์ตใหม่ได้")
+
+    fpath = _get_portfolio_filepath(pid)
+    lock = _get_portfolio_lock(pid)
+    with lock:
+        if fpath.exists():
+            raise ValueError(f"มีพอร์ตไอดี '{pid}' อยู่ในระบบแล้ว")
+
+        post = frontmatter.Post(content="", metadata={"name": clean_name, "created_at": _now_iso()})
+        state = _initial_state()
+        state.name = clean_name
+        _save(post, state, portfolio_id=pid)
+        return PortfolioMeta(id=pid, name=clean_name, is_default=False)
+
+
+def delete_portfolio(portfolio_id: str):
+    """ลบพอร์ตการลงทุน"""
+    pid = portfolio_id.strip().lower() if portfolio_id else "default"
+    if pid == "default":
+        raise ValueError("ไม่สามารถลบพอร์ตหลัก (default) ได้")
+
+    fpath = _get_portfolio_filepath(pid)
+    lock = _get_portfolio_lock(pid)
+    with lock:
+        if not fpath.exists():
+            raise ValueError(f"ไม่พบพอร์ตไอดี '{pid}' ในระบบ")
+        fpath.unlink(missing_ok=True)
+
+    # Clean up associated files (watchlist, journal, performance)
+    from .watchlist import _get_watchlist_filepath
+    from .journal import _get_journal_filepath
+    from .performance import _get_performance_filepath
+    from .goals import _load_or_init_goals, _save_goals, _goals_lock
+
+    _get_watchlist_filepath(pid).unlink(missing_ok=True)
+    _get_journal_filepath(pid).unlink(missing_ok=True)
+    _get_performance_filepath(pid).unlink(missing_ok=True)
+
+    # Clean up goals associated with this portfolio
+    try:
+        with _goals_lock:
+            post, goals_state = _load_or_init_goals()
+            goals_to_remove = [g for g in goals_state.goals if g.portfolio_id == pid]
+            if goals_to_remove:
+                for g in goals_to_remove:
+                    goals_state.goals.remove(g)
+                _save_goals(post, goals_state)
+    except Exception as e:
+        log.warning("Failed to clean up goals for deleted portfolio %s: %s", pid, e)
+
+    with _locks_registry_lock:
+        _locks.pop(pid, None)
+    try:
+        lock_p = Path(_get_portfolio_lock_path(pid))
+        lock_p.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def update_portfolio_name(portfolio_id: str, name: str) -> PortfolioMeta:
+    """แก้ไขชื่อพอร์ตการลงทุน"""
+    if not name or not name.strip():
+        raise ValueError("ชื่อพอร์ตการลงทุนต้องไม่เป็นค่าว่าง")
+
+    pid = portfolio_id.strip().lower() if portfolio_id else "default"
+    clean_name = name.strip()
+    fpath = _get_portfolio_filepath(pid)
+    lock = _get_portfolio_lock(pid)
+    with lock:
+        if not fpath.exists():
+            raise ValueError(f"ไม่พบพอร์ตไอดี '{pid}' ในระบบ")
+
+        post, state = _load_or_init(pid)
+        state.name = clean_name
+        post.metadata["name"] = clean_name
+        _save(post, state, portfolio_id=pid)
+
+        is_default = (pid == "default")
+        return PortfolioMeta(id=pid, name=clean_name, is_default=is_default)
+
+@tool
+def tool_list_portfolios() -> str:
+    """เรียกดูรายการพอร์ตการลงทุนทั้งหมดในระบบ
+
+    [Usage/When to use]
+    ใช้เพื่อดูว่ามีพอร์ตอะไรบ้าง และหา `portfolio_id` ที่ถูกต้องก่อนเรียก tool อื่นที่ต้องระบุพอร์ต
+    - พอร์ตหลักเสมอมี id เป็น 'default'
+
+    Returns:
+        str: JSON list ของพอร์ตทั้งหมด (id, name, is_default, created_at)
+    """
+    try:
+        items = list_portfolios()
+        return json.dumps([i.model_dump() for i in items], ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@tool
+def tool_create_portfolio(name: str, portfolio_id: str | None = None) -> str:
+    """สร้างพอร์ตการลงทุนใหม่ เช่น พอร์ตเงินสำรองฉุกเฉิน หรือพอร์ตเกษียณ
+
+    [Usage/When to use]
+    ใช้เมื่อผู้ใช้ต้องการแยกเงิน/สินทรัพย์ออกเป็นอีกพอร์ตหนึ่งที่เป็นอิสระจากพอร์ตหลักโดยสิ้นเชิง
+
+    [Caution]
+    - ห้ามใช้ id 'default' (สงวนไว้สำหรับพอร์ตหลัก)
+    - ถ้าไม่ระบุ portfolio_id ระบบจะสร้างให้อัตโนมัติจากชื่อ
+
+    Args:
+        name (str): ชื่อพอร์ตที่จะแสดงผล (ภาษาไทยได้)
+        portfolio_id (str | None): รหัสพอร์ตที่ต้องการกำหนดเอง (ตัวอักษร/ตัวเลข/ขีดล่างเท่านั้น หากเป็น None จะสร้างอัตโนมัติ)
+    """
+    try:
+        meta = create_portfolio(name=name, portfolio_id=portfolio_id)
+        return f"[PORT CREATE] {meta.name} (id: {meta.id})"
+    except ValueError as e:
+        return validation_error(str(e))
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@tool
+def tool_delete_portfolio(portfolio_id: str) -> str:
+    """ลบพอร์ตการลงทุนออกจากระบบ
+
+    [Usage/When to use]
+    ใช้เมื่อผู้ใช้ต้องการปิด/ลบพอร์ตที่ไม่ใช้แล้ว
+
+    [Caution]
+    - ลบไฟล์ทันทีถาวร ไม่มี undo — ไม่สามารถลบพอร์ตหลัก (default) ได้
+
+    Args:
+        portfolio_id (str): รหัสพอร์ตที่ต้องการลบ (ดูได้จาก tool_list_portfolios)
+    """
+    try:
+        delete_portfolio(portfolio_id=portfolio_id)
+        return f"[PORT DEL] {portfolio_id}"
+    except ValueError as e:
+        return validation_error(str(e))
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@tool
+def tool_rename_portfolio(portfolio_id: str, new_name: str) -> str:
+    """เปลี่ยนชื่อพอร์ตการลงทุน
+
+    [Usage/When to use]
+    ใช้เมื่อผู้ใช้ต้องการเปลี่ยนชื่อพอร์ตที่มีอยู่
+
+    Args:
+        portfolio_id (str): รหัสพอร์ตที่ต้องการเปลี่ยนชื่อ (เช่น 'default' หรือ 'port_xxx')
+        new_name (str): ชื่อใหม่ของพอร์ต
+    """
+    try:
+        meta = update_portfolio_name(portfolio_id=portfolio_id, name=new_name)
+        return f"[PORT RENAME] {portfolio_id} -> {meta.name}"
+    except ValueError as e:
+        return validation_error(str(e))
+    except Exception as e:
+        return f"Error: {e}"
 
 
 
@@ -72,24 +325,29 @@ def _initial_state() -> PortfolioState:
     )
 
 
-def _load_or_init() -> tuple[frontmatter.Post, PortfolioState]:
-    if not PORTFOLIO_PATH.exists():
-        PORTFOLIO_PATH.parent.mkdir(parents=True, exist_ok=True)
-        post = frontmatter.Post(content="")  # YAML state only — no body
+def _load_or_init(portfolio_id: str = "default") -> tuple[frontmatter.Post, PortfolioState]:
+    fpath = _get_portfolio_filepath(portfolio_id)
+    if not fpath.exists():
+        fpath.parent.mkdir(parents=True, exist_ok=True)
+        post = frontmatter.Post(content="", metadata={"name": portfolio_id} if portfolio_id != "default" else {})
         state = _initial_state()
-        _save(post, state)
+        if portfolio_id != "default":
+            state.name = portfolio_id
+        _save(post, state, portfolio_id=portfolio_id)
         return post, state
 
-    with PORTFOLIO_PATH.open("r", encoding="utf-8") as f:
+    with fpath.open("r", encoding="utf-8") as f:
         post = frontmatter.load(f)
 
     if not post.metadata:
-        log.warning("Portfolio_Holdings.md ไม่มี YAML frontmatter — บูตข้อมูลใหม่")
+        log.warning("Portfolio file %s ไม่มี YAML frontmatter — บูตข้อมูลใหม่", fpath)
         state = _initial_state()
-        _save(post, state)
+        _save(post, state, portfolio_id=portfolio_id)
         return post, state
 
     state = PortfolioState.model_validate(post.metadata)
+    if not state.name and post.metadata and post.metadata.get("name"):
+        state.name = post.metadata.get("name")
     return post, state
 
 
@@ -309,7 +567,7 @@ def _recalc_all(state: PortfolioState) -> None:
 
 
 
-def _save(post: frontmatter.Post, state: PortfolioState) -> None:
+def _save(post: frontmatter.Post, state: PortfolioState, portfolio_id: str = "default") -> None:
     """[CRITICAL] Atomic save พร้อม Anti-Drift recalculation
     เขียน temp file ก่อนเสมอ → os.replace() เป็น atomic operation
     """
@@ -319,6 +577,10 @@ def _save(post: frontmatter.Post, state: PortfolioState) -> None:
     dump = state.model_dump(exclude_none=True)
 
     ordered: dict = {}
+    if state.name:
+        ordered["name"] = state.name
+    elif "name" in post.metadata:
+        ordered["name"] = post.metadata["name"]
     for key in _TOP_LEVEL_KEY_ORDER:
         if key in dump:
             ordered[key] = dump.pop(key)
@@ -327,11 +589,13 @@ def _save(post: frontmatter.Post, state: PortfolioState) -> None:
 
     post.metadata.clear()
     post.metadata.update(ordered)
-    post.content = ""  # YAML-only contract — เนื้อหาอื่นห้ามปนใน Portfolio_Holdings.md
+    post.content = ""  # YAML-only contract — เนื้อหาอื่นห้ามปนใน Portfolio file
 
     serialized = frontmatter.dumps(post, sort_keys=False)
-    _atomic_write_to(PORTFOLIO_PATH, serialized)
-    _sync_holding_sidecars(state)
+    fpath = _get_portfolio_filepath(portfolio_id)
+    _atomic_write_to(fpath, serialized)
+    if portfolio_id == "default":
+        _sync_holding_sidecars(state)
 
 
 def _find_holding(state: PortfolioState, symbol: str) -> Holding | None:
@@ -397,11 +661,13 @@ def get_portfolio_state(refresh_prices: bool = True) -> str:
 
 def get_structured_bucket_allocation(
     state: PortfolioState | None = None,
+    portfolio_id: str = "default",
 ) -> tuple[list[dict], str | None]:
     """คำนวณการกระจายสัดส่วนตาม Strategy Buckets (Target vs Actual) และหา variance + warning ถ้า target_sum != 100%"""
     if state is None:
-        with _portfolio_lock:
-            _, state = _load_or_init()
+        lock = _get_portfolio_lock(portfolio_id)
+        with lock:
+            _, state = _load_or_init(portfolio_id=portfolio_id)
             _recalc_all(state)
 
     total_nav = state.summary.total_value_thb
@@ -453,15 +719,16 @@ def get_structured_bucket_allocation(
 
 
 def get_structured_portfolio_state(
-    refresh_prices: bool = False, fetch_fundamentals: bool = False
+    refresh_prices: bool = False, fetch_fundamentals: bool = False, portfolio_id: str = "default"
 ) -> PortfolioState:
     """Structured read accessor สำหรับ Phase 1 Hub คืนค่า Pydantic PortfolioState พร้อม derived metrics/TTL cache"""
     info = None
     f_info = None
+    lock = _get_portfolio_lock(portfolio_id)
 
     if refresh_prices or fetch_fundamentals:
-        with _portfolio_lock:
-            _, state_snapshot = _load_or_init()
+        with lock:
+            _, state_snapshot = _load_or_init(portfolio_id=portfolio_id)
             state_clone = state_snapshot.model_copy(deep=True)
 
         if refresh_prices:
@@ -471,8 +738,8 @@ def get_structured_portfolio_state(
             from .prices import _fetch_fundamentals
             f_info = _fetch_fundamentals(state_clone, force=False)
 
-        with _portfolio_lock:
-            post, state = _load_or_init()
+        with lock:
+            post, state = _load_or_init(portfolio_id=portfolio_id)
             modified = False
             if info is not None:
                 clone_price_map = {
@@ -491,56 +758,65 @@ def get_structured_portfolio_state(
             if f_info is not None:
                 clone_f_map = {
                     h.symbol: (
-                        h.pe_ratio, h.eps, h.payout_ratio, h.market_cap_value,
-                        h.dividend_per_share, h.dividend_yield, h.fundamentals_updated_at
+                        getattr(h, "pe_ratio", None),
+                        getattr(h, "eps", None),
+                        getattr(h, "payout_ratio", None),
+                        getattr(h, "market_cap_value", None),
+                        getattr(h, "dividend_per_share", None),
+                        getattr(h, "dividend_yield", None),
+                        getattr(h, "company_name", None),
+                        getattr(h, "fundamentals_updated_at", None),
                     )
                     for h in state_clone.holdings
                 }
                 for h in state.holdings:
                     if h.symbol in clone_f_map:
-                        (pe, eps, pay, mcap, dps, dy, f_at) = clone_f_map[h.symbol]
+                        (pe, eps, pay, mcap, dps, dy, cname, f_at) = clone_f_map[h.symbol]
                         if pe is not None: h.pe_ratio = pe
                         if eps is not None: h.eps = eps
                         if pay is not None: h.payout_ratio = pay
                         if mcap is not None: h.market_cap_value = mcap
                         if dps is not None: h.dividend_per_share = dps
                         if dy is not None: h.dividend_yield = dy
+                        if cname is not None: h.company_name = cname
                         if f_at is not None: h.fundamentals_updated_at = f_at
                 modified = True
 
             _recalc_all(state)
             if modified:
-                _save(post, state)
+                _save(post, state, portfolio_id=portfolio_id)
                 if refresh_prices:
                     try:
                         from .performance import record_performance_snapshot
-                        record_performance_snapshot.func(refresh_prices=False)
+                        record_performance_snapshot.func(refresh_prices=False, portfolio_id=portfolio_id)
                     except Exception as e:
                         log.warning("Failed to record performance snapshot: %s", e)
             return state
     else:
-        with _portfolio_lock:
-            post, state = _load_or_init()
+        with lock:
+            post, state = _load_or_init(portfolio_id=portfolio_id)
             _recalc_all(state)
             return state
 
 
-def structured_upsert_allocation_targets(targets: list[AllocationTarget]) -> PortfolioState:
+def structured_upsert_allocation_targets(targets: list[AllocationTarget], portfolio_id: str = "default") -> PortfolioState:
     """อัปเดตเป้าหมายสัดส่วนกลยุทธ์ (Allocation Targets) และบันทึกลง master file"""
     total_pct = sum(t.target_percent for t in targets)
     if abs(total_pct - 100.0) > 0.01:
         raise ValueError(f"ผลรวมเป้าหมายสัดส่วน (target_percent) ต้องเท่ากับ 100% (ปัจจุบันได้ {total_pct:.1f}%)")
-    with _portfolio_lock:
-        post, state = _load_or_init()
+    lock = _get_portfolio_lock(portfolio_id)
+    with lock:
+        post, state = _load_or_init(portfolio_id=portfolio_id)
         state.allocation_targets = targets
-        _save(post, state)
+        _save(post, state, portfolio_id=portfolio_id)
         return state
 
 
-def structured_assign_holding_bucket(symbol: str, bucket_id: str | None) -> PortfolioState:
+def structured_assign_holding_bucket(symbol: str, bucket_id: str | None, portfolio_id: str = "default") -> PortfolioState:
     """เปลี่ยน/ระบุ bucket_id ของ Holding รายตัว"""
-    with _portfolio_lock:
-        post, state = _load_or_init()
+    lock = _get_portfolio_lock(portfolio_id)
+    with lock:
+        post, state = _load_or_init(portfolio_id=portfolio_id)
         if bucket_id and bucket_id not in ("unassigned", "cash"):
             valid_ids = {t.bucket_id for t in state.allocation_targets}
             if bucket_id not in valid_ids:
@@ -549,14 +825,15 @@ def structured_assign_holding_bucket(symbol: str, bucket_id: str | None) -> Port
         if not h:
             raise ValueError(f"ไม่พบสินทรัพย์ {symbol} ในพอร์ต")
         h.bucket_id = bucket_id
-        _save(post, state)
+        _save(post, state, portfolio_id=portfolio_id)
         return state
 
 
-def structured_batch_assign_holding_buckets(symbols: list[str], bucket_id: str | None) -> PortfolioState:
+def structured_batch_assign_holding_buckets(symbols: list[str], bucket_id: str | None, portfolio_id: str = "default") -> PortfolioState:
     """เปลี่ยน bucket_id พร้อมกันหลายรายการ (Batch action)"""
-    with _portfolio_lock:
-        post, state = _load_or_init()
+    lock = _get_portfolio_lock(portfolio_id)
+    with lock:
+        post, state = _load_or_init(portfolio_id=portfolio_id)
         if bucket_id and bucket_id not in ("unassigned", "cash"):
             valid_ids = {t.bucket_id for t in state.allocation_targets}
             if bucket_id not in valid_ids:
@@ -569,37 +846,40 @@ def structured_batch_assign_holding_buckets(symbols: list[str], bucket_id: str |
                 found += 1
         if found == 0 and symbols:
             raise ValueError(f"ไม่พบสินทรัพย์ตามที่ระบุในพอร์ต")
-        _save(post, state)
+        _save(post, state, portfolio_id=portfolio_id)
         return state
 
 
-def structured_batch_remove_holdings(symbols: list[str]) -> PortfolioState:
+def structured_batch_remove_holdings(symbols: list[str], portfolio_id: str = "default") -> PortfolioState:
     """ลบสินทรัพย์ออกจากพอร์ตพร้อมกันหลายรายการ (Batch action)"""
-    with _portfolio_lock:
-        post, state = _load_or_init()
+    lock = _get_portfolio_lock(portfolio_id)
+    with lock:
+        post, state = _load_or_init(portfolio_id=portfolio_id)
         sym_set = set(symbols)
         before_len = len(state.holdings)
         state.holdings = [h for h in state.holdings if h.symbol not in sym_set]
         if len(state.holdings) == before_len and symbols:
             raise ValueError(f"ไม่พบสินทรัพย์ตามที่ระบุเพื่อลบ")
-        _save(post, state)
+        _save(post, state, portfolio_id=portfolio_id)
         return state
 
 
-def structured_reset_clean_slate() -> PortfolioState:
+def structured_reset_clean_slate(portfolio_id: str = "default") -> PortfolioState:
     """ล้างข้อมูลพอร์ตทั้งหมด (Clean Slate) เพื่อเริ่มต้นใหม่ตาม user preference: 'ลบข้อมูลทั้งหมด เดี๋ยวใส่ใหม่เอง'
 
     แบ็คอัปไฟล์มาสเตอร์และ sidecars ใน .backups/YYYYMMDD_HHMMSS/ จากนั้นลบไฟล์ sidecars เฉพาะ Holdings/*.md และรีเซ็ต PortfolioState
     """
-    with _portfolio_lock:
+    lock = _get_portfolio_lock(portfolio_id)
+    with lock:
         # 0. Backup current master and sidecars
+        port_filepath = _get_portfolio_filepath(portfolio_id)
         try:
             import shutil
             backup_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_dir = PORTFOLIO_PATH.parent / ".backups" / backup_timestamp
+            backup_dir = port_filepath.parent / ".backups" / backup_timestamp
             backup_dir.mkdir(parents=True, exist_ok=True)
-            if PORTFOLIO_PATH.exists():
-                shutil.copy2(PORTFOLIO_PATH, backup_dir / PORTFOLIO_PATH.name)
+            if port_filepath.exists():
+                shutil.copy2(port_filepath, backup_dir / port_filepath.name)
             if HOLDINGS_DIR.exists():
                 holdings_backup_dir = backup_dir / "Holdings"
                 holdings_backup_dir.mkdir(parents=True, exist_ok=True)
@@ -610,7 +890,7 @@ def structured_reset_clean_slate() -> PortfolioState:
             raise ValueError(f"สำรองข้อมูลก่อนล้างพอร์ตไม่สำเร็จ — ยกเลิกการล้าง: {e}")
 
         # 1. Reset master portfolio state
-        post, _ = _load_or_init()
+        post, _ = _load_or_init(portfolio_id=portfolio_id)
         new_state = PortfolioState(
             last_updated=_now_iso(),
             allocation_targets=default_allocation_targets(),
@@ -621,7 +901,7 @@ def structured_reset_clean_slate() -> PortfolioState:
                 passive_income_ytd=0.0,
             ),
         )
-        _save(post, new_state)
+        _save(post, new_state, portfolio_id=portfolio_id)
 
         # 2. Clean sidecar directory Holdings/ (เฉพาะสินทรัพย์ในพอร์ต)
         if HOLDINGS_DIR.exists():

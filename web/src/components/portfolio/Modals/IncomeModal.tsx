@@ -6,11 +6,12 @@ import type { ActualPortfolioStateDTO } from '../../../api/types'
 
 interface Props {
   holdingsSymbols: string[]
+  selectedPortfolioId?: string
   onClose: () => void
   onSuccess: (state: ActualPortfolioStateDTO) => void
 }
 
-export default function IncomeModal({ holdingsSymbols, onClose, onSuccess }: Props) {
+export default function IncomeModal({ holdingsSymbols, selectedPortfolioId = 'default', onClose, onSuccess }: Props) {
   const [incomeType, setIncomeType] = useState<'Dividend' | 'Interest' | 'Rental' | 'Other'>('Dividend')
   const [amountThb, setAmountThb] = useState<string>('')
   const [sourceSymbol, setSourceSymbol] = useState<string>('')
@@ -29,13 +30,16 @@ export default function IncomeModal({ holdingsSymbols, onClose, onSuccess }: Pro
     setLoading(true)
     setError(null)
     try {
-      const state = await api.recordIncome({
-        income_type: incomeType,
-        amount_thb: parseFloat(amountThb),
-        source_symbol: sourceSymbol || null,
-        date: date || null,
-        notes: notes.trim(),
-      })
+      const state = await api.recordIncome(
+        {
+          income_type: incomeType,
+          amount_thb: parseFloat(amountThb),
+          source_symbol: sourceSymbol || null,
+          date: date || null,
+          notes: notes.trim(),
+        },
+        selectedPortfolioId
+      )
       onSuccess(state)
       onClose()
     } catch (err: any) {

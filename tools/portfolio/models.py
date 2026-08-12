@@ -94,6 +94,14 @@ class Holding(BaseModel):
     bucket_id: str | None = None
     fundamentals_updated_at: float | None = None
 
+    company_name: str | None = None
+    pe_ratio: float | None = None
+    eps: float | None = None
+    payout_ratio: float | None = None
+    market_cap_value: float | None = None
+    dividend_per_share: float | None = None
+    dividend_yield: float | None = None
+
 
 class Summary(BaseModel):
     model_config = ConfigDict(extra="allow")
@@ -111,7 +119,9 @@ class PortfolioState(BaseModel):
 
     schema_version: int = 1
     doc_type: Literal["portfolio_master"] = "portfolio_master"
+    name: str | None = None
     last_updated: str
+
     base_currency: str = "THB"
     summary: Summary = Field(default_factory=Summary)
     fx_rates: dict[str, float] = Field(default_factory=lambda: {"USDTHB": 36.5})
@@ -151,16 +161,34 @@ class WatchlistState(BaseModel):
         return _coerce_iso_string(v)
 
 
+class PortfolioMeta(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    name: str
+    is_default: bool = False
+    created_at: str = Field(default_factory=_now_iso)
+
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def _validate_created_at(cls, v):
+        if v is None:
+            return _now_iso()
+        return _coerce_iso_string(v)
+
+
 class GoalItem(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     schema_version: int = 1
     name: str
-    goal_type: Literal["nav_target", "cash_target", "passive_income_ytd"]
+    goal_type: Literal["nav_target", "cash_target", "passive_income_ytd", "bucket_target"]
     target_amount_thb: float
     deadline: str | None = None
     notes: str | None = None
     created_date: str
+    portfolio_id: str = "default"
+    bucket_id: str | None = None
 
 
 class GoalsState(BaseModel):

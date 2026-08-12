@@ -7,10 +7,12 @@ import GoalModal from './Modals/GoalModal'
 interface Props {
   goals: ActualGoalItemDTO[]
   generatedAt: string | null
+  portfolios?: import('../../api/types').PortfolioMetaDTO[]
+  selectedPortfolioId?: string
   onSuccess?: (res: ActualGoalsResponseDTO) => void
 }
 
-export default function PortfolioGoalsTab({ goals, generatedAt, onSuccess }: Props) {
+export default function PortfolioGoalsTab({ goals, generatedAt, portfolios = [], selectedPortfolioId = 'default', onSuccess }: Props) {
   const [modalOpen, setModalOpen] = useState(false)
   const [editingGoal, setEditingGoal] = useState<ActualGoalItemDTO | null>(null)
 
@@ -18,14 +20,14 @@ export default function PortfolioGoalsTab({ goals, generatedAt, onSuccess }: Pro
     if (!onSuccess) return
     if (!window.confirm(`คุณต้องการลบเป้าหมาย "${name}" หรือไม่?`)) return
     try {
-      const res = await api.removeGoal(name)
+      const res = await api.removeGoal(name, selectedPortfolioId)
       onSuccess(res)
     } catch (err: any) {
       alert(err?.message || 'ลบเป้าหมายไม่สำเร็จ')
     }
   }
 
-  const getGoalTypeBadge = (type: string) => {
+  const getGoalTypeBadge = (type: string, bucketId?: string | null) => {
     switch (type) {
       case 'nav_target':
         return <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700">เป้าหมาย NAV รวม</span>
@@ -33,6 +35,8 @@ export default function PortfolioGoalsTab({ goals, generatedAt, onSuccess }: Pro
         return <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">เป้าหมายเงินสด/สำรอง</span>
       case 'passive_income_ytd':
         return <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700">เป้าหมายเงินปันผล/ปี</span>
+      case 'bucket_target':
+        return <span className="rounded-full bg-purple-50 px-2.5 py-0.5 text-xs font-semibold text-purple-700">Bucket: {bucketId || 'N/A'}</span>
       default:
         return <span className="rounded-full bg-sky-50 px-2.5 py-0.5 text-xs font-semibold text-sky-700">{type}</span>
     }
@@ -44,7 +48,7 @@ export default function PortfolioGoalsTab({ goals, generatedAt, onSuccess }: Pro
         <div>
           <h3 className="text-base font-bold text-zinc-900">Portfolio Goals ({goals.length} เป้าหมาย)</h3>
           <p className="text-xs text-zinc-500">
-            ติดตามความคืบหน้าของเป้าหมายการลงทุน (Financial Goals) เทียบกับสถานะจริงในปัจจุบัน
+            ติดตามความคืบหน้าของเป้าหมายการลงทุน (Financial Goals) เทียบกับสถานะจริงในแต่ละพอร์ต
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -73,6 +77,7 @@ export default function PortfolioGoalsTab({ goals, generatedAt, onSuccess }: Pro
         {goals.map((goal) => {
           const progress = Math.max(0, Math.min(100, goal.progress_pct))
           const isCompleted = progress >= 100
+          const linkedPortName = portfolios.find(p => p.id === (goal.portfolio_id || 'default'))?.name || goal.portfolio_id || 'default'
 
           return (
             <div
@@ -81,9 +86,14 @@ export default function PortfolioGoalsTab({ goals, generatedAt, onSuccess }: Pro
             >
               <div>
                 <div className="flex items-start justify-between gap-2">
-                  <h4 className="font-bold text-zinc-900 text-base">{goal.name}</h4>
+                  <div>
+                    <h4 className="font-bold text-zinc-900 text-base">{goal.name}</h4>
+                    <span className="inline-block mt-0.5 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600">
+                      📁 พอร์ต: {linkedPortName}
+                    </span>
+                  </div>
                   <div className="flex items-center gap-1">
-                    {getGoalTypeBadge(goal.goal_type)}
+                    {getGoalTypeBadge(goal.goal_type, goal.bucket_id)}
                     {onSuccess && (
                       <div className="flex items-center gap-1 ml-1 opacity-80 group-hover:opacity-100 transition-opacity">
                         <button
@@ -129,14 +139,14 @@ export default function PortfolioGoalsTab({ goals, generatedAt, onSuccess }: Pro
                   </div>
                 </div>
 
-                <div className="mt-4 grid grid-cols-2 gap-2 rounded-xl bg-sky-50/40 p-3 text-xs">
+                <div className="mt-4 grid grid-cols-2 gap-2 rounded-xl bg-sky-50/60 p-3.5 border border-sky-100/60">
                   <div>
-                    <span className="text-zinc-400 block">Current Amount</span>
-                    <span className="font-bold font-mono tabular-nums text-zinc-800">{formatTHB(goal.current_amount_thb)}</span>
+                    <span className="text-zinc-500 font-medium block text-xs mb-0.5">Current Amount</span>
+                    <span className="font-bold font-sans tabular-nums text-sm sm:text-base text-zinc-900">{formatTHB(goal.current_amount_thb)}</span>
                   </div>
                   <div className="text-right">
-                    <span className="text-zinc-400 block">Target Amount</span>
-                    <span className="font-bold font-mono tabular-nums text-flow-blue">{formatTHB(goal.target_amount_thb)}</span>
+                    <span className="text-zinc-500 font-medium block text-xs mb-0.5">Target Amount</span>
+                    <span className="font-bold font-sans tabular-nums text-sm sm:text-base text-flow-blue">{formatTHB(goal.target_amount_thb)}</span>
                   </div>
                 </div>
 
@@ -148,8 +158,8 @@ export default function PortfolioGoalsTab({ goals, generatedAt, onSuccess }: Pro
               <div className="mt-5 border-t border-sky-100 pt-3 flex items-center justify-between text-xs">
                 <div>
                   {goal.deadline ? (
-                    <span className="text-zinc-500">
-                      📅 เป้าหมาย: <strong className="text-zinc-700">{goal.deadline}</strong>
+                    <span className="text-zinc-600 font-medium">
+                      📅 เป้าหมาย: <strong className="text-zinc-800 font-semibold">{goal.deadline}</strong>
                     </span>
                   ) : (
                     <span className="text-zinc-400">ไม่มีกำหนดระยะเวลา</span>
@@ -158,16 +168,16 @@ export default function PortfolioGoalsTab({ goals, generatedAt, onSuccess }: Pro
                 <div>
                   {goal.deadline_days_left !== null && goal.deadline_days_left !== undefined ? (
                     <span
-                      className={`rounded-lg px-2 py-0.5 font-mono tabular-nums font-bold ${
+                      className={`rounded-lg px-2.5 py-1 font-sans tabular-nums font-bold text-xs ${
                         goal.deadline_days_left < 30
-                          ? 'bg-rose-50 text-rose-700'
-                          : 'bg-sky-50 text-sky-700'
+                          ? 'bg-rose-50 text-rose-700 border border-rose-200/60'
+                          : 'bg-sky-50 text-sky-700 border border-sky-200/60'
                       }`}
                     >
                       เหลือ {goal.deadline_days_left} วัน
                     </span>
                   ) : isCompleted ? (
-                    <span className="rounded-lg bg-emerald-50 px-2 py-0.5 font-bold text-emerald-700">สำเร็จแล้ว 🎉</span>
+                    <span className="rounded-lg bg-emerald-50 px-2.5 py-1 font-bold text-emerald-700 border border-emerald-200/60 text-xs">สำเร็จแล้ว 🎉</span>
                   ) : null}
                 </div>
               </div>
@@ -185,6 +195,8 @@ export default function PortfolioGoalsTab({ goals, generatedAt, onSuccess }: Pro
       {(modalOpen || editingGoal) && onSuccess && (
         <GoalModal
           initialGoal={editingGoal}
+          portfolios={portfolios}
+          selectedPortfolioId={selectedPortfolioId}
           onClose={() => {
             setModalOpen(false)
             setEditingGoal(null)

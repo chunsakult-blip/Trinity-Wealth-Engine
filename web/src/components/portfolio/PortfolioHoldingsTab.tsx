@@ -267,6 +267,8 @@ export default function PortfolioHoldingsTab({
                 const isSelected = selectedSymbols.has(h.symbol)
                 const isPos = (h.unrealized_pnl_percent ?? 0) >= 0
                 const symbolEntries = (journalRows || []).filter((e) => e.content.includes(h.symbol))
+                const bucketTarget = targets.find((t) => t.bucket_id === h.bucket_id)
+                const bucketDisplayName = bucketTarget ? bucketTarget.name : null
 
                 return (
                   <Fragment key={h.symbol}>
@@ -293,95 +295,110 @@ export default function PortfolioHoldingsTab({
                         </div>
                       </td>
 
-                      {/* Col 2: Asset Type (Line 1) + Bucket ID (Line 2) */}
+                      {/* Col 2: Asset Type (Line 1) + Bucket Name / ID (Line 2) */}
                       <td className="px-4 py-4 align-top">
                         <span className="inline-block rounded-md bg-sky-50 px-2 py-0.5 text-xs font-semibold text-sky-800">
                           {h.asset_type}
                         </span>
-                        <div className="mt-1 font-mono tabular-nums text-[11px] text-zinc-400">
-                          {h.bucket_id || 'unassigned'}
+                        <div className="mt-1 text-[11px] font-medium text-zinc-600 line-clamp-1">
+                          {bucketDisplayName ? (
+                            <span>
+                              {bucketDisplayName}{' '}
+                              <span className="font-mono text-zinc-400 text-[10px]">({h.bucket_id})</span>
+                            </span>
+                          ) : (
+                            <span className="font-mono text-zinc-400">{h.bucket_id || 'unassigned'}</span>
+                          )}
                         </div>
                       </td>
 
                       {/* Col 3: Shares/Units (Line 1) + Avg Cost (Line 2) */}
-                      <td className="px-4 py-4 text-right align-top font-mono tabular-nums">
-                        <div className="font-bold text-zinc-900">
+                      <td className="px-4 py-3.5 text-right align-top tabular-nums">
+                        <div className="font-bold text-zinc-900 text-sm">
                           {h.units.toLocaleString('en-US', { maximumFractionDigits: 4 })}
                         </div>
-                        <div className="mt-0.5 text-[11px] text-zinc-500">
-                          Avg: {formatPrice(h.avg_cost_usd, h.avg_cost_thb)}
+                        <div className="mt-0.5 text-xs text-zinc-500 font-medium">
+                          Avg: <span className="font-semibold text-zinc-700">{formatPrice(h.avg_cost_usd, h.avg_cost_thb)}</span>
                         </div>
                       </td>
 
                       {/* Col 4: Current Price (Line 1) + Currency tag (Line 2) */}
-                      <td className="px-4 py-4 text-right align-top font-mono tabular-nums">
-                        <div className="font-bold text-zinc-900">
+                      <td className="px-4 py-3.5 text-right align-top tabular-nums">
+                        <div className="font-bold text-zinc-900 text-sm">
                           {formatPrice(h.current_price_usd, h.current_price_thb)}
                         </div>
-                        <div className="mt-0.5 text-[11px] text-zinc-400">
+                        <div className="mt-0.5 text-xs text-zinc-400 font-medium">
                           {h.current_price_usd !== null && h.current_price_usd !== undefined ? 'USD' : 'THB'}
                         </div>
                       </td>
 
-                      {/* Col 5: Market Value THB (Line 1) + % of NAV placeholder (Line 2) */}
-                      <td className="px-4 py-4 text-right align-top font-mono tabular-nums">
-                        <div className="font-extrabold text-zinc-900 text-sm">
+                      {/* Col 5: Market Value THB (Line 1) + Market Cap (Line 2) */}
+                      <td className="px-4 py-3.5 text-right align-top tabular-nums">
+                        <div className="font-bold text-zinc-950 text-sm">
                           {formatTHB(h.market_value_thb)}
                         </div>
-                        <div className="mt-0.5 text-[11px] text-zinc-400">
-                          Market Cap:{' '}
-                          {h.market_cap_value
-                            ? (h.current_price_usd !== null && h.current_price_usd !== undefined
-                              ? formatPrice(h.market_cap_value / 1e9, null) + 'B'
-                              : formatPrice(null, h.market_cap_value / 1e9) + 'B')
-                            : 'N/A'}
+                        <div className="mt-0.5 text-xs text-zinc-500 font-medium">
+                          Cap:{' '}
+                          <span className="text-zinc-600">
+                            {h.market_cap_value
+                              ? (h.current_price_usd !== null && h.current_price_usd !== undefined
+                                ? formatPrice(h.market_cap_value / 1e9, null) + 'B'
+                                : formatPrice(null, h.market_cap_value / 1e9) + 'B')
+                              : 'N/A'}
+                          </span>
                         </div>
                       </td>
 
                       {/* Col 6: Unrealized PnL % (Line 1) + Unrealized PnL Value (Line 2) */}
-                      <td className="px-4 py-4 text-right align-top font-mono tabular-nums">
+                      <td className="px-4 py-3.5 text-right align-top tabular-nums">
                         {h.unrealized_pnl_percent !== null ? (
                           <>
-                            <div className={`font-bold ${isPos ? 'text-emerald-600' : 'text-rose-600'}`}>
+                            <div className={`font-bold text-sm ${isPos ? 'text-emerald-600' : 'text-rose-600'}`}>
                               {isPos ? '+' : ''}
                               {h.unrealized_pnl_percent.toFixed(2)}%
                             </div>
-                            <div className={`mt-0.5 text-[11px] font-semibold ${isPos ? 'text-emerald-700' : 'text-rose-700'}`}>
+                            <div className={`mt-0.5 text-xs font-semibold ${isPos ? 'text-emerald-700' : 'text-rose-700'}`}>
                               {isPos ? '+' : ''}
                               {formatTHB(h.unrealized_pnl_value ?? 0)}
                             </div>
                           </>
                         ) : (
-                          <span className="text-zinc-400">-</span>
+                          <span className="text-zinc-400 text-sm">-</span>
                         )}
                       </td>
 
                       {/* Col 7: P/E Ratio (Line 1) + EPS & Payout Ratio (Line 2) */}
-                      <td className="px-4 py-4 text-right align-top font-mono tabular-nums">
-                        <div className="font-semibold text-zinc-800">
-                          PE: {h.pe_ratio ? `${h.pe_ratio.toFixed(1)}x` : 'N/A'}
+                      <td className="px-4 py-3.5 text-right align-top tabular-nums">
+                        <div className="font-semibold text-zinc-800 text-xs sm:text-sm">
+                          <span className="text-zinc-400 font-normal text-xs">PE: </span>
+                          {h.pe_ratio ? `${h.pe_ratio.toFixed(1)}x` : 'N/A'}
                         </div>
-                        <div className="mt-0.5 text-[11px] text-zinc-500">
-                          EPS: {h.eps ? `$${h.eps.toFixed(2)}` : 'N/A'} {h.payout_ratio ? `(${h.payout_ratio.toFixed(0)}% PO)` : ''}
+                        <div className="mt-0.5 text-xs text-zinc-500 font-medium">
+                          <span className="text-zinc-400">EPS: </span>
+                          {h.eps ? `$${h.eps.toFixed(2)}` : 'N/A'}{' '}
+                          {h.payout_ratio ? <span className="text-zinc-400">({h.payout_ratio.toFixed(0)}% PO)</span> : ''}
                         </div>
                       </td>
 
                       {/* Col 8: Yield on Cost (Line 1) + Div Yield & DPS (Line 2) */}
-                      <td className="px-4 py-4 text-right align-top font-mono tabular-nums">
-                        <div className="font-bold text-amber-700">
-                          YoC: {h.yield_on_cost ? `${h.yield_on_cost.toFixed(2)}%` : 'N/A'}
+                      <td className="px-4 py-3.5 text-right align-top tabular-nums">
+                        <div className="font-bold text-amber-700 text-xs sm:text-sm">
+                          <span className="text-amber-800/60 font-medium text-xs">YoC: </span>
+                          {h.yield_on_cost ? `${h.yield_on_cost.toFixed(2)}%` : 'N/A'}
                         </div>
-                        <div className="mt-0.5 text-[11px] text-zinc-500">
-                          Div: {h.dividend_yield ? `${h.dividend_yield.toFixed(2)}%` : 'N/A'} {h.dividend_per_share ? `($${h.dividend_per_share.toFixed(2)})` : ''}
+                        <div className="mt-0.5 text-xs text-zinc-600 font-medium">
+                          <span className="text-zinc-400">Div: </span>
+                          {h.dividend_yield ? `${h.dividend_yield.toFixed(2)}%` : 'N/A'}{' '}
+                          {h.dividend_per_share ? <span className="text-zinc-400">(${h.dividend_per_share.toFixed(2)})</span> : ''}
                         </div>
                       </td>
 
                       {/* Col 9: Market Cap Tier (Line 1) + Fundamentals Updated At (Line 2) */}
-                      <td className="px-4 py-4 text-center align-top">
-                        <span className="inline-block rounded-full border border-sky-200 bg-white px-2.5 py-0.5 text-[11px] font-semibold text-zinc-700 shadow-2xs">
+                      <td className="px-4 py-3.5 text-center align-top">
+                        <span className="inline-block rounded-full border border-sky-200 bg-white px-2.5 py-0.5 text-xs font-semibold text-zinc-700 shadow-2xs">
                           {h.market_cap_tier || 'N/A'}
                         </span>
-                        <div className="mt-1 text-[10px] text-zinc-400">
+                        <div className="mt-1 text-[11px] text-zinc-400 font-medium">
                           {h.fundamentals_updated_at
                             ? new Date(h.fundamentals_updated_at * 1000).toLocaleDateString('th-TH', { month: 'short', day: 'numeric' })
                             : 'Not cached'}

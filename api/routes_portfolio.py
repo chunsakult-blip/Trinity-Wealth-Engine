@@ -16,6 +16,9 @@ from api.schemas import (
     MacroIndicatorSeriesDTO,
     MacroDashboardDTO,
     PortfolioDTO,
+    PortfolioMetaDTO,
+    CreatePortfolioRequestDTO,
+    RenamePortfolioRequestDTO,
     macro_dashboard_dto_from_raw,
     portfolio_dto_from_raw,
     ActualPortfolioStateDTO,
@@ -60,6 +63,35 @@ def _latest_strategy_json() -> dict:
         )
     latest = candidates[-1]
     return json.loads(latest.read_text(encoding="utf-8"))
+
+
+@router.get("/api/portfolio/list", response_model=list[PortfolioMetaDTO])
+def list_portfolios_endpoint() -> list[PortfolioMetaDTO]:
+    with handle_portfolio_exceptions():
+        items = portfolio_core.list_portfolios()
+        return [PortfolioMetaDTO.model_validate(i.model_dump()) for i in items]
+
+
+@router.post("/api/portfolio/create", response_model=PortfolioMetaDTO)
+def create_portfolio_endpoint(payload: CreatePortfolioRequestDTO) -> PortfolioMetaDTO:
+    with handle_portfolio_exceptions():
+        item = portfolio_core.create_portfolio(name=payload.name, portfolio_id=payload.portfolio_id)
+        return PortfolioMetaDTO.model_validate(item.model_dump())
+
+
+@router.delete("/api/portfolio/{portfolio_id}")
+def delete_portfolio_endpoint(portfolio_id: str):
+    with handle_portfolio_exceptions():
+        portfolio_core.delete_portfolio(portfolio_id=portfolio_id)
+        return {"status": "success", "deleted_portfolio_id": portfolio_id}
+
+
+@router.put("/api/portfolio/{portfolio_id}/rename", response_model=PortfolioMetaDTO)
+def rename_portfolio_endpoint(portfolio_id: str, payload: RenamePortfolioRequestDTO) -> PortfolioMetaDTO:
+    with handle_portfolio_exceptions():
+        item = portfolio_core.update_portfolio_name(portfolio_id=portfolio_id, name=payload.name)
+        return PortfolioMetaDTO.model_validate(item.model_dump())
+
 
 
 @router.get("/api/portfolio/latest", response_model=PortfolioDTO)
@@ -161,14 +193,19 @@ def handle_portfolio_exceptions(timeout_detail: str = "Portfolio lock timeout"):
 
 @router.get("/api/portfolio/actual/state", response_model=ActualPortfolioStateDTO)
 def get_actual_portfolio_state(
-    refresh_prices: bool = False, fetch_fundamentals: bool = False
+    refresh_prices: bool = False, fetch_fundamentals: bool = False, portfolio_id: str = "default"
 ) -> ActualPortfolioStateDTO:
     with handle_portfolio_exceptions(
         "Portfolio lock timeout (another operation is running)"
     ):
-        state = portfolio_core.get_structured_portfolio_state(
-            refresh_prices=refresh_prices, fetch_fundamentals=fetch_fundamentals
+        state = portfolio_core.get_structured_portfolio_state(portfolio_id=portfolio_id)
+        needs_fundamentals = fetch_fundamentals or any(
+            h.fundamentals_updated_at is None for h in state.holdings if h.asset_type != "Cash"
         )
+        if refresh_prices or needs_fundamentals:
+            state = portfolio_core.get_structured_portfolio_state(
+                refresh_prices=refresh_prices, fetch_fundamentals=needs_fundamentals, portfolio_id=portfolio_id
+            )
         return ActualPortfolioStateDTO.model_validate(
             state.model_dump(exclude_none=True)
         )
@@ -177,9 +214,9 @@ def get_actual_portfolio_state(
 @router.get(
     "/api/portfolio/actual/allocations", response_model=BucketAllocationResponseDTO
 )
-def get_actual_bucket_allocations() -> BucketAllocationResponseDTO:
+def get_actual_bucket_allocations(portfolio_id: str = "default") -> BucketAllocationResponseDTO:
     with handle_portfolio_exceptions("Allocation lock timeout"):
-        summaries, warning = portfolio_core.get_structured_bucket_allocation()
+        summaries, warning = portfolio_core.get_structured_bucket_allocation(portfolio_id=portfolio_id)
         return BucketAllocationResponseDTO(
             warning=warning,
             summaries=[
@@ -191,18 +228,18 @@ def get_actual_bucket_allocations() -> BucketAllocationResponseDTO:
 @router.get(
     "/api/portfolio/actual/watchlist", response_model=ActualWatchlistStateDTO
 )
-def get_actual_watchlist() -> ActualWatchlistStateDTO:
+def get_actual_watchlist(portfolio_id: str = "default") -> ActualWatchlistStateDTO:
     with handle_portfolio_exceptions("Watchlist lock timeout"):
-        state = portfolio_watchlist.get_structured_watchlist()
+        state = portfolio_watchlist.get_structured_watchlist(portfolio_id=portfolio_id)
         return ActualWatchlistStateDTO.model_validate(
             state.model_dump(exclude_none=True)
         )
 
 
 @router.get("/api/portfolio/actual/goals", response_model=ActualGoalsResponseDTO)
-def get_actual_goals() -> ActualGoalsResponseDTO:
+def get_actual_goals(portfolio_id: str | None = None) -> ActualGoalsResponseDTO:
     with handle_portfolio_exceptions("Goals lock timeout"):
-        goals = portfolio_goals.get_structured_goals()
+        goals = portfolio_goals.get_structured_goals(portfolio_id=portfolio_id)
         return ActualGoalsResponseDTO(
             n_goals=len(goals),
             goals=[ActualGoalItemDTO.model_validate(g) for g in goals],
@@ -213,30 +250,40 @@ def get_actual_goals() -> ActualGoalsResponseDTO:
 @router.get(
     "/api/portfolio/actual/performance", response_model=list[PerformanceSnapshotDTO]
 )
-def get_actual_performance(days: int = 30) -> list[PerformanceSnapshotDTO]:
+def get_actual_performance(days: int = 30, portfolio_id: str = "default") -> list[PerformanceSnapshotDTO]:
     with handle_portfolio_exceptions("Performance lock timeout"):
-        rows = portfolio_perf.get_structured_performance_history(days=days)
+        rows = portfolio_perf.get_structured_performance_history(days=days, portfolio_id=portfolio_id)
         return [PerformanceSnapshotDTO.model_validate(r) for r in rows]
 
 
 @router.get("/api/portfolio/calendar", response_model=PortfolioCalendarDTO)
-def get_portfolio_calendar() -> PortfolioCalendarDTO:
+def get_portfolio_calendar(portfolio_id: str = "default") -> PortfolioCalendarDTO:
     import concurrent.futures
     from datetime import date, datetime, timezone
     from tools.market.asset_resolver import resolve_asset
     from tools.market.calendar import get_asset_calendar
 
+    CASH_SYMBOLS = {"CASH_THB", "CASH_USD", "CASH"}
     holding_symbols = []
     holding_names = {}
     with handle_portfolio_exceptions("Portfolio lock timeout"):
-        state = portfolio_core.get_structured_portfolio_state()
-        holding_symbols = [h.symbol for h in state.holdings if h.symbol]
-        holding_names = {h.symbol.strip().upper(): h.company_name for h in state.holdings if h.symbol}
+        state = portfolio_core.get_structured_portfolio_state(portfolio_id=portfolio_id)
+        holding_symbols = [
+            h.symbol for h in state.holdings
+            if h.symbol and h.symbol not in CASH_SYMBOLS and h.asset_type != "Cash"
+        ]
+        holding_names = {
+            h.symbol.strip().upper(): h.company_name for h in state.holdings
+            if h.symbol and h.symbol not in CASH_SYMBOLS and h.asset_type != "Cash"
+        }
 
     watchlist_symbols = []
     with handle_portfolio_exceptions("Watchlist lock timeout"):
-        wl = portfolio_watchlist.get_structured_watchlist()
-        watchlist_symbols = [w.symbol for w in wl.items if w.symbol]
+        wl = portfolio_watchlist.get_structured_watchlist(portfolio_id=portfolio_id)
+        watchlist_symbols = [
+            w.symbol for w in wl.items
+            if w.symbol and w.symbol not in CASH_SYMBOLS and w.asset_type != "Cash"
+        ]
 
     ticker_items = []
     seen = set()
@@ -268,6 +315,14 @@ def get_portfolio_calendar() -> PortfolioCalendarDTO:
                 "company_name": company_name,
                 "bucket": "watchlist"
             })
+
+    if not ticker_items:
+        return PortfolioCalendarDTO(
+            generated_at=datetime.now(timezone.utc).isoformat(),
+            events=[],
+            tickers_fetched=0,
+            tickers_failed=[]
+        )
 
     today = date.today()
     events: list[CalendarEventDTO] = []
@@ -358,11 +413,11 @@ def get_portfolio_calendar() -> PortfolioCalendarDTO:
     response_model=list[PerformanceSnapshotDTO],
 )
 def trigger_performance_snapshot(
-    refresh_prices: bool = False,
+    refresh_prices: bool = False, portfolio_id: str = "default"
 ) -> list[PerformanceSnapshotDTO]:
     with handle_portfolio_exceptions("Performance lock timeout"):
-        portfolio_perf.record_performance_snapshot.func(refresh_prices=refresh_prices)
-        rows = portfolio_perf.get_structured_performance_history(days=365)
+        portfolio_perf.record_performance_snapshot.func(refresh_prices=refresh_prices, portfolio_id=portfolio_id)
+        rows = portfolio_perf.get_structured_performance_history(days=365, portfolio_id=portfolio_id)
         return [PerformanceSnapshotDTO.model_validate(r) for r in rows]
 
 
@@ -373,10 +428,11 @@ def get_actual_journal(
     days: Optional[int] = None,
     keyword: Optional[str] = None,
     limit: int = 50,
+    portfolio_id: str = "default",
 ) -> list[JournalEntryDTO]:
     with handle_portfolio_exceptions("Journal lock timeout"):
         rows = portfolio_journal.get_structured_journal(
-            days=days, keyword=keyword, limit=limit
+            days=days, keyword=keyword, limit=limit, portfolio_id=portfolio_id
         )
         return [JournalEntryDTO.model_validate(r) for r in rows]
 
@@ -392,9 +448,10 @@ def get_actual_journal(
 )
 def upsert_allocation_targets(
     payload: UpsertAllocationTargetsRequestDTO,
+    portfolio_id: str = "default",
 ) -> ActualPortfolioStateDTO:
     with handle_portfolio_exceptions():
-        state = portfolio_core.structured_upsert_allocation_targets(payload.targets)
+        state = portfolio_core.structured_upsert_allocation_targets(payload.targets, portfolio_id=portfolio_id)
         return ActualPortfolioStateDTO.model_validate(
             state.model_dump(exclude_none=True)
         )
@@ -405,11 +462,11 @@ def upsert_allocation_targets(
     response_model=ActualPortfolioStateDTO,
 )
 def assign_holding_bucket(
-    symbol: str, payload: AssignBucketRequestDTO
+    symbol: str, payload: AssignBucketRequestDTO, portfolio_id: str = "default"
 ) -> ActualPortfolioStateDTO:
     with handle_portfolio_exceptions():
         state = portfolio_core.structured_assign_holding_bucket(
-            symbol, payload.bucket_id
+            symbol, payload.bucket_id, portfolio_id=portfolio_id
         )
         return ActualPortfolioStateDTO.model_validate(
             state.model_dump(exclude_none=True)
@@ -421,11 +478,11 @@ def assign_holding_bucket(
     response_model=ActualPortfolioStateDTO,
 )
 def batch_assign_holding_buckets(
-    payload: BatchAssignBucketRequestDTO,
+    payload: BatchAssignBucketRequestDTO, portfolio_id: str = "default"
 ) -> ActualPortfolioStateDTO:
     with handle_portfolio_exceptions():
         state = portfolio_core.structured_batch_assign_holding_buckets(
-            payload.symbols, payload.bucket_id
+            payload.symbols, payload.bucket_id, portfolio_id=portfolio_id
         )
         return ActualPortfolioStateDTO.model_validate(
             state.model_dump(exclude_none=True)
@@ -437,10 +494,10 @@ def batch_assign_holding_buckets(
     response_model=ActualPortfolioStateDTO,
 )
 def batch_remove_holdings(
-    payload: BatchRemoveHoldingsRequestDTO,
+    payload: BatchRemoveHoldingsRequestDTO, portfolio_id: str = "default"
 ) -> ActualPortfolioStateDTO:
     with handle_portfolio_exceptions():
-        state = portfolio_core.structured_batch_remove_holdings(payload.symbols)
+        state = portfolio_core.structured_batch_remove_holdings(payload.symbols, portfolio_id=portfolio_id)
         return ActualPortfolioStateDTO.model_validate(
             state.model_dump(exclude_none=True)
         )
@@ -449,9 +506,9 @@ def batch_remove_holdings(
 @router.post(
     "/api/portfolio/actual/reset", response_model=ActualPortfolioStateDTO
 )
-def reset_portfolio_clean_slate() -> ActualPortfolioStateDTO:
+def reset_portfolio_clean_slate(portfolio_id: str = "default") -> ActualPortfolioStateDTO:
     with handle_portfolio_exceptions():
-        state = portfolio_core.structured_reset_clean_slate()
+        state = portfolio_core.structured_reset_clean_slate(portfolio_id=portfolio_id)
         return ActualPortfolioStateDTO.model_validate(
             state.model_dump(exclude_none=True)
         )
@@ -459,7 +516,7 @@ def reset_portfolio_clean_slate() -> ActualPortfolioStateDTO:
 
 @router.post("/api/portfolio/actual/trade", response_model=ActualPortfolioStateDTO)
 def execute_trade_endpoint(
-    payload: TradeRequestDTO,
+    payload: TradeRequestDTO, portfolio_id: str = "default"
 ) -> ActualPortfolioStateDTO:
     with handle_portfolio_exceptions():
         state = portfolio_trading.structured_execute_trade(
@@ -473,6 +530,7 @@ def execute_trade_endpoint(
             date=payload.date,
             notes=payload.notes,
             bucket_id=payload.bucket_id,
+            portfolio_id=portfolio_id,
         )
         return ActualPortfolioStateDTO.model_validate(
             state.model_dump(exclude_none=True)
@@ -483,7 +541,7 @@ def execute_trade_endpoint(
     "/api/portfolio/actual/cashflow", response_model=ActualPortfolioStateDTO
 )
 def manage_cash_flow_endpoint(
-    payload: CashFlowRequestDTO,
+    payload: CashFlowRequestDTO, portfolio_id: str = "default"
 ) -> ActualPortfolioStateDTO:
     with handle_portfolio_exceptions():
         state = portfolio_trading.structured_manage_cash_flow(
@@ -493,6 +551,7 @@ def manage_cash_flow_endpoint(
             exchange_rate=payload.exchange_rate,
             date=payload.date,
             notes=payload.notes,
+            portfolio_id=portfolio_id,
         )
         return ActualPortfolioStateDTO.model_validate(
             state.model_dump(exclude_none=True)
@@ -503,7 +562,7 @@ def manage_cash_flow_endpoint(
     "/api/portfolio/actual/income", response_model=ActualPortfolioStateDTO
 )
 def record_income_endpoint(
-    payload: IncomeRequestDTO,
+    payload: IncomeRequestDTO, portfolio_id: str = "default"
 ) -> ActualPortfolioStateDTO:
     with handle_portfolio_exceptions():
         state = portfolio_trading.structured_record_income(
@@ -512,6 +571,7 @@ def record_income_endpoint(
             source_symbol=payload.source_symbol,
             date=payload.date,
             notes=payload.notes,
+            portfolio_id=portfolio_id,
         )
         return ActualPortfolioStateDTO.model_validate(
             state.model_dump(exclude_none=True)
@@ -523,7 +583,7 @@ def record_income_endpoint(
     response_model=ActualPortfolioStateDTO,
 )
 def edit_holding_endpoint(
-    symbol: str, payload: EditHoldingRequestDTO
+    symbol: str, payload: EditHoldingRequestDTO, portfolio_id: str = "default"
 ) -> ActualPortfolioStateDTO:
     with handle_portfolio_exceptions():
         state = portfolio_trading.structured_edit_holding(
@@ -534,6 +594,7 @@ def edit_holding_endpoint(
             asset_type=payload.asset_type,
             reason=payload.reason,
             bucket_id=payload.bucket_id,
+            portfolio_id=portfolio_id,
         )
         return ActualPortfolioStateDTO.model_validate(
             state.model_dump(exclude_none=True)
@@ -544,9 +605,9 @@ def edit_holding_endpoint(
     "/api/portfolio/actual/holdings/{symbol}",
     response_model=ActualPortfolioStateDTO,
 )
-def remove_holding_endpoint(symbol: str) -> ActualPortfolioStateDTO:
+def remove_holding_endpoint(symbol: str, portfolio_id: str = "default") -> ActualPortfolioStateDTO:
     with handle_portfolio_exceptions():
-        state = portfolio_trading.structured_remove_holding(symbol)
+        state = portfolio_trading.structured_remove_holding(symbol, portfolio_id=portfolio_id)
         return ActualPortfolioStateDTO.model_validate(
             state.model_dump(exclude_none=True)
         )
@@ -557,7 +618,7 @@ def remove_holding_endpoint(symbol: str) -> ActualPortfolioStateDTO:
     response_model=ActualWatchlistStateDTO,
 )
 def upsert_watchlist_item_endpoint(
-    symbol: str, payload: UpsertWatchlistItemRequestDTO
+    symbol: str, payload: UpsertWatchlistItemRequestDTO, portfolio_id: str = "default"
 ) -> ActualWatchlistStateDTO:
     with handle_portfolio_exceptions("Watchlist lock timeout"):
         state = portfolio_watchlist.structured_upsert_watchlist_item(
@@ -565,6 +626,7 @@ def upsert_watchlist_item_endpoint(
             asset_type=payload.asset_type,
             target_price=payload.target_price,
             notes=payload.notes,
+            portfolio_id=portfolio_id,
         )
         return ActualWatchlistStateDTO.model_validate(
             state.model_dump(exclude_none=True)
@@ -575,9 +637,9 @@ def upsert_watchlist_item_endpoint(
     "/api/portfolio/actual/watchlist/{symbol}",
     response_model=ActualWatchlistStateDTO,
 )
-def remove_watchlist_item_endpoint(symbol: str) -> ActualWatchlistStateDTO:
+def remove_watchlist_item_endpoint(symbol: str, portfolio_id: str = "default") -> ActualWatchlistStateDTO:
     with handle_portfolio_exceptions("Watchlist lock timeout"):
-        state = portfolio_watchlist.structured_remove_watchlist_item(symbol)
+        state = portfolio_watchlist.structured_remove_watchlist_item(symbol, portfolio_id=portfolio_id)
         return ActualWatchlistStateDTO.model_validate(
             state.model_dump(exclude_none=True)
         )
@@ -597,6 +659,8 @@ def upsert_goal_endpoint(
             deadline=payload.deadline,
             years_from_now=payload.years_from_now,
             notes=payload.notes,
+            portfolio_id=getattr(payload, "portfolio_id", "default") or "default",
+            bucket_id=getattr(payload, "bucket_id", None),
         )
         return ActualGoalsResponseDTO(
             n_goals=len(goals),
@@ -608,9 +672,9 @@ def upsert_goal_endpoint(
 @router.delete(
     "/api/portfolio/actual/goals/{name}", response_model=ActualGoalsResponseDTO
 )
-def remove_goal_endpoint(name: str) -> ActualGoalsResponseDTO:
+def remove_goal_endpoint(name: str, portfolio_id: str | None = None) -> ActualGoalsResponseDTO:
     with handle_portfolio_exceptions("Goals lock timeout"):
-        goals = portfolio_goals.structured_remove_goal(name)
+        goals = portfolio_goals.structured_remove_goal(name, portfolio_id=portfolio_id)
         return ActualGoalsResponseDTO(
             n_goals=len(goals),
             goals=[ActualGoalItemDTO.model_validate(g) for g in goals],
@@ -622,8 +686,8 @@ def remove_goal_endpoint(name: str) -> ActualGoalsResponseDTO:
     "/api/portfolio/actual/journal", response_model=list[JournalEntryDTO]
 )
 def append_journal_endpoint(
-    payload: AppendJournalRequestDTO,
+    payload: AppendJournalRequestDTO, portfolio_id: str = "default"
 ) -> list[JournalEntryDTO]:
     with handle_portfolio_exceptions("Journal lock timeout"):
-        rows = portfolio_journal.structured_append_journal(payload.entry)
+        rows = portfolio_journal.structured_append_journal(payload.entry, portfolio_id=portfolio_id)
         return [JournalEntryDTO.model_validate(r) for r in rows]

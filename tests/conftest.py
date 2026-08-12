@@ -65,6 +65,7 @@ def isolated_portfolio(tmp_vault, monkeypatch):
         if mod_name.startswith("tools.portfolio.") or mod_name.startswith("tools.portfolio_tools"):
             del sys.modules[mod_name]
 
+    import tools.portfolio.constants as constants
     import tools.portfolio.core as core
     import tools.portfolio.trading as trading
     import tools.portfolio.watchlist as watchlist
@@ -72,6 +73,16 @@ def isolated_portfolio(tmp_vault, monkeypatch):
     import tools.portfolio.journal as journal
     import tools.portfolio.prices as prices
     import tools.portfolio.performance as perf
+
+    vpath = tmp_vault.resolve()
+    for mod in [constants, core, trading, watchlist, goals, journal, prices, perf]:
+        monkeypatch.setattr(mod, "VAULT_PATH", vpath, raising=False)
+        monkeypatch.setattr(mod, "PORTFOLIO_PATH", vpath / "20_Portfolio_Management/Current_Holdings/Portfolio_Holdings.md", raising=False)
+        monkeypatch.setattr(mod, "PORTFOLIOS_DIR", vpath / "20_Portfolio_Management/Current_Holdings/Portfolios", raising=False)
+        monkeypatch.setattr(mod, "WATCHLIST_PATH", vpath / "20_Portfolio_Management/Current_Holdings/Watchlist.md", raising=False)
+        monkeypatch.setattr(mod, "GOALS_PATH", vpath / "20_Portfolio_Management/Goals/Goals.md", raising=False)
+        monkeypatch.setattr(mod, "TRADING_JOURNAL_PATH", vpath / "20_Portfolio_Management/Journals_and_Reports/Trading_Journal.md", raising=False)
+        monkeypatch.setattr(mod, "PERFORMANCE_LOG_PATH", vpath / "20_Portfolio_Management/Journals_and_Reports/Performance_Log.csv", raising=False)
 
     pt = SimpleNamespace()
     pt.Holding = core.Holding

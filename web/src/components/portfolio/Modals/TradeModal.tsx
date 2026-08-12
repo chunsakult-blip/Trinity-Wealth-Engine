@@ -7,11 +7,12 @@ import type { AllocationTargetDTO, ActualPortfolioStateDTO, ActualHoldingDTO } f
 interface Props {
   targets: AllocationTargetDTO[]
   holdings?: ActualHoldingDTO[]
+  selectedPortfolioId?: string
   onClose: () => void
   onSuccess: (state: ActualPortfolioStateDTO) => void
 }
 
-export default function TradeModal({ targets, holdings, onClose, onSuccess }: Props) {
+export default function TradeModal({ targets, holdings, selectedPortfolioId = 'default', onClose, onSuccess }: Props) {
   const [symbol, setSymbol] = useState('')
   const [assetType, setAssetType] = useState('Stock')
   const [action, setAction] = useState<'buy' | 'sell'>('buy')
@@ -80,18 +81,21 @@ export default function TradeModal({ targets, holdings, onClose, onSuccess }: Pr
     setLoading(true)
     setError(null)
     try {
-      const state = await api.executeTrade({
-        symbol: symbol.trim().toUpperCase(),
-        asset_type: assetType,
-        action,
-        units: parseFloat(units),
-        price: parseFloat(price),
-        currency,
-        exchange_rate: exchangeRate ? parseFloat(exchangeRate) : null,
-        date: date || null,
-        notes: notes.trim(),
-        bucket_id: bucketId || null,
-      })
+      const state = await api.executeTrade(
+        {
+          symbol: symbol.trim().toUpperCase(),
+          asset_type: assetType,
+          action,
+          units: parseFloat(units),
+          price: parseFloat(price),
+          currency,
+          exchange_rate: exchangeRate ? parseFloat(exchangeRate) : null,
+          date: date || null,
+          notes: notes.trim(),
+          bucket_id: bucketId || null,
+        },
+        selectedPortfolioId
+      )
       onSuccess(state)
       onClose()
     } catch (err: any) {

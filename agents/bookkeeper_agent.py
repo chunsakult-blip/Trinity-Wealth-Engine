@@ -4,7 +4,10 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.runnables import Runnable
 from langchain.agents import create_agent
 
-from tools.portfolio.core import get_portfolio_state, compute_allocation_breakdown
+from tools.portfolio.core import (
+    get_portfolio_state, compute_allocation_breakdown,
+    tool_list_portfolios, tool_create_portfolio, tool_delete_portfolio,
+)
 from tools.portfolio.trading import (
     execute_trade, record_income, batch_import_holdings,
     manage_cash_flow, update_fx_rate, edit_holding,
@@ -41,6 +44,9 @@ _bookkeeper_tools = [
     set_goal,
     remove_goal,
     get_goals_progress,
+    tool_list_portfolios,
+    tool_create_portfolio,
+    tool_delete_portfolio,
 ]
 
 

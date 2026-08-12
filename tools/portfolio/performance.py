@@ -46,13 +46,20 @@ _PCT_DP = 2
 _LOCK_TIMEOUT = 15  # seconds — wait up to 15s for another process to release
 _PRICE_FETCH_TIMEOUT = 6  # seconds per symbol when refreshing
 
-_PORTFOLIO_LOCK_PATH = str(PORTFOLIO_PATH) + ".lock"
-_portfolio_lock = FileLock(_PORTFOLIO_LOCK_PATH, timeout=_LOCK_TIMEOUT)
+from .core import _get_portfolio_lock, _load_or_init, _save
 
+
+def _get_performance_filepath(portfolio_id: str = "default") -> Path:
+    pid = portfolio_id.strip().lower() if portfolio_id else "default"
+    if pid == "default":
+        return PERFORMANCE_LOG_PATH
+    pdir = VAULT_PATH / "20_Portfolio_Management/Current_Holdings/Portfolios"
+    pdir.mkdir(parents=True, exist_ok=True)
+    return pdir / f"{pid}_performance.csv"
 
 
 @tool
-def record_performance_snapshot(refresh_prices: bool = True) -> str:
+def record_performance_snapshot(refresh_prices: bool = True, portfolio_id: str = "default") -> str:
     """บันทึก Snapshot สถานะพอร์ตโฟลิโอ ณ สิ้นวัน (Performance Logging)
 
     [Usage/When to use]
@@ -62,13 +69,15 @@ def record_performance_snapshot(refresh_prices: bool = True) -> str:
 
     Args:
         refresh_prices (bool): True (อัปเดตราคาล่าสุดก่อนบันทึก, default)
+        portfolio_id (str): พอร์ตการลงทุนที่ต้องการบันทึก snapshot (ค่าเริ่มต้น 'default')
     """
+    lock = _get_portfolio_lock(portfolio_id)
     try:
-        with _portfolio_lock:
-            post, state = _load_or_init()
+        with lock:
+            post, state = _load_or_init(portfolio_id=portfolio_id)
             if refresh_prices:
                 _refresh_prices(state)
-                _save(post, state)
+                _save(post, state, portfolio_id=portfolio_id)
             else:
                 _recalc_all(state)
 
@@ -95,10 +104,11 @@ def record_performance_snapshot(refresh_prices: bool = True) -> str:
                 f"{passive_ytd:.2f}",
             ]
 
-            PERFORMANCE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            perf_path = _get_performance_filepath(portfolio_id)
+            perf_path.parent.mkdir(parents=True, exist_ok=True)
             existing_rows: list[list[str]] = []
-            if PERFORMANCE_LOG_PATH.exists() and PERFORMANCE_LOG_PATH.stat().st_size > 0:
-                with PERFORMANCE_LOG_PATH.open("r", encoding="utf-8", newline="") as f:
+            if perf_path.exists() and perf_path.stat().st_size > 0:
+                with perf_path.open("r", encoding="utf-8", newline="") as f:
                     reader = csv.reader(f)
                     header_read = False
                     for r in reader:
@@ -124,7 +134,7 @@ def record_performance_snapshot(refresh_prices: bool = True) -> str:
             writer = csv.writer(output, lineterminator="\n")
             writer.writerow(_PERFORMANCE_LOG_HEADER)
             writer.writerows(existing_rows)
-            _atomic_write_to(PERFORMANCE_LOG_PATH, output.getvalue())
+            _atomic_write_to(perf_path, output.getvalue())
 
     except Timeout:
         return LOCK_TIMEOUT.format(detail=f"portfolio lock {_LOCK_TIMEOUT}s")
@@ -139,11 +149,12 @@ def record_performance_snapshot(refresh_prices: bool = True) -> str:
     )
 
 
-def get_structured_performance_history(days: int | None = None) -> list[dict]:
+def get_structured_performance_history(days: int | None = None, portfolio_id: str = "default") -> list[dict]:
     """Structured read accessor คืนค่าประวัติ Performance เป็น list of dicts"""
-    if not PERFORMANCE_LOG_PATH.exists():
+    perf_path = _get_performance_filepath(portfolio_id)
+    if not perf_path.exists():
         return []
-    with PERFORMANCE_LOG_PATH.open("r", encoding="utf-8", newline="") as f:
+    with perf_path.open("r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
         rows = list(reader)
     if days is not None and days > 0:

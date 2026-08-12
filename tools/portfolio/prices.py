@@ -198,7 +198,14 @@ def _fetch_fundamentals(state: PortfolioState, force: bool = False) -> dict[str,
                 payout = info.get("payoutRatio")
                 mcap = info.get("marketCap")
                 div_rate = info.get("dividendRate") or info.get("trailingAnnualDividendRate")
-                div_yield = info.get("dividendYield") or info.get("trailingAnnualDividendYield")
+                div_yield_raw = info.get("dividendYield")
+                trailing_yield_raw = info.get("trailingAnnualDividendYield")
+                div_yield_val: float | None = None
+                if div_yield_raw is not None and div_yield_raw >= 0:
+                    div_yield_val = float(div_yield_raw * 100) if div_yield_raw <= 1.0 else float(div_yield_raw)
+                elif trailing_yield_raw is not None and trailing_yield_raw >= 0:
+                    div_yield_val = float(trailing_yield_raw * 100) if trailing_yield_raw <= 1.0 else float(trailing_yield_raw)
+
                 long_name = info.get("longName") or info.get("shortName")
 
                 if pe is not None and pe > 0:
@@ -206,13 +213,21 @@ def _fetch_fundamentals(state: PortfolioState, force: bool = False) -> dict[str,
                 if eps is not None:
                     setattr(h, "eps", float(eps))
                 if payout is not None and payout > 0:
-                    setattr(h, "payout_ratio", float(payout * 100))
+                    val = float(payout * 100) if payout <= 1.0 else float(payout)
+                    setattr(h, "payout_ratio", val)
                 if mcap is not None and mcap > 0:
                     setattr(h, "market_cap_value", float(mcap))
                 if div_rate is not None and div_rate >= 0:
                     setattr(h, "dividend_per_share", float(div_rate))
-                if div_yield is not None and div_yield >= 0:
-                    setattr(h, "dividend_yield", float(div_yield * 100))
+
+                if div_yield_val is not None:
+                    price = getattr(h, "current_price_usd", None) or getattr(h, "current_price_thb", None)
+                    dps = getattr(h, "dividend_per_share", None) or div_rate
+                    if price and price > 0 and dps and dps > 0:
+                        calc_yield = (float(dps) / float(price)) * 100
+                        if div_yield_val > 20.0 and div_yield_val > calc_yield * 5:
+                            div_yield_val = round(calc_yield, 2)
+                    setattr(h, "dividend_yield", round(div_yield_val, 2))
                 if long_name and isinstance(long_name, str):
                     setattr(h, "company_name", long_name)
 

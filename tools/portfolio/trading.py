@@ -25,7 +25,7 @@ _EDITABLE_HOLDING_FIELDS = ("units", "avg_cost", "accumulated_dividend_thb", "as
 from tools._atomic_io import _atomic_write_to
 from tools.tool_errors import CASH_VIA_MANAGE, LOCK_TIMEOUT, validation_error
 from .models import _now_iso, _coerce_iso_string, Holding, Summary, PortfolioState, WatchlistItem, WatchlistState, GoalItem, GoalsState
-from .core import _load_or_init, _save, _recalc_all, _recalc_holding, _recalc_summary, _compute_total_cost, _find_holding, _require_cash, _require_fx, get_portfolio_state, _holding_currency, compute_allocation_breakdown
+from .core import _load_or_init, _save, _recalc_all, _recalc_holding, _recalc_summary, _compute_total_cost, _find_holding, _require_cash, _require_fx, get_portfolio_state, _holding_currency, compute_allocation_breakdown, _get_portfolio_lock
 from .prices import fetch_latest_price, _fetch_last_price, _fetch_fx_rate, _refresh_prices, sync_market_prices, _USDTHB_TICKER
 from .journal import append_trading_journal, _inject_journal_wikilinks, _write_journal_entry
 
@@ -48,7 +48,7 @@ _LOCK_TIMEOUT = 15  # seconds — wait up to 15s for another process to release
 _PRICE_FETCH_TIMEOUT = 6  # seconds per symbol when refreshing
 
 _PORTFOLIO_LOCK_PATH = str(PORTFOLIO_PATH) + ".lock"
-_portfolio_lock = FileLock(_PORTFOLIO_LOCK_PATH, timeout=_LOCK_TIMEOUT)
+_portfolio_lock = _get_portfolio_lock("default")
 
 
 
@@ -61,6 +61,7 @@ def execute_trade(
     price: float,
     currency: Literal["THB", "USD"] = "THB",
     notes: str = "",
+    portfolio_id: str = "default",
 ) -> str:
     """ดำเนินการเทรดซื้อหรือขายสินทรัพย์ พร้อมจัดการเงินสดและคำนวณต้นทุน/กำไรอัตโนมัติ
 
@@ -82,6 +83,7 @@ def execute_trade(
         price (float): ราคาต่อหน่วย
         currency (Literal["THB", "USD"]): สกุลเงินที่ใช้เทรด (มีผลกับบัญชี Cash ที่หัก/รับ)
         notes (str): บันทึกเพิ่มเติมสำหรับรายการเทรดนี้
+        portfolio_id (str): พอร์ตการลงทุนที่ต้องการเทรด (ค่าเริ่มต้น 'default')
     """
     if symbol.strip().upper() in _CASH_SYMBOLS:
         return CASH_VIA_MANAGE.format(symbols="/".join(_CASH_SYMBOLS))
@@ -92,9 +94,10 @@ def execute_trade(
     if action not in ("buy", "sell"):
         return validation_error("action ต้องเป็น 'buy' หรือ 'sell'")
 
+    lock = _get_portfolio_lock(portfolio_id)
     try:
-        with _portfolio_lock:
-            return _execute_trade_locked(symbol, asset_type, action, units, price, currency, notes=notes)
+        with lock:
+            return _execute_trade_locked(symbol, asset_type, action, units, price, currency, notes=notes, portfolio_id=portfolio_id)
     except Timeout:
         return LOCK_TIMEOUT.format(detail=f"portfolio lock {_LOCK_TIMEOUT}s")
     except ValueError as e:
@@ -144,8 +147,9 @@ def _execute_trade_locked(
     price: float,
     currency: Literal["THB", "USD"],
     notes: str = "",
+    portfolio_id: str = "default",
 ) -> str:
-    post, state = _load_or_init()
+    post, state = _load_or_init(portfolio_id=portfolio_id)
     cash = _require_cash(state, currency)
     target = _find_holding(state, symbol)
 
@@ -244,7 +248,7 @@ def _execute_trade_locked(
         action_tag = "[SELL]"
         cashflow_sign = "+"
 
-    _save(post, state)
+    _save(post, state, portfolio_id=portfolio_id)
     _append_trade_ledger_row(
         symbol=symbol,
         action=action,
@@ -277,6 +281,7 @@ def record_income(
     income_type: Literal["Dividend", "Interest", "Rental", "Other"],
     amount_thb: float,
     source_symbol: str | None = None,
+    portfolio_id: str = "default",
 ) -> str:
     """บันทึกรายรับ Passive Income (เช่น เงินปันผล, ดอกเบี้ย)
 
@@ -289,13 +294,15 @@ def record_income(
         income_type (Literal["Dividend", "Interest", "Rental", "Other"]): ประเภทรายได้
         amount_thb (float): จำนวนเงิน (บาท)
         source_symbol (str | None): Ticker ต้นทางที่จ่ายปันผล (ถ้ามี)
+        portfolio_id (str): พอร์ตการลงทุนที่ต้องการบันทึกรายรับ (ค่าเริ่มต้น 'default')
     """
     if amount_thb <= 0:
         return validation_error("amount_thb ต้องมากกว่า 0")
 
+    lock = _get_portfolio_lock(portfolio_id)
     try:
-        with _portfolio_lock:
-            return _record_income_locked(income_type, amount_thb, source_symbol)
+        with lock:
+            return _record_income_locked(income_type, amount_thb, source_symbol, portfolio_id=portfolio_id)
     except Timeout:
         return LOCK_TIMEOUT.format(detail=f"portfolio lock {_LOCK_TIMEOUT}s")
     except ValueError as e:
@@ -306,8 +313,9 @@ def _record_income_locked(
     income_type: Literal["Dividend", "Interest", "Rental", "Other"],
     amount_thb: float,
     source_symbol: str | None,
+    portfolio_id: str = "default",
 ) -> str:
-    post, state = _load_or_init()
+    post, state = _load_or_init(portfolio_id=portfolio_id)
     cash = _require_cash(state)
 
     target: Holding | None = None
@@ -331,7 +339,7 @@ def _record_income_locked(
         current = target.accumulated_dividend_thb or 0.0
         target.accumulated_dividend_thb = round(current + amount_thb, _MONEY_DP)
 
-    _save(post, state)
+    _save(post, state, portfolio_id=portfolio_id)
 
     tag = {"Dividend": "[DIV]", "Interest": "[INT]", "Rental": "[RENT]"}.get(income_type, "[INCOME]")
     src_note = f" จาก {source_symbol}" if source_symbol else ""
@@ -347,6 +355,7 @@ def batch_import_holdings(
     assets_list: list[dict],
     mode: Literal["overwrite", "merge"] = "merge",
     reset_cash_usd: bool = False,
+    portfolio_id: str = "default",
 ) -> str:
     """นำเข้า (Import) รายการสินทรัพย์หลายรายการพร้อมกัน
 
@@ -362,6 +371,7 @@ def batch_import_holdings(
         assets_list (list[dict]): รายการสินทรัพย์ (symbol, asset_type, units, avg_cost, currency)
         mode (Literal["overwrite", "merge"]): โหมดนำเข้า ค่าเริ่มต้นคือ 'merge'
         reset_cash_usd (bool): หาก True จะตั้งค่าเงินสด USD เป็น 0 ด้วย
+        portfolio_id (str): พอร์ตการลงทุนที่ต้องการนำเข้า (ค่าเริ่มต้น 'default')
     """
     if mode not in ("overwrite", "merge"):
         return validation_error("mode ต้องเป็น 'overwrite' หรือ 'merge'")
@@ -449,9 +459,10 @@ def batch_import_holdings(
                         asset["_source"] = "fallback_timeout"
 
     # ─── 3. Acquire lock → mutate → save (atomic + recalc) ───
+    lock = _get_portfolio_lock(portfolio_id)
     try:
-        with _portfolio_lock:
-            post, state = _load_or_init()
+        with lock:
+            post, state = _load_or_init(portfolio_id=portfolio_id)
             current_fx = _require_fx(state)
 
             if mode == "overwrite":
@@ -485,7 +496,7 @@ def batch_import_holdings(
                 else:
                     state.holdings.append(new_h)
 
-            _save(post, state)  # ← _recalc_all bottom-up + atomic write
+            _save(post, state, portfolio_id=portfolio_id)  # ← _recalc_all bottom-up + atomic write
             total_nav = state.summary.total_value_thb
             non_cash = sum(1 for h in state.holdings if h.asset_type != "Cash")
     except Timeout:
@@ -512,6 +523,7 @@ def manage_cash_flow(
     amount: float,
     action: Literal["deposit", "withdraw"],
     currency: Literal["THB", "USD"] = "THB",
+    portfolio_id: str = "default",
 ) -> str:
     """ฝาก (Deposit) หรือ ถอน (Withdraw) เงินสดเข้า/ออกจากพอร์ตโฟลิโอ
 
@@ -526,6 +538,7 @@ def manage_cash_flow(
         amount (float): จำนวนเงิน
         action (Literal["deposit", "withdraw"]): ฝากหรือถอน
         currency (Literal["THB", "USD"]): สกุลเงิน
+        portfolio_id (str): พอร์ตการลงทุนที่ต้องการฝาก/ถอน (ค่าเริ่มต้น 'default')
     """
     if amount <= 0:
         return validation_error("amount ต้องมากกว่า 0")
@@ -534,9 +547,10 @@ def manage_cash_flow(
     if currency not in ("THB", "USD"):
         return validation_error(f"currency ต้องเป็น 'THB' หรือ 'USD' (got '{currency}')")
 
+    lock = _get_portfolio_lock(portfolio_id)
     try:
-        with _portfolio_lock:
-            return _manage_cash_flow_locked(amount, action, currency)
+        with lock:
+            return _manage_cash_flow_locked(amount, action, currency, portfolio_id=portfolio_id)
     except Timeout:
         return LOCK_TIMEOUT.format(detail=f"portfolio lock {_LOCK_TIMEOUT}s")
     except ValueError as e:
@@ -547,8 +561,9 @@ def _manage_cash_flow_locked(
     amount: float,
     action: Literal["deposit", "withdraw"],
     currency: Literal["THB", "USD"],
+    portfolio_id: str = "default",
 ) -> str:
-    post, state = _load_or_init()
+    post, state = _load_or_init(portfolio_id=portfolio_id)
     cash = _require_cash(state, currency)
 
     if action == "deposit":
@@ -565,7 +580,7 @@ def _manage_cash_flow_locked(
         tag = "[WITHDRAW]"
         sign = "-"
 
-    _save(post, state)
+    _save(post, state, portfolio_id=portfolio_id)
 
     cash_sym = CASH_USD_SYMBOL if currency == "USD" else CASH_THB_SYMBOL
     return (
@@ -575,7 +590,7 @@ def _manage_cash_flow_locked(
 
 
 @tool
-def update_fx_rate(rate: float | None = None) -> str:
+def update_fx_rate(rate: float | None = None, portfolio_id: str = "default") -> str:
     """อัปเดตอัตราแลกเปลี่ยน USD/THB ของพอร์ต
 
     [Usage/When to use]
@@ -585,21 +600,23 @@ def update_fx_rate(rate: float | None = None) -> str:
 
     Args:
         rate (float | None): อัตราแลกเปลี่ยนใหม่ที่กำหนดเอง (หากเป็น None จะดึงอัตโนมัติ)
+        portfolio_id (str): พอร์ตการลงทุนที่ต้องการอัปเดต FX (ค่าเริ่มต้น 'default')
     """
     if rate is not None and rate <= 0:
         return validation_error("rate ต้องมากกว่า 0")
 
+    lock = _get_portfolio_lock(portfolio_id)
     try:
-        with _portfolio_lock:
-            return _update_fx_rate_locked(rate)
+        with lock:
+            return _update_fx_rate_locked(rate, portfolio_id=portfolio_id)
     except Timeout:
         return LOCK_TIMEOUT.format(detail=f"portfolio lock {_LOCK_TIMEOUT}s")
     except ValueError as e:
         return f"Error: {e}"
 
 
-def _update_fx_rate_locked(rate: float | None) -> str:
-    post, state = _load_or_init()
+def _update_fx_rate_locked(rate: float | None, portfolio_id: str = "default") -> str:
+    post, state = _load_or_init(portfolio_id=portfolio_id)
     old_rate = state.fx_rates.get("USDTHB", 0.0) or 0.0
     nav_before = state.summary.total_value_thb
     unrealized_before = state.summary.total_unrealized_profit
@@ -617,7 +634,7 @@ def _update_fx_rate_locked(rate: float | None) -> str:
         source = "manual"
 
     state.fx_rates["USDTHB"] = new_rate
-    _save(post, state)
+    _save(post, state, portfolio_id=portfolio_id)
 
     nav_after = state.summary.total_value_thb
     unrealized_after = state.summary.total_unrealized_profit
@@ -638,6 +655,7 @@ def edit_holding(
     accumulated_dividend_thb: float | None = None,
     asset_type: str | None = None,
     reason: str = "",
+    portfolio_id: str = "default",
 ) -> str:
     """แก้ไขข้อมูล Holding ที่บันทึกผิด (Correction Tool)
 
@@ -655,6 +673,7 @@ def edit_holding(
         accumulated_dividend_thb (float | None): เงินปันผลสะสมใหม่
         asset_type (str | None): ประเภทสินทรัพย์ใหม่
         reason (str): เหตุผลที่แก้ไข (เพื่อบันทึกลง Log)
+        portfolio_id (str): พอร์ตการลงทุนที่ต้องการแก้ไข (ค่าเริ่มต้น 'default')
     """
     sym = symbol.strip().upper()
     if sym in _CASH_SYMBOLS:
@@ -668,10 +687,11 @@ def edit_holding(
     if accumulated_dividend_thb is not None and accumulated_dividend_thb < 0:
         return validation_error("accumulated_dividend_thb ต้อง >= 0")
 
+    lock = _get_portfolio_lock(portfolio_id)
     try:
-        with _portfolio_lock:
+        with lock:
             return _edit_holding_locked(
-                sym, units, avg_cost, accumulated_dividend_thb, asset_type, reason
+                sym, units, avg_cost, accumulated_dividend_thb, asset_type, reason, portfolio_id=portfolio_id
             )
     except Timeout:
         return LOCK_TIMEOUT.format(detail=f"portfolio lock {_LOCK_TIMEOUT}s")
@@ -686,8 +706,9 @@ def _edit_holding_locked(
     accumulated_dividend_thb: float | None,
     asset_type: str | None,
     reason: str,
+    portfolio_id: str = "default",
 ) -> str:
-    post, state = _load_or_init()
+    post, state = _load_or_init(portfolio_id=portfolio_id)
     target = _find_holding(state, symbol)
     if target is None:
         raise ValueError(f"ไม่พบ {symbol} ใน portfolio")
@@ -732,7 +753,7 @@ def _edit_holding_locked(
     if not changes:
         raise ValueError("ค่าใหม่เหมือนเดิมทั้งหมด — ไม่มีอะไรต้องแก้")
 
-    _save(post, state)
+    _save(post, state, portfolio_id=portfolio_id)
     nav_after = state.summary.total_value_thb
 
     reason_text = reason.strip() or "(no reason given)"
@@ -759,6 +780,7 @@ def structured_execute_trade(
     date: str | None = None,
     notes: str = "",
     bucket_id: str | None = None,
+    portfolio_id: str = "default",
 ) -> PortfolioState:
     """Structured mutation accessor สำหรับ execute trade โดย raise exceptions เพื่อให้ REST mapping ทำงาน"""
     sym = symbol.strip().upper()
@@ -771,15 +793,16 @@ def structured_execute_trade(
     if action not in ("buy", "sell"):
         raise ValueError("action ต้องเป็น 'buy' หรือ 'sell'")
 
-    with _portfolio_lock:
+    lock = _get_portfolio_lock(portfolio_id)
+    with lock:
         if exchange_rate is not None and exchange_rate > 0 and currency == "USD":
-            post, state = _load_or_init()
+            post, state = _load_or_init(portfolio_id=portfolio_id)
             state.fx_rates["USDTHB"] = exchange_rate
-            _save(post, state)
+            _save(post, state, portfolio_id=portfolio_id)
 
-        _execute_trade_locked(sym, asset_type, action, units, price, currency, notes=notes)
+        _execute_trade_locked(sym, asset_type, action, units, price, currency, notes=notes, portfolio_id=portfolio_id)
 
-        post, state = _load_or_init()
+        post, state = _load_or_init(portfolio_id=portfolio_id)
         target = _find_holding(state, sym)
         modified = False
         if target is not None and bucket_id is not None:
@@ -791,7 +814,7 @@ def structured_execute_trade(
                 content += f" — {notes.strip()}"
             _write_journal_entry(content, date_str=date)
         if modified:
-            _save(post, state)
+            _save(post, state, portfolio_id=portfolio_id)
         return state
 
 
@@ -802,6 +825,7 @@ def structured_manage_cash_flow(
     exchange_rate: float | None = None,
     date: str | None = None,
     notes: str = "",
+    portfolio_id: str = "default",
 ) -> PortfolioState:
     """Structured mutation accessor สำหรับฝาก/ถอนเงินสด"""
     if amount <= 0:
@@ -811,14 +835,15 @@ def structured_manage_cash_flow(
     if currency not in ("THB", "USD"):
         raise ValueError(f"currency ต้องเป็น 'THB' หรือ 'USD' (got '{currency}')")
 
-    with _portfolio_lock:
+    lock = _get_portfolio_lock(portfolio_id)
+    with lock:
         if exchange_rate is not None and exchange_rate > 0 and currency == "USD":
-            post, state = _load_or_init()
+            post, state = _load_or_init(portfolio_id=portfolio_id)
             state.fx_rates["USDTHB"] = exchange_rate
-            _save(post, state)
+            _save(post, state, portfolio_id=portfolio_id)
 
-        _manage_cash_flow_locked(amount, action, currency)
-        post, state = _load_or_init()
+        _manage_cash_flow_locked(amount, action, currency, portfolio_id=portfolio_id)
+        post, state = _load_or_init(portfolio_id=portfolio_id)
         if notes.strip() or (date and date.strip()):
             content = f"**[CASH FLOW NOTE]** {action.upper()} {amount:,.2f} {currency}"
             if notes.strip():
@@ -833,14 +858,16 @@ def structured_record_income(
     source_symbol: str | None = None,
     date: str | None = None,
     notes: str = "",
+    portfolio_id: str = "default",
 ) -> PortfolioState:
     """Structured mutation accessor สำหรับบันทึกรายได้"""
     if amount_thb <= 0:
         raise ValueError("amount_thb ต้องมากกว่า 0")
 
-    with _portfolio_lock:
-        _record_income_locked(income_type, amount_thb, source_symbol)
-        post, state = _load_or_init()
+    lock = _get_portfolio_lock(portfolio_id)
+    with lock:
+        _record_income_locked(income_type, amount_thb, source_symbol, portfolio_id=portfolio_id)
+        post, state = _load_or_init(portfolio_id=portfolio_id)
         if notes.strip() or (date and date.strip()):
             src_note = f" ({source_symbol})" if source_symbol else ""
             content = f"**[INCOME NOTE - {income_type}{src_note}]** +{amount_thb:,.2f} THB"
@@ -858,6 +885,7 @@ def structured_edit_holding(
     asset_type: str | None = None,
     reason: str = "",
     bucket_id: str | None = None,
+    portfolio_id: str = "default",
 ) -> PortfolioState:
     """Structured mutation accessor สำหรับแก้ไข Holding"""
     sym = symbol.strip().upper()
@@ -872,35 +900,37 @@ def structured_edit_holding(
     if accumulated_dividend_thb is not None and accumulated_dividend_thb < 0:
         raise ValueError("accumulated_dividend_thb ต้อง >= 0")
 
-    with _portfolio_lock:
-        post, state = _load_or_init()
+    lock = _get_portfolio_lock(portfolio_id)
+    with lock:
+        post, state = _load_or_init(portfolio_id=portfolio_id)
         target = _find_holding(state, sym)
         if target is None:
             raise ValueError(f"ไม่พบ {sym} ใน portfolio")
 
         if any(v is not None for v in (units, avg_cost, accumulated_dividend_thb, asset_type)):
-            _edit_holding_locked(sym, units, avg_cost, accumulated_dividend_thb, asset_type, reason or "Structured API Edit")
+            _edit_holding_locked(sym, units, avg_cost, accumulated_dividend_thb, asset_type, reason or "Structured API Edit", portfolio_id=portfolio_id)
 
-        post, state = _load_or_init()
+        post, state = _load_or_init(portfolio_id=portfolio_id)
         target = _find_holding(state, sym)
         if target is not None and bucket_id is not None and target.bucket_id != bucket_id:
             target.bucket_id = bucket_id
-            _save(post, state)
+            _save(post, state, portfolio_id=portfolio_id)
         return state
 
 
-def structured_remove_holding(symbol: str) -> PortfolioState:
+def structured_remove_holding(symbol: str, portfolio_id: str = "default") -> PortfolioState:
     """Structured mutation accessor สำหรับลบ Holding ออกจากพอร์ตโดยตรง"""
     sym = symbol.strip().upper()
     if sym in _CASH_SYMBOLS:
         raise ValueError("ไม่สามารถลบรายการเงินสด (Cash) ผ่าน remove_holding ได้")
-    with _portfolio_lock:
-        post, state = _load_or_init()
+    lock = _get_portfolio_lock(portfolio_id)
+    with lock:
+        post, state = _load_or_init(portfolio_id=portfolio_id)
         target = _find_holding(state, sym)
         if target is None:
             raise ValueError(f"ไม่พบสินทรัพย์ {sym} ในพอร์ต")
         state.holdings.remove(target)
-        _save(post, state)
+        _save(post, state, portfolio_id=portfolio_id)
         _write_journal_entry(f"**[REMOVE {sym}]** ลบสินทรัพย์ออกจากพอร์ตโดยตรง")
         return state
 

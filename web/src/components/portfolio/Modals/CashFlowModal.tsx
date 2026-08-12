@@ -5,11 +5,12 @@ import { api } from '../../../api/client'
 import type { ActualPortfolioStateDTO } from '../../../api/types'
 
 interface Props {
+  selectedPortfolioId?: string
   onClose: () => void
   onSuccess: (state: ActualPortfolioStateDTO) => void
 }
 
-export default function CashFlowModal({ onClose, onSuccess }: Props) {
+export default function CashFlowModal({ selectedPortfolioId = 'default', onClose, onSuccess }: Props) {
   const [action, setAction] = useState<'deposit' | 'withdraw'>('deposit')
   const [amount, setAmount] = useState<string>('')
   const [currency, setCurrency] = useState<'THB' | 'USD'>('THB')
@@ -29,14 +30,17 @@ export default function CashFlowModal({ onClose, onSuccess }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const state = await api.manageCashFlow({
-        action,
-        amount: parseFloat(amount),
-        currency,
-        exchange_rate: exchangeRate ? parseFloat(exchangeRate) : null,
-        date: date || null,
-        notes: notes.trim(),
-      })
+      const state = await api.manageCashFlow(
+        {
+          action,
+          amount: parseFloat(amount),
+          currency,
+          exchange_rate: exchangeRate ? parseFloat(exchangeRate) : null,
+          date: date || null,
+          notes: notes.trim(),
+        },
+        selectedPortfolioId
+      )
       onSuccess(state)
       onClose()
     } catch (err: any) {

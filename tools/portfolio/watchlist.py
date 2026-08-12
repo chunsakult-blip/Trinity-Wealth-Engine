@@ -49,22 +49,35 @@ _portfolio_lock = FileLock(_PORTFOLIO_LOCK_PATH, timeout=_LOCK_TIMEOUT)
 
 
 
-def _atomic_write_watchlist(serialized: str) -> None:
+from .core import _get_portfolio_lock, _load_or_init, _save
+
+
+def _get_watchlist_filepath(portfolio_id: str = "default") -> Path:
+    pid = portfolio_id.strip().lower() if portfolio_id else "default"
+    if pid == "default":
+        return WATCHLIST_PATH
+    pdir = VAULT_PATH / "20_Portfolio_Management/Current_Holdings/Portfolios"
+    pdir.mkdir(parents=True, exist_ok=True)
+    return pdir / f"{pid}_watchlist.md"
+
+
+def _atomic_write_watchlist(serialized: str, portfolio_id: str = "default") -> None:
     """Atomic write สำหรับ Watchlist.md — pattern เดียวกับ portfolio _atomic_write"""
-    parent = WATCHLIST_PATH.parent
+    wpath = _get_watchlist_filepath(portfolio_id)
+    parent = wpath.parent
     parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix=".watchlist_", suffix=".md.tmp", dir=str(parent))
     tmp_path = Path(tmp_name)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(serialized)
-        os.replace(tmp_path, WATCHLIST_PATH)
+        os.replace(tmp_path, wpath)
     except Exception:
         tmp_path.unlink(missing_ok=True)
         raise
 
 
-def _save_watchlist(post: frontmatter.Post, state: WatchlistState) -> None:
+def _save_watchlist(post: frontmatter.Post, state: WatchlistState, portfolio_id: str = "default") -> None:
     state.last_updated = _now_iso()
     dump = state.model_dump(exclude_none=True)
 
@@ -78,8 +91,9 @@ def _save_watchlist(post: frontmatter.Post, state: WatchlistState) -> None:
     post.metadata.update(ordered)
     post.content = ""
 
-    _atomic_write_watchlist(frontmatter.dumps(post, sort_keys=False))
-    _sync_watchlist_sidecars(state)
+    _atomic_write_watchlist(frontmatter.dumps(post, sort_keys=False), portfolio_id=portfolio_id)
+    if portfolio_id == "default":
+        _sync_watchlist_sidecars(state)
 
 
 def _watchlist_item_to_md(item: WatchlistItem) -> str:
@@ -119,21 +133,22 @@ def _sync_watchlist_sidecars(state: WatchlistState) -> None:
             log.debug("[SIDECAR DEL] | watchlist/%s", old.name)
 
 
-def _load_or_init_watchlist() -> tuple[frontmatter.Post, WatchlistState]:
-    if not WATCHLIST_PATH.exists():
-        WATCHLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+def _load_or_init_watchlist(portfolio_id: str = "default") -> tuple[frontmatter.Post, WatchlistState]:
+    wpath = _get_watchlist_filepath(portfolio_id)
+    if not wpath.exists():
+        wpath.parent.mkdir(parents=True, exist_ok=True)
         post = frontmatter.Post(content="")
         state = WatchlistState(last_updated=_now_iso())
-        _save_watchlist(post, state)
+        _save_watchlist(post, state, portfolio_id=portfolio_id)
         return post, state
 
-    with WATCHLIST_PATH.open("r", encoding="utf-8") as f:
+    with wpath.open("r", encoding="utf-8") as f:
         post = frontmatter.load(f)
 
     if not post.metadata:
-        log.warning("Watchlist.md ไม่มี YAML frontmatter — บูตข้อมูลใหม่")
+        log.warning("Watchlist file %s ไม่มี YAML frontmatter — บูตข้อมูลใหม่", wpath)
         state = WatchlistState(last_updated=_now_iso())
-        _save_watchlist(post, state)
+        _save_watchlist(post, state, portfolio_id=portfolio_id)
         return post, state
 
     state = WatchlistState.model_validate(post.metadata)
@@ -146,6 +161,7 @@ def add_to_watchlist(
     asset_type: str,
     target_price: float | None = None,
     notes: str | None = None,
+    portfolio_id: str = "default",
 ) -> str:
     """เพิ่มหรืออัปเดตสินทรัพย์ใน Watchlist
 
@@ -158,6 +174,7 @@ def add_to_watchlist(
         asset_type (str): ประเภทสินทรัพย์
         target_price (float | None): ราคาที่ต้องการแจ้งเตือนเมื่อถึงเป้า
         notes (str | None): บันทึกเตือนความจำเพิ่มเติม
+        portfolio_id (str): พอร์ตการลงทุนที่ต้องการเพิ่ม (ค่าเริ่มต้น 'default')
     """
     sym = symbol.strip().upper()
     if not sym:
@@ -165,9 +182,10 @@ def add_to_watchlist(
     if target_price is not None and target_price <= 0:
         return validation_error("target_price ต้องมากกว่า 0")
 
+    lock = _get_portfolio_lock(portfolio_id)
     try:
-        with _watchlist_lock:
-            post, state = _load_or_init_watchlist()
+        with lock:
+            post, state = _load_or_init_watchlist(portfolio_id=portfolio_id)
             today = datetime.now().strftime("%Y-%m-%d")
 
             existing_idx = next(
@@ -190,7 +208,7 @@ def add_to_watchlist(
             else:
                 state.items.append(new_item)
                 action = "[WATCH ADD]"
-            _save_watchlist(post, state)
+            _save_watchlist(post, state, portfolio_id=portfolio_id)
             total_items = len(state.items)
     except Timeout:
         return LOCK_TIMEOUT.format(detail=f"watchlist lock {_LOCK_TIMEOUT}s")
@@ -202,7 +220,7 @@ def add_to_watchlist(
 
 
 @tool
-def remove_from_watchlist(symbol: str) -> str:
+def remove_from_watchlist(symbol: str, portfolio_id: str = "default") -> str:
     """ลบสินทรัพย์ออกจาก Watchlist
 
     [Usage/When to use]
@@ -210,19 +228,21 @@ def remove_from_watchlist(symbol: str) -> str:
 
     Args:
         symbol (str): Ticker ที่ต้องการลบ
+        portfolio_id (str): พอร์ตการลงทุนที่ต้องการลบ (ค่าเริ่มต้น 'default')
     """
     sym = symbol.strip().upper()
     if not sym:
         return validation_error("symbol ต้องไม่ว่าง")
 
+    lock = _get_portfolio_lock(portfolio_id)
     try:
-        with _watchlist_lock:
-            post, state = _load_or_init_watchlist()
+        with lock:
+            post, state = _load_or_init_watchlist(portfolio_id=portfolio_id)
             existing = next((it for it in state.items if it.symbol == sym), None)
             if existing is None:
                 return validation_error(f"ไม่พบ {sym} ใน Watchlist")
             state.items.remove(existing)
-            _save_watchlist(post, state)
+            _save_watchlist(post, state, portfolio_id=portfolio_id)
             remaining = len(state.items)
     except Timeout:
         return LOCK_TIMEOUT.format(detail=f"watchlist lock {_LOCK_TIMEOUT}s")
@@ -233,18 +253,22 @@ def remove_from_watchlist(symbol: str) -> str:
 
 
 @tool
-def read_watchlist() -> str:
+def read_watchlist(portfolio_id: str = "default") -> str:
     """อ่านรายการสินทรัพย์ที่อยู่ใน Watchlist
 
     [Usage/When to use]
     ใช้เพื่อดูรายการสินทรัพย์ที่จับตาดูอยู่และราคาเป้าหมาย
 
+    Args:
+        portfolio_id (str): พอร์ตการลงทุนที่ต้องการอ่าน (ค่าเริ่มต้น 'default')
+
     Returns:
         str: ข้อมูล Watchlist ในรูปแบบ JSON String
     """
+    lock = _get_portfolio_lock(portfolio_id)
     try:
-        with _watchlist_lock:
-            _, state = _load_or_init_watchlist()
+        with lock:
+            _, state = _load_or_init_watchlist(portfolio_id=portfolio_id)
             dump = state.model_dump(exclude_none=True)
     except Timeout:
         return json.dumps(
@@ -264,15 +288,16 @@ def read_watchlist() -> str:
     )
 
 
-def get_structured_watchlist() -> WatchlistState:
+def get_structured_watchlist(portfolio_id: str = "default") -> WatchlistState:
     """Structured read accessor สำหรับ Watchlist คืนค่า Pydantic WatchlistState"""
-    with _watchlist_lock:
-        _, state = _load_or_init_watchlist()
+    lock = _get_portfolio_lock(portfolio_id)
+    with lock:
+        _, state = _load_or_init_watchlist(portfolio_id=portfolio_id)
         return state
 
 
 def structured_upsert_watchlist_item(
-    symbol: str, asset_type: str, target_price: float | None = None, notes: str = ""
+    symbol: str, asset_type: str, target_price: float | None = None, notes: str = "", portfolio_id: str = "default"
 ) -> WatchlistState:
     """Structured mutation accessor สำหรับเพิ่มหรืออัปเดต Watchlist item"""
     sym = symbol.strip().upper()
@@ -281,8 +306,9 @@ def structured_upsert_watchlist_item(
     if target_price is not None and target_price <= 0:
         raise ValueError("target_price ต้องมากกว่า 0")
 
-    with _watchlist_lock:
-        post, state = _load_or_init_watchlist()
+    lock = _get_portfolio_lock(portfolio_id)
+    with lock:
+        post, state = _load_or_init_watchlist(portfolio_id=portfolio_id)
         today = datetime.now().strftime("%Y-%m-%d")
         existing_idx = next(
             (i for i, it in enumerate(state.items) if it.symbol == sym),
@@ -302,25 +328,26 @@ def structured_upsert_watchlist_item(
             state.items[existing_idx] = new_item
         else:
             state.items.append(new_item)
-        _save_watchlist(post, state)
+        _save_watchlist(post, state, portfolio_id=portfolio_id)
         return state
 
 
-def structured_remove_watchlist_item(symbol: str) -> WatchlistState:
+def structured_remove_watchlist_item(symbol: str, portfolio_id: str = "default") -> WatchlistState:
     """Structured mutation accessor สำหรับลบ Watchlist item"""
     sym = symbol.strip().upper()
     if not sym:
         raise ValueError("symbol ต้องไม่ว่าง")
 
-    with _watchlist_lock:
-        post, state = _load_or_init_watchlist()
+    lock = _get_portfolio_lock(portfolio_id)
+    with lock:
+        post, state = _load_or_init_watchlist(portfolio_id=portfolio_id)
         existing = next((it for it in state.items if it.symbol == sym), None)
         if existing is None:
             raise ValueError(f"ไม่พบ {sym} ใน Watchlist")
         state.items.remove(existing)
-        _save_watchlist(post, state)
+        _save_watchlist(post, state, portfolio_id=portfolio_id)
         return state
 
 
 _WATCHLIST_LOCK_PATH = str(WATCHLIST_PATH) + ".lock"
-_watchlist_lock = FileLock(_WATCHLIST_LOCK_PATH, timeout=_LOCK_TIMEOUT)
+_watchlist_lock = _get_portfolio_lock("default")

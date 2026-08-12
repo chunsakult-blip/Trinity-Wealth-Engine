@@ -90,7 +90,8 @@ export const api = {
   getEquityNoteContent: (relPath: string) => request<import('./types').EquityNoteContentDTO>(`/api/equity/notes/content?rel_path=${encodeURIComponent(relPath)}`),
 
 
-  getPortfolioCalendar: () => request<import('./types').PortfolioCalendarDTO>('/api/portfolio/calendar'),
+  getPortfolioCalendar: (portfolioId: string = 'default') =>
+    request<import('./types').PortfolioCalendarDTO>(`/api/portfolio/calendar?portfolio_id=${encodeURIComponent(portfolioId)}`),
 
   getMacroIndicatorSeries: (indicatorId: string, range: '1m' | '3m' | '1y') =>
     request<import('./types').MacroIndicatorSeriesDTO>(
@@ -171,32 +172,57 @@ export const api = {
     }),
 
   // ---------------------------------------------------------
-  // Actual Portfolio Hub Endpoints (Phase 1)
+  // Actual Portfolio Hub Endpoints (Phase 1 & Multi-Portfolio)
   // ---------------------------------------------------------
-  getActualPortfolioState: (refreshPrices: boolean = false, fetchFundamentals: boolean = false) =>
+  listPortfolios: () => request<import('./types').PortfolioMetaDTO[]>('/api/portfolio/list'),
+
+  createPortfolio: (name: string, portfolioId?: string) =>
+    request<import('./types').PortfolioMetaDTO>('/api/portfolio/create', {
+      method: 'POST',
+      body: JSON.stringify({ name, portfolio_id: portfolioId }),
+    }),
+
+  deletePortfolio: (portfolioId: string) =>
+    request<{ status: string }>(`/api/portfolio/${encodeURIComponent(portfolioId)}`, {
+      method: 'DELETE',
+    }),
+
+  renamePortfolio: (portfolioId: string, name: string) =>
+    request<import('./types').PortfolioMetaDTO>(`/api/portfolio/${encodeURIComponent(portfolioId)}/rename`, {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    }),
+
+
+  getActualPortfolioState: (refreshPrices: boolean = false, fetchFundamentals: boolean = false, portfolioId: string = 'default') =>
     request<ActualPortfolioStateDTO>(
-      `/api/portfolio/actual/state?refresh_prices=${refreshPrices}&fetch_fundamentals=${fetchFundamentals}`
+      `/api/portfolio/actual/state?refresh_prices=${refreshPrices}&fetch_fundamentals=${fetchFundamentals}&portfolio_id=${encodeURIComponent(portfolioId)}`
     ),
 
-  getActualBucketAllocations: () =>
-    request<BucketAllocationResponseDTO>('/api/portfolio/actual/allocations'),
+  getActualBucketAllocations: (portfolioId: string = 'default') =>
+    request<BucketAllocationResponseDTO>(`/api/portfolio/actual/allocations?portfolio_id=${encodeURIComponent(portfolioId)}`),
 
-  getActualWatchlist: () => request<ActualWatchlistStateDTO>('/api/portfolio/actual/watchlist'),
+  getActualWatchlist: (portfolioId: string = 'default') =>
+    request<ActualWatchlistStateDTO>(`/api/portfolio/actual/watchlist?portfolio_id=${encodeURIComponent(portfolioId)}`),
 
-  getActualGoals: () => request<ActualGoalsResponseDTO>('/api/portfolio/actual/goals'),
-
-  getActualPerformance: (days?: number) => {
-    const params = days !== undefined ? `?days=${days}` : ''
-    return request<PerformanceSnapshotDTO[]>(`/api/portfolio/actual/performance${params}`)
+  getActualGoals: (portfolioId?: string) => {
+    const params = portfolioId ? `?portfolio_id=${encodeURIComponent(portfolioId)}` : ''
+    return request<ActualGoalsResponseDTO>(`/api/portfolio/actual/goals${params}`)
   },
 
-  triggerPerformanceSnapshot: (refreshPrices: boolean = false) =>
-    request<PerformanceSnapshotDTO[]>(`/api/portfolio/actual/performance/snapshot?refresh_prices=${refreshPrices}`, {
+  getActualPerformance: (days?: number, portfolioId: string = 'default') => {
+    const params = new URLSearchParams({ portfolio_id: portfolioId })
+    if (days !== undefined) params.append('days', days.toString())
+    return request<PerformanceSnapshotDTO[]>(`/api/portfolio/actual/performance?${params.toString()}`)
+  },
+
+  triggerPerformanceSnapshot: (refreshPrices: boolean = false, portfolioId: string = 'default') =>
+    request<PerformanceSnapshotDTO[]>(`/api/portfolio/actual/performance/snapshot?refresh_prices=${refreshPrices}&portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'POST',
     }),
 
-  getActualJournal: (days: number = 365, keyword?: string, limit: number = 100) => {
-    const params = new URLSearchParams({ days: days.toString(), limit: limit.toString() })
+  getActualJournal: (days: number = 365, keyword?: string, limit: number = 100, portfolioId: string = 'default') => {
+    const params = new URLSearchParams({ days: days.toString(), limit: limit.toString(), portfolio_id: portfolioId })
     if (keyword) params.append('keyword', keyword)
     return request<JournalEntryDTO[]>(`/api/portfolio/actual/journal?${params.toString()}`)
   },
@@ -204,72 +230,72 @@ export const api = {
   // ---------------------------------------------------------
   // Actual Portfolio Hub Mutation Endpoints (Phase 2.1 & 2.2)
   // ---------------------------------------------------------
-  upsertAllocationTargets: (payload: UpsertAllocationTargetsPayload) =>
-    request<ActualPortfolioStateDTO>('/api/portfolio/actual/allocations/targets', {
+  upsertAllocationTargets: (payload: UpsertAllocationTargetsPayload, portfolioId: string = 'default') =>
+    request<ActualPortfolioStateDTO>(`/api/portfolio/actual/allocations/targets?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
 
-  assignHoldingBucket: (symbol: string, payload: AssignBucketPayload) =>
-    request<ActualPortfolioStateDTO>(`/api/portfolio/actual/holdings/${encodeURIComponent(symbol)}/bucket`, {
+  assignHoldingBucket: (symbol: string, payload: AssignBucketPayload, portfolioId: string = 'default') =>
+    request<ActualPortfolioStateDTO>(`/api/portfolio/actual/holdings/${encodeURIComponent(symbol)}/bucket?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
 
-  batchAssignHoldingBuckets: (payload: BatchAssignBucketPayload) =>
-    request<ActualPortfolioStateDTO>('/api/portfolio/actual/holdings/batch-bucket', {
+  batchAssignHoldingBuckets: (payload: BatchAssignBucketPayload, portfolioId: string = 'default') =>
+    request<ActualPortfolioStateDTO>(`/api/portfolio/actual/holdings/batch-bucket?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
 
-  batchRemoveHoldings: (payload: BatchRemoveHoldingsPayload) =>
-    request<ActualPortfolioStateDTO>('/api/portfolio/actual/holdings/batch-delete', {
+  batchRemoveHoldings: (payload: BatchRemoveHoldingsPayload, portfolioId: string = 'default') =>
+    request<ActualPortfolioStateDTO>(`/api/portfolio/actual/holdings/batch-delete?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
 
-  resetPortfolioCleanSlate: () =>
-    request<ActualPortfolioStateDTO>('/api/portfolio/actual/reset', {
+  resetPortfolioCleanSlate: (portfolioId: string = 'default') =>
+    request<ActualPortfolioStateDTO>(`/api/portfolio/actual/reset?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'POST',
     }),
 
-  executeTrade: (payload: TradePayload) =>
-    request<ActualPortfolioStateDTO>('/api/portfolio/actual/trade', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
-
-  manageCashFlow: (payload: CashFlowPayload) =>
-    request<ActualPortfolioStateDTO>('/api/portfolio/actual/cashflow', {
+  executeTrade: (payload: TradePayload, portfolioId: string = 'default') =>
+    request<ActualPortfolioStateDTO>(`/api/portfolio/actual/trade?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
 
-  recordIncome: (payload: IncomePayload) =>
-    request<ActualPortfolioStateDTO>('/api/portfolio/actual/income', {
+  manageCashFlow: (payload: CashFlowPayload, portfolioId: string = 'default') =>
+    request<ActualPortfolioStateDTO>(`/api/portfolio/actual/cashflow?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
 
-  editHolding: (symbol: string, payload: EditHoldingPayload) =>
-    request<ActualPortfolioStateDTO>(`/api/portfolio/actual/holdings/${encodeURIComponent(symbol)}/edit`, {
+  recordIncome: (payload: IncomePayload, portfolioId: string = 'default') =>
+    request<ActualPortfolioStateDTO>(`/api/portfolio/actual/income?portfolio_id=${encodeURIComponent(portfolioId)}`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  editHolding: (symbol: string, payload: EditHoldingPayload, portfolioId: string = 'default') =>
+    request<ActualPortfolioStateDTO>(`/api/portfolio/actual/holdings/${encodeURIComponent(symbol)}/edit?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
 
-  removeHolding: (symbol: string) =>
-    request<ActualPortfolioStateDTO>(`/api/portfolio/actual/holdings/${encodeURIComponent(symbol)}`, {
+  removeHolding: (symbol: string, portfolioId: string = 'default') =>
+    request<ActualPortfolioStateDTO>(`/api/portfolio/actual/holdings/${encodeURIComponent(symbol)}?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'DELETE',
     }),
 
-  upsertWatchlistItem: (symbol: string, payload: UpsertWatchlistItemPayload) =>
-    request<ActualWatchlistStateDTO>(`/api/portfolio/actual/watchlist/${encodeURIComponent(symbol)}`, {
+  upsertWatchlistItem: (symbol: string, payload: UpsertWatchlistItemPayload, portfolioId: string = 'default') =>
+    request<ActualWatchlistStateDTO>(`/api/portfolio/actual/watchlist/${encodeURIComponent(symbol)}?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
 
-  removeWatchlistItem: (symbol: string) =>
-    request<ActualWatchlistStateDTO>(`/api/portfolio/actual/watchlist/${encodeURIComponent(symbol)}`, {
+  removeWatchlistItem: (symbol: string, portfolioId: string = 'default') =>
+    request<ActualWatchlistStateDTO>(`/api/portfolio/actual/watchlist/${encodeURIComponent(symbol)}?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'DELETE',
     }),
 
@@ -279,13 +305,15 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  removeGoal: (name: string) =>
-    request<ActualGoalsResponseDTO>(`/api/portfolio/actual/goals/${encodeURIComponent(name)}`, {
+  removeGoal: (name: string, portfolioId?: string) => {
+    const params = portfolioId ? `?portfolio_id=${encodeURIComponent(portfolioId)}` : ''
+    return request<ActualGoalsResponseDTO>(`/api/portfolio/actual/goals/${encodeURIComponent(name)}${params}`, {
       method: 'DELETE',
-    }),
+    })
+  },
 
-  appendJournal: (payload: AppendJournalPayload) =>
-    request<JournalEntryDTO[]>('/api/portfolio/actual/journal', {
+  appendJournal: (payload: AppendJournalPayload, portfolioId: string = 'default') =>
+    request<JournalEntryDTO[]>(`/api/portfolio/actual/journal?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
