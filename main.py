@@ -12,23 +12,24 @@ from core.utils import normalize_content
 load_dotenv()
 setup_logging()
 
-
 from langchain_core.messages import HumanMessage, AIMessage
+
 
 def _display(node_name: str, state: dict) -> None:
     messages = state.get("messages") if isinstance(state, dict) else None
     if not messages:
         return
+
     last = messages[-1] if isinstance(messages, list) else messages
-    
+
     # ข้าม HumanMessage(name="manager") ที่เป็น internal instruction
     if isinstance(last, HumanMessage) and getattr(last, "name", None) == "manager":
         return
-        
+
     content = normalize_content(getattr(last, "content", ""))
     if not content:
         return
-        
+
     if isinstance(last, AIMessage):
         sender = node_name.replace("post_", "").capitalize()
         print(f"\n[{sender}]: {content}")
@@ -43,9 +44,12 @@ def _run_turn(graph, inputs: dict, config: dict) -> None:
 
 
 def main():
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key or api_key == "your_google_api_key_here":
-        print("ERROR: กรุณาตั้งค่า GOOGLE_API_KEY ใน .env ก่อน")
+    # Trinity-Wealth-Engine uses a single LLM provider:
+    # OpenRouter -> NVIDIA Nemotron 3 Super 120B A12B :free
+    api_key = os.getenv("OPENROUTER_API_KEY")
+
+    if not api_key:
+        print("ERROR: กรุณาตั้งค่า OPENROUTER_API_KEY ใน .env ก่อน")
         return
 
     from agents.manager_agent import build_graph
@@ -54,24 +58,39 @@ def main():
     init_vault_structure()
 
     print("=" * 60)
-    print("  Investment Manager AI — Multi-Agent System")
-    print("  Supervisor: The Manager | Workers: The Archivist, The Bookkeeper")
+    print("  Trinity-Wealth-Engine — Multi-Agent Investment System")
+    print("  LLM: NVIDIA Nemotron 3 Super 120B A12B via OpenRouter")
+    print("  Provider: OpenRouter")
     print("  พิมพ์ 'quit' 'exit' หรือ 'ออก' เพื่อออกจากโปรแกรม")
     print("=" * 60)
 
-    checkpoint_path = os.getenv("CHECKPOINT_DB_PATH", "data/checkpoints.sqlite")
-    os.makedirs(os.path.dirname(checkpoint_path) or ".", exist_ok=True)
+    checkpoint_path = os.getenv(
+        "CHECKPOINT_DB_PATH",
+        "data/checkpoints.sqlite",
+    )
+
+    os.makedirs(
+        os.path.dirname(checkpoint_path) or ".",
+        exist_ok=True,
+    )
 
     with SqliteSaver.from_conn_string(checkpoint_path) as memory:
         graph = build_graph(checkpointer=memory)
+
         config = {
-            "configurable": {"thread_id": str(uuid.uuid4())},
+            "configurable": {
+                "thread_id": str(uuid.uuid4()),
+            },
             "recursion_limit": 40,
-            "tags": ["invest-agents", "cli-session"],
+            "tags": [
+                "trinity-wealth-engine",
+                "invest-agents",
+                "cli-session",
+            ],
             "metadata": {
                 "run_type": "chain",
-                "session_source": "terminal"
-            }
+                "session_source": "terminal",
+            },
         }
 
         while True:
@@ -89,18 +108,35 @@ def main():
                 break
 
             user_input, had_pii = anonymize_pii(user_input)
+
             if had_pii:
-                print("[Security] ตรวจพบและลบข้อมูล PII ก่อนส่งเข้าประมวลผล")
+                print(
+                    "[Security] ตรวจพบและลบข้อมูล PII "
+                    "ก่อนส่งเข้าประมวลผล"
+                )
 
             print("\n[กำลังประมวลผล...]")
 
-            inputs = {"messages": [("user", user_input)]}
+            inputs = {
+                "messages": [
+                    ("user", user_input),
+                ],
+            }
 
             try:
-                with_retry(_run_turn, graph, inputs, config)
+                with_retry(
+                    _run_turn,
+                    graph,
+                    inputs,
+                    config,
+                )
             except Exception as e:
                 if _is_transient_error(e):
-                    print(f"\n[System]: ไม่สามารถติดต่อ AI ได้ในขณะนี้ ({type(e).__name__}) โปรดลองพิมพ์คำถามของคุณใหม่อีกครั้ง")
+                    print(
+                        f"\n[System]: ไม่สามารถติดต่อ AI "
+                        f"ได้ในขณะนี้ ({type(e).__name__}) "
+                        "โปรดลองพิมพ์คำถามของคุณใหม่อีกครั้ง"
+                    )
                 else:
                     print(f"\nERROR: {e}")
 

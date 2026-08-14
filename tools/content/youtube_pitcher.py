@@ -105,11 +105,26 @@ def fetch_news_for_pitching(
 
     if from_date:
         try:
-            from_dt = datetime.strptime(from_date, "%Y-%m-%d").replace(hour=0, minute=0, second=0)
+            from_dt = datetime.strptime(from_date, "%Y-%m-%d").replace(
+                hour=0,
+                minute=0,
+                second=0,
+                microsecond=0,
+            )
         except Exception:
-            from_dt = to_dt - timedelta(days=lookback_days)
+            from_dt = (to_dt - timedelta(days=lookback_days)).replace(
+                hour=0,
+                minute=0,
+                second=0,
+                microsecond=0,
+            )
     else:
-        from_dt = to_dt - timedelta(days=lookback_days)
+        from_dt = (to_dt - timedelta(days=lookback_days)).replace(
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
 
     # เช็คว่าช่วงวันที่ย้อนหลังเกิน 7 วันหรือไม่ (Store ตัดข้อมูลทุก 7 วัน)
     days_in_past = (now - from_dt).days

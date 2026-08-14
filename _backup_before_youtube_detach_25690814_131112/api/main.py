@@ -45,7 +45,7 @@ async def lifespan(app: FastAPI):
     # ของคิวหนึ่งไปกวาดงานอีก flow เข้าคิวตัวเอง (list_jobs_by_status ไม่ filter ตาม flow เอง)
     app.state.job_queue = jobs.JobQueue(
         run_fn=jobs.default_run_fn,
-        flows={"manager", "news_funnel"},
+        flows={"manager", "news_youtube", "news_funnel", "youtube_pitch"},
     )
     app.state.job_queue.reenqueue_pending()
     app.state.job_queue.start()
@@ -108,4 +108,3 @@ if WEB_DIST.is_dir():
             return FileResponse(candidate)
         # index.html ห้าม cache — ไม่งั้น deploy ใหม่แล้ว browser ยังชี้ asset hash เก่า
         return FileResponse(WEB_DIST / "index.html", headers={"Cache-Control": "no-cache"})
-

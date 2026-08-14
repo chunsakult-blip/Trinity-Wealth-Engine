@@ -91,13 +91,6 @@ REGISTRY: dict[str, ModelSlot] = {
         "tool",
     ),
 
-    "youtube_pitch": ModelSlot(
-        "YOUTUBE_PITCH_MODEL",
-        FREE_MODEL,
-        "YouTube investigative pitch and NotebookLM briefing synthesis",
-        "tool",
-    ),
-
     "news_triage": ModelSlot(
         "NEWS_FUNNEL_TRIAGE_MODEL",
         FREE_MODEL,
@@ -135,5 +128,4 @@ def get_registry_summary() -> list[dict]:
         }
         for key, slot in REGISTRY.items()
     ]
-
 

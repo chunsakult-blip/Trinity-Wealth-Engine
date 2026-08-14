@@ -1,0 +1,1737 @@
+==================== agents\equity_narrative_agent.py ====================
+from langchain_core.language_models.chat_models import BaseChatModel
+from core.prompt_harness import get_harness
+
+# EQUITY_NARRATIVE_SYSTEM_PROMPT ถูกย้ายไปที่ prompts/skills/equity_narrative/SKILL.md ผ่านระบบ PromptHarness
+
+
+def create_equity_narrative(model: BaseChatModel):
+    """RunnableLambda มิเรอร์ agents/macro_economist_agent.py — เรียก tools ที่มีอยู่แล้วตรงๆ ในโค้ด
+    (ไม่ให้ LLM เลือกเอง เพราะไม่มีอะไรให้ 'เลือก' — ต้องดึงทั้ง Vault sentiment และข่าวล่าสุดเสมอ)
+    แล้วบังคับ schema ผ่าน with_structured_output ครั้งเดียวตอนท้าย
+    """
+    from langchain_core.runnables import RunnableLambda
+    from langchain_core.messages import AIMessage
+    from schemas.micro_quant_schemas import EquitySentimentContext
+    from tools.archivist.search import search_all_memories
+    from tools.market.news import ingest_stock_news
+
+    def _run_equity_narrative(input_dict):
+        ticker = input_dict.get("ticker") or ""
+        market = input_dict.get("market", "US")
+        company_name = input_dict.get("company_name")
+
+        # ค้นด้วยชื่อบริษัทเต็มถ้ามี (ไม่ใช่แค่ ticker เปล่าๆ) — search_all_memories เป็น semantic/vector
+        # search ค้นด้วยชื่อบริษัทภาษาธรรมชาติมักได้ผลลัพธ์ตรงกว่าค้นด้วย ticker symbol สั้นๆ
+        search_keyword = f"{ticker} {company_name}".strip() if company_name else ticker
+
+        try:
+            vault_text = search_all_memories.invoke({"keyword": search_keyword})
+        except Exception as e:
+            vault_text = f"Error searching vault: {e}"
+
+        try:
+            news_text = ingest_stock_news.invoke({"ticker": ticker, "market": market})
+        except Exception as e:
+            news_text = f"Error fetching news: {e}"
+
+        context = f"=== Vault Sentiment History ===\n{vault_text}\n\n=== Latest News ===\n{news_text}"
+
+        structured = model.with_structured_output(EquitySentimentContext)
+        harness = get_harness("equity_narrative")
+        res = structured.invoke([
+            {"role": "system", "content": harness.get_system_prompt()},
+            {"role": "user", "content": harness.get_skill_text("HUMAN.md", ticker=ticker, context=context)},
+        ])
+
+        return {
+            "messages": [AIMessage(content=res.model_dump_json(), name="equity_narrative")],
+            "equity_news_raw": news_text,
+        }
+
+    return RunnableLambda(_run_equity_narrative)
+
+
+==================== agents\equity_quant_agent.py ====================
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain.agents import create_agent
+from tools.market.equity_quant_tool import compute_equity_quant_signals
+from core.prompt_harness import get_harness
+
+# EQUITY_QUANT_SYSTEM_PROMPT ถูกย้ายไปที่ prompts/skills/equity_quant/SKILL.md ผ่านระบบ PromptHarness
+
+_equity_quant_tools = [compute_equity_quant_signals]
+
+def create_equity_quant(model: BaseChatModel):
+    return create_agent(
+        model=model,
+        tools=_equity_quant_tools,
+        system_prompt=get_harness("equity_quant").get_system_prompt()
+    )
+
+
+==================== agents\equity_synthesizer.py ====================
+from langchain_core.language_models.chat_models import BaseChatModel
+
+from core.prompt_harness import get_harness
+from schemas.micro_quant_schemas import EquityNarrativeOutput
+
+
+def invoke_equity_synthesizer(
+    model: BaseChatModel,
+    quant_json: str,
+    narrative_json: str,
+) -> EquityNarrativeOutput:
+    """Invoke the model with structured output + retry layer — มิเรอร์ agents/strategic_allocator.py
+
+    LLM เห็นเฉพาะ quant_json/narrative_json ที่ validate ผ่านมาแล้วเป็น read-only context
+    เขียนได้แค่ narrative text ตาม EquityNarrativeOutput schema — ไม่มี field ตัวเลขให้แตะเลย
+    """
+    from validators.structured_output_retry import invoke_with_retry
+
+    harness = get_harness("equity_synthesizer")
+    system_content = harness.get_system_prompt()
+    human_content = harness.get_skill_text(
+        "HUMAN.md",
+        quant_json=quant_json,
+        narrative_json=narrative_json,
+    )
+
+    messages = [
+        {"role": "system", "content": system_content},
+        {"role": "human", "content": human_content},
+    ]
+    narrative, _ = invoke_with_retry(
+        model=model,
+        messages=messages,
+        output_schema=EquityNarrativeOutput,
+        observable_registry={},
+        max_retries=1,
+        agent_name="equity_synthesizer",
+    )
+    return narrative
+
+
+==================== tools\market\dcf_valuation.py ====================
+"""DCF / Multi-Valuation Fair Value Engine — Real WACC, CAPM, and Single Source Macro Observables.
+
+Baseline Source Citations (For Fallbacks):
+1. Thai 10Y Bond Yield: ~2.75% (Bank of Thailand / ThaiBMA Q2 2026 Baseline)
+2. Thailand Country Risk Premium (CRP): ~1.75% (Damodaran Rating-based CRP Table for Baa2/BBB Sovereign Rating)
+"""
+from typing import Any, Optional, Dict, List, Tuple
+from pathlib import Path
+
+from langsmith import traceable
+
+from core.logger import get_logger
+from schemas.macro_schemas import MarketObservable
+from schemas.micro_quant_schemas import DCFResult, DCFScenario
+from tools.macro.valuation import _find_dgs10_in_observables, VALUATION_RICH_ERP_THRESHOLD
+
+log = get_logger(__name__)
+
+
+@traceable(run_type="parser")
+def _extract_obs_erp(macro_registry: Dict[str, MarketObservable]) -> Tuple[float, Optional[str]]:
+    """Helper ดึง obs_erp_gspc จาก macro_registry พร้อม ID"""
+    obs = macro_registry.get("obs_erp_gspc")
+    if obs and getattr(obs, "is_valid", True):
+        try:
+            return float(obs.value), obs.observable_id
+        except ValueError:
+            pass
+    return 2.10, None
+
+
+@traceable(run_type="parser")
+def compute_dcf_valuation(
+    ticker: str,
+    market: str,
+    current_price: float,
+    beta: Optional[float],
+    fcf_per_share: float,
+    market_cap: float,
+    total_debt: float,
+    interest_expense: Optional[float],
+    tax_rate: float,
+    fcf_cagr_3y: Optional[float],
+    macro_registry: Dict[str, MarketObservable],
+    forward_eps: Optional[float] = None,
+    trailing_eps: Optional[float] = None,
+) -> Tuple[Optional[DCFResult], List[str]]:
+    """คำนวณ DCF Target Price 3 ฉากทัศน์ (Bull / Base / Bear) ด้วย Real WACC"""
+    flags: List[str] = []
+    observable_refs: List[str] = []
+
+    # 1. Guards: Negative FCF or Missing Beta
+    if fcf_per_share <= 0:
+        flags.append("negative_fcf_dcf_unavailable:dcf")
+        return None, flags
+
+    if beta is None:
+        flags.append("beta_unavailable_dcf_unavailable:dcf")
+        return None, flags
+
+    if current_price <= 0:
+        return None, flags
+
+    # 2. Dynamic Observable Refs Resolution & Market CAPM
+    if market == "TH":
+        th_rf_obs = macro_registry.get("obs_th_10y_yield")  # Literal key
+        if th_rf_obs and getattr(th_rf_obs, "is_valid", True):
+            try:
+                risk_free_rate = float(th_rf_obs.value)
+                observable_refs.append(th_rf_obs.observable_id)
+            except ValueError:
+                risk_free_rate = 2.75
+                flags.append("hardcoded_th_risk_free:dcf")
+        else:
+            risk_free_rate = 2.75  # Primary Operational Path
+            flags.append("hardcoded_th_risk_free:dcf")
+
+        th_crp_obs = macro_registry.get("obs_th_crp")
+        if th_crp_obs and getattr(th_crp_obs, "is_valid", True):
+            try:
+                crp = float(th_crp_obs.value)
+                observable_refs.append(th_crp_obs.observable_id)
+            except ValueError:
+                crp = 1.75
+                flags.append("hardcoded_country_risk_premium:dcf")
+        else:
+            crp = 1.75  # Primary Operational Path (Damodaran Baa2/BBB baseline)
+            flags.append("hardcoded_country_risk_premium:dcf")
+
+        us_erp, erp_id = _extract_obs_erp(macro_registry)
+        if erp_id:
+            observable_refs.append(erp_id)
+        erp_pct = us_erp + crp
+    else:
+        # US Market: Use shared _find_dgs10_in_observables with exclusions
+        dgs10_val, dgs10_id = _find_dgs10_in_observables(list(macro_registry.values()))
+        if dgs10_val is not None:
+            risk_free_rate = dgs10_val
+            if dgs10_id:
+                observable_refs.append(dgs10_id)
+        else:
+            risk_free_rate = 4.25
+            flags.append("hardcoded_us_risk_free:dcf")
+
+        us_erp, erp_id = _extract_obs_erp(macro_registry)
+        if erp_id:
+            observable_refs.append(erp_id)
+        erp_pct = us_erp
+
+    # Check ERP richness threshold (1.5%)
+    if erp_pct < (VALUATION_RICH_ERP_THRESHOLD * 100.0):
+        flags.append("rich_market_valuation_low_erp:dcf")
+
+    # 3. Cost of Equity (Ke) & Cost of Debt (Kd)
+    ke = risk_free_rate + (beta * erp_pct)
+
+    if total_debt > 0 and interest_expense is not None and interest_expense != 0:
+        raw_kd = (abs(interest_expense) / total_debt) * 100.0
+        kd = max(2.0, min(15.0, raw_kd))
+        if raw_kd < 2.0 or raw_kd > 15.0:
+            flags.append("kd_clamped:dcf")
+    else:
+        kd = 5.0
+        flags.append("hardcoded_cost_of_debt:dcf")
+
+    # 4. Capital Structure Weighting (Real WACC)
+    v = market_cap + total_debt if (market_cap is not None and market_cap > 0) else total_debt
+    e_weight = (market_cap / v) if (market_cap and v > 0) else 1.0
+    d_weight = (total_debt / v) if (total_debt and v > 0) else 0.0
+
+    wacc_pct = round((e_weight * ke) + (d_weight * kd * (1.0 - tax_rate)), 2)
+    wacc_dec = wacc_pct / 100.0
+
+    # 5. Projection & Gordon Growth Model (Single Outside Loop Flag Check)
+    g_terminal = min(0.025, risk_free_rate / 100.0)
+    if wacc_dec <= g_terminal:
+        flags.append("wacc_below_terminal_growth:dcf")
+
+    bull_g = min(0.15, (fcf_cagr_3y / 100.0 if fcf_cagr_3y is not None else 0.10))
+    bear_g = 0.0
+
+    if (
+        forward_eps is not None and trailing_eps is not None
+        and trailing_eps != 0
+        and abs(trailing_eps) > 0.01
+    ):
+        yoy_eps_growth = (forward_eps - trailing_eps) / abs(trailing_eps)
+        base_g = max(-0.05, min(0.20, yoy_eps_growth))
+        flags.append("eps_proxy_base_growth:dcf")
+    else:
+        base_g = 0.05
+        flags.append("generic_base_growth_assumption:dcf")
+
+    scenarios: Dict[str, DCFScenario] = {}
+    for key, g in [("bull", bull_g), ("base", base_g), ("bear", bear_g)]:
+        pv_fcf = sum([(fcf_per_share * ((1.0 + g) ** t)) / ((1.0 + wacc_dec) ** t) for t in range(1, 6)])
+        fcf_5 = fcf_per_share * ((1.0 + g) ** 5)
+
+        if wacc_dec > g_terminal:
+            terminal_val = (fcf_5 * (1.0 + g_terminal)) / (wacc_dec - g_terminal)
+        else:
+            terminal_val = 0.0
+
+        pv_terminal = terminal_val / ((1.0 + wacc_dec) ** 5)
+        target_price = round(pv_fcf + pv_terminal, 2)
+        upside = round(((target_price - current_price) / current_price) * 100.0, 1)
+        mos = round(((target_price - current_price) / target_price) * 100.0, 1)
+        scenarios[key] = DCFScenario(target_price=target_price, upside_pct=upside, margin_of_safety_pct=mos)
+
+    # 6. Verdict via MoS
+    base_tp = scenarios["base"].target_price
+    if current_price <= base_tp * 0.80:
+        verdict = "undervalued"
+    elif current_price >= base_tp * 1.15:
+        verdict = "overvalued"
+    else:
+        verdict = "fairly_valued"
+
+    result = DCFResult(
+        wacc_pct=wacc_pct,
+        cost_of_equity_pct=round(ke, 2),
+        cost_of_debt_pct=round(kd, 2),
+        risk_free_rate_pct=risk_free_rate,
+        erp_pct=erp_pct,
+        observable_refs=observable_refs,
+        scenarios=scenarios,
+        valuation_verdict=verdict,
+    )
+    return result, flags
+
+
+==================== tools\market\quant_engine.py ====================
+"""Deterministic price-based Quant Engine — Beta/Volatility/MDD/RSI/MACD คำนวณ local ทั้งหมดจาก yfinance history
+
+ฟังก์ชันในไฟล์นี้เป็น internal helper (ไม่ใช่ @tool) — ถูกเรียกจาก tools/market/equity_quant_tool.py
+เท่านั้น เพื่อประกอบ QuantSignals แบบ deterministic ไม่มี LLM แทรกแซงค่าตัวเลข
+"""
+import time
+from datetime import datetime
+from typing import Optional, Dict, List, Tuple
+
+import pandas as pd
+import yfinance as yf
+from langsmith import traceable
+from pydantic import BaseModel
+
+from core.logger import get_logger
+from core.retry import with_retry as _with_retry
+from tools.market.financial_autopsy import FinancialAutopsyPeriod
+
+log = get_logger(__name__)
+
+_MIN_TRADING_DAYS = 45  # เกณฑ์เดียวกับ Correlation Quality Guard ของ Macro (5.7 Pillar 4)
+
+
+class PriceSeriesQuality(BaseModel):
+    trading_days: int
+    is_valid: bool
+    stale_reason: Optional[str] = None
+
+
+# --- Shared price-history cache (ลด .history() call ซ้ำระหว่าง beta/vol/mdd/technical ของ ticker เดียวกัน) ---
+_HISTORY_CACHE: Dict[Tuple[str, str], Tuple[pd.DataFrame, float]] = {}
+_HISTORY_ERROR_CACHE: Dict[Tuple[str, str], float] = {}
+_HISTORY_SUCCESS_TTL_SECONDS = 6 * 3600
+_HISTORY_ERROR_TTL_SECONDS = 60.0
+
+
+def _get_price_history(provider_symbol: str, period: str) -> pd.DataFrame:
+    """ดึงราคาย้อนหลังพร้อม retry + cache TTL (success 6h / error 60s) ป้องกัน rate-limit จาก .history()"""
+    key = (provider_symbol, period)
+    now = time.time()
+
+    if key in _HISTORY_CACHE:
+        df, ts = _HISTORY_CACHE[key]
+        if now - ts < _HISTORY_SUCCESS_TTL_SECONDS:
+            return df
+        del _HISTORY_CACHE[key]
+
+    if key in _HISTORY_ERROR_CACHE:
+        ts = _HISTORY_ERROR_CACHE[key]
+        if now - ts < _HISTORY_ERROR_TTL_SECONDS:
+            raise RuntimeError(f"cached failure for {provider_symbol} ({period})")
+        del _HISTORY_ERROR_CACHE[key]
+
+    try:
+        df = _with_retry(lambda: yf.Ticker(provider_symbol).history(period=period))
+    except Exception as e:
+        log.warning("_get_price_history failed | %s (%s): %s", provider_symbol, period, e)
+        _HISTORY_ERROR_CACHE[key] = now
+        raise
+
+    _HISTORY_CACHE[key] = (df, now)
+    return df
+
+
+def _quality_from_df(df: Optional[pd.DataFrame]) -> PriceSeriesQuality:
+    n = 0 if df is None else len(df)
+    if n < _MIN_TRADING_DAYS:
+        return PriceSeriesQuality(trading_days=n, is_valid=False, stale_reason="insufficient_trading_history")
+    return PriceSeriesQuality(trading_days=n, is_valid=True)
+
+
+def _fetch_error_quality() -> PriceSeriesQuality:
+    return PriceSeriesQuality(trading_days=0, is_valid=False, stale_reason="fetch_error")
+
+
+@traceable(run_type="tool")
+def compute_beta(provider_symbol: str, benchmark: str = "^GSPC", period: str = "2y") -> Tuple[Optional[float], PriceSeriesQuality]:
+    """คำนวณ Beta เทียบ benchmark จาก daily returns covariance/variance — ต้องมีวันทำการที่ overlap กันจริง ≥45 วัน"""
+    try:
+        stock_df = _get_price_history(provider_symbol, period)
+        bench_df = _get_price_history(benchmark, period)
+    except Exception:
+        return None, _fetch_error_quality()
+
+    if stock_df.empty or bench_df.empty or "Close" not in stock_df or "Close" not in bench_df:
+        return None, PriceSeriesQuality(trading_days=0, is_valid=False, stale_reason="insufficient_trading_history")
+
+    stock_ret = stock_df["Close"].pct_change().dropna()
+    bench_ret = bench_df["Close"].pct_change().dropna()
+    aligned = pd.concat([stock_ret, bench_ret], axis=1, join="inner")
+    aligned.columns = ["stock", "bench"]
+    overlapping_days = len(aligned)
+
+    if overlapping_days < _MIN_TRADING_DAYS:
+        return None, PriceSeriesQuality(trading_days=overlapping_days, is_valid=False, stale_reason="insufficient_trading_history")
+
+    variance = aligned["bench"].var()
+    if not variance or pd.isna(variance) or variance == 0:
+        return None, PriceSeriesQuality(trading_days=overlapping_days, is_valid=False, stale_reason="zero_benchmark_variance")
+
+    covariance = aligned["stock"].cov(aligned["bench"])
+    beta = float(covariance / variance)
+    return round(beta, 2), PriceSeriesQuality(trading_days=overlapping_days, is_valid=True)
+
+
+@traceable(run_type="tool")
+def compute_volatility(provider_symbol: str, period: str = "1y") -> Tuple[Optional[float], PriceSeriesQuality]:
+    """Annualized Volatility (%) จาก std ของ daily returns * sqrt(252)"""
+    try:
+        df = _get_price_history(provider_symbol, period)
+    except Exception:
+        return None, _fetch_error_quality()
+
+    quality = _quality_from_df(df)
+    if not quality.is_valid or "Close" not in df or df["Close"].empty:
+        return None, quality
+
+    returns = df["Close"].pct_change().dropna()
+    if returns.empty:
+        return None, PriceSeriesQuality(trading_days=quality.trading_days, is_valid=False, stale_reason="insufficient_trading_history")
+
+    vol_pct = float(returns.std() * (252 ** 0.5) * 100)
+    return round(vol_pct, 2), quality
+
+
+@traceable(run_type="tool")
+def compute_mdd(provider_symbol: str, period: str = "3y") -> Tuple[Optional[float], PriceSeriesQuality]:
+    """Maximum Drawdown (%) จาก running peak-to-trough ของราคาปิด"""
+    try:
+        df = _get_price_history(provider_symbol, period)
+    except Exception:
+        return None, _fetch_error_quality()
+
+    quality = _quality_from_df(df)
+    if not quality.is_valid or "Close" not in df or df["Close"].empty:
+        return None, quality
+
+    close = df["Close"]
+    running_max = close.cummax()
+    drawdown = (close - running_max) / running_max
+    mdd_pct = float(drawdown.min() * 100)
+    return round(mdd_pct, 2), quality
+
+
+@traceable(run_type="tool")
+def compute_technical_indicators(provider_symbol: str, period: str = "1y") -> Tuple[Optional[dict], PriceSeriesQuality]:
+    """RSI(14) + MACD(12,26,9) จากราคาปิดย้อนหลัง — คืน {rsi_14, macd, macd_signal_line, macd_signal}"""
+    try:
+        df = _get_price_history(provider_symbol, period)
+    except Exception:
+        return None, _fetch_error_quality()
+
+    quality = _quality_from_df(df)
+    if not quality.is_valid or "Close" not in df or df["Close"].empty:
+        return None, quality
+
+    close = df["Close"]
+
+    delta = close.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.rolling(window=14).mean()
+    avg_loss = loss.rolling(window=14).mean()
+    rs = avg_gain / avg_loss.replace(0, float("nan"))
+    rsi = 100 - (100 / (1 + rs))
+    # avg_loss==0 ทำให้ rs หารด้วย NaN แล้วได้ NaN ทั้งที่ทางคณิตศาสตร์ RSI ต้องเป็นค่าปลายสุด
+    # (ไม่มีวันขาดทุนเลยในช่วง 14 วัน = RSI 100, ราคาทรงตัวไม่ขยับเลย = RSI 50 เป็นกลาง)
+    rsi = rsi.where(~((avg_loss == 0) & (avg_gain > 0)), 100.0)
+    rsi = rsi.where(~((avg_loss == 0) & (avg_gain == 0)), 50.0)
+    rsi_14 = float(rsi.iloc[-1]) if not rsi.empty and pd.notna(rsi.iloc[-1]) else None
+
+    ema12 = close.ewm(span=12, adjust=False).mean()
+    ema26 = close.ewm(span=26, adjust=False).mean()
+    macd_line = ema12 - ema26
+    signal_line = macd_line.ewm(span=9, adjust=False).mean()
+    macd_val = float(macd_line.iloc[-1]) if not macd_line.empty and pd.notna(macd_line.iloc[-1]) else None
+    signal_val = float(signal_line.iloc[-1]) if not signal_line.empty and pd.notna(signal_line.iloc[-1]) else None
+
+    if rsi_14 is None:
+        return None, PriceSeriesQuality(trading_days=quality.trading_days, is_valid=False, stale_reason="insufficient_trading_history")
+
+    macd_signal = None
+    if macd_val is not None and signal_val is not None:
+        macd_signal = "bullish" if macd_val > signal_val else "bearish"
+
+    return {
+        "rsi_14": round(rsi_14, 2),
+        "macd": round(macd_val, 4) if macd_val is not None else None,
+        "macd_signal_line": round(signal_val, 4) if signal_val is not None else None,
+        "macd_signal": macd_signal,
+    }, quality
+
+
+def _fiscal_gap_days(date_a: str, date_b: str) -> Optional[int]:
+    """หาจำนวนวันห่างระหว่าง fiscal_period_end 2 ค่า (string 'YYYY-MM-DD') — None ถ้า parse ไม่ได้"""
+    try:
+        return abs((datetime.fromisoformat(date_a) - datetime.fromisoformat(date_b)).days)
+    except (TypeError, ValueError):
+        return None
+
+
+_YOY_GAP_MIN_DAYS = 300
+_YOY_GAP_MAX_DAYS = 400
+
+
+@traceable(run_type="parser")
+def compute_growth_rates(periods: List[FinancialAutopsyPeriod]) -> Tuple[dict, List[str]]:
+    """คำนวณ Revenue/Net Income YoY Growth จาก periods[0] (ล่าสุด) เทียบ periods[1] (ก่อนหน้า)
+
+    Guard: ต้องมี ≥2 periods และห่างกันจริง 300-400 วัน ไม่งั้นไม่ใช่ 'YoY' ที่แท้จริง (อาจเป็น
+    TTM/quarterly ปนมาจาก financial_autopsy's fiscal period clustering) — ไม่คำนวณถ้าไม่ผ่านเกณฑ์
+    Guard: ค่า previous ≤ 0 ทำให้ % growth ไม่มีความหมาย (หารด้วยฐานติดลบ/ศูนย์) — ข้ามไป ไม่คำนวณ
+
+    Returns:
+        (result_dict, flags) — result_dict มี key revenue_growth_yoy_pct / net_income_growth_yoy_pct
+        เป็น None เสมอถ้าคำนวณไม่ได้ ไม่มีการเดา/ประมาณค่าแทน
+    """
+    result = {"revenue_growth_yoy_pct": None, "net_income_growth_yoy_pct": None}
+
+    if len(periods) < 2:
+        return result, ["insufficient_periods:growth"]
+
+    latest, previous = periods[0], periods[1]
+    gap_days = _fiscal_gap_days(latest.fiscal_period_end, previous.fiscal_period_end)
+    if gap_days is None or not (_YOY_GAP_MIN_DAYS <= gap_days <= _YOY_GAP_MAX_DAYS):
+        return result, ["non_annual_period_gap:growth"]
+
+    flags: List[str] = []
+
+    if latest.total_revenue is not None and previous.total_revenue is not None:
+        if previous.total_revenue > 0:
+            result["revenue_growth_yoy_pct"] = round(
+                (latest.total_revenue - previous.total_revenue) / previous.total_revenue * 100, 2
+            )
+        else:
+            flags.append("base_year_negative:revenue_growth")
+
+    if latest.net_income is not None and previous.net_income is not None:
+        if previous.net_income > 0:
+            result["net_income_growth_yoy_pct"] = round(
+                (latest.net_income - previous.net_income) / previous.net_income * 100, 2
+            )
+        else:
+            flags.append("base_year_negative:net_income_growth")
+
+    return result, flags
+
+
+_PRICE_PERCENTILE_MIN_DAYS = 250  # ~1 ปีเทรดจริง — เกณฑ์ขั้นต่ำให้คำนวณได้แม้ประวัติจะสั้นกว่า 5 ปีเต็ม
+
+
+@traceable(run_type="tool")
+def compute_price_percentile(provider_symbol: str, period: str = "5y") -> Tuple[Optional[float], Optional[float], PriceSeriesQuality]:
+    """Percentile rank + Z-score ของราคาปิดล่าสุด เทียบ distribution ราคาปิดย้อนหลัง (period)
+
+    หมายเหตุสำคัญ: นี่คือ Percentile ของ 'ราคา' ไม่ใช่ Valuation Multiple (P/E) — yfinance ไม่มี
+    point-in-time fundamentals ให้คำนวณ Valuation Percentile ย้อนหลังได้จริง (ข้อจำกัดเดียวกับที่
+    ทำให้ต้องเป็น Forward-tracking แทน Backtest ใน tools/market/quant_history.py)
+
+    Guard: ต้องมี ≥250 trading days ไม่งั้น None + insufficient_trading_history
+    """
+    try:
+        df = _get_price_history(provider_symbol, period)
+    except Exception:
+        return None, None, _fetch_error_quality()
+
+    trading_days = 0 if df is None else len(df)
+    if trading_days < _PRICE_PERCENTILE_MIN_DAYS or df is None or "Close" not in df or df["Close"].empty:
+        return None, None, PriceSeriesQuality(trading_days=trading_days, is_valid=False, stale_reason="insufficient_trading_history")
+
+    close = df["Close"]
+    current_price = float(close.iloc[-1])
+    percentile = float((close <= current_price).mean() * 100)
+
+    std = float(close.std())
+    zscore = 0.0 if std == 0 else float((current_price - close.mean()) / std)
+
+    return round(percentile, 2), round(zscore, 2), PriceSeriesQuality(trading_days=trading_days, is_valid=True)
+
+
+==================== tools\market\quant_scoring.py ====================
+"""Deterministic Value/Quality/Momentum scoring — normalize ตัวเลขดิบเป็นคะแนน 0-100 ด้วยสูตรตายตัว
+
+ห้าม LLM คำนวณคะแนนพวกนี้เองเด็ดขาด (กฎ 4.2/4.6/Final Doctrine ข้อ 3) — ทุกฟังก์ชันในไฟล์นี้
+รับตัวเลขดิบจาก yfinance/financial_autopsy แล้ว Return คะแนนที่ deterministic 100%
+"""
+from typing import Optional, Tuple
+
+from langsmith import traceable
+
+
+def _linear_score(value: Optional[float], best: float, worst: float) -> Optional[float]:
+    """แปลง value เป็นคะแนน 0-100 เชิงเส้น — value เท่ากับ best = 100, worst = 0, ค่ากลาง interpolate
+
+    ถ้า best < worst แปลว่า 'ค่ายิ่งต่ำยิ่งดี' (เช่น P/E, Volatility)
+    ถ้า best > worst แปลว่า 'ค่ายิ่งสูงยิ่งดี' (เช่น ROE, Profit Margin)
+    """
+    if value is None:
+        return None
+    if best <= worst:
+        if value <= best:
+            return 100.0
+        if value >= worst:
+            return 0.0
+        return 100.0 * (worst - value) / (worst - best)
+    else:
+        if value >= best:
+            return 100.0
+        if value <= worst:
+            return 0.0
+        return 100.0 * (value - worst) / (best - worst)
+
+
+def _avg_sub_scores(sub_scores: list[float]) -> Optional[float]:
+    if not sub_scores:
+        return None
+    return round(sum(sub_scores) / len(sub_scores), 1)
+
+
+@traceable(run_type="parser")
+def compute_value_score(
+    pe: Optional[float],
+    pb: Optional[float] = None,
+    ev_ebitda: Optional[float] = None,
+) -> Tuple[Optional[float], Optional[str]]:
+    """Normalize P/E (หลัก) + P/B + EV/EBITDA (เสริม) เป็นคะแนน 0-100 — P/E ต่ำ = ถูก = คะแนนสูง
+
+    Threshold: P/E<=10 → 100, P/E>=40 → 0 (เชิงเส้น) | P/B<=1 → 100, P/B>=5 → 0 | EV/EBITDA<=8 → 100, >=20 → 0
+
+    Returns:
+        (score, flag) — flag ไม่ใช่ None เมื่อข้อมูลไม่พอ/ผิดปกติ เช่น
+        'negative_earnings:pe_undefined' ถ้า P/E<=0 (บริษัทขาดทุน — ห้ามตีความว่า 'ถูก')
+    """
+    if pe is not None and pe <= 0:
+        return None, "negative_earnings:pe_undefined"
+
+    sub_scores = []
+    if pe is not None:
+        s = _linear_score(pe, best=10, worst=40)
+        if s is not None:
+            sub_scores.append(s)
+    if pb is not None and pb > 0:
+        s = _linear_score(pb, best=1, worst=5)
+        if s is not None:
+            sub_scores.append(s)
+    if ev_ebitda is not None and ev_ebitda > 0:
+        s = _linear_score(ev_ebitda, best=8, worst=20)
+        if s is not None:
+            sub_scores.append(s)
+
+    score = _avg_sub_scores(sub_scores)
+    if score is None:
+        return None, "missing_valuation_metrics"
+    return score, None
+
+
+@traceable(run_type="parser")
+def compute_quality_score(
+    roe_pct: Optional[float],
+    profit_margin_pct: Optional[float] = None,
+    fcf_debt_ratio: Optional[float] = None,
+) -> Tuple[Optional[float], Optional[str]]:
+    """Normalize ROE + Profit Margin + FCF/Debt เป็นคะแนน 0-100 — ยิ่งสูงยิ่งมีคุณภาพดี
+
+    Threshold: ROE>=20% → 100, <=5% → 0 | Profit Margin>=20% → 100, <=0% → 0 | FCF/Debt>=0.5x → 100, <=0 → 0
+    """
+    sub_scores = []
+    if roe_pct is not None:
+        s = _linear_score(roe_pct, best=20, worst=5)
+        if s is not None:
+            sub_scores.append(s)
+    if profit_margin_pct is not None:
+        s = _linear_score(profit_margin_pct, best=20, worst=0)
+        if s is not None:
+            sub_scores.append(s)
+    if fcf_debt_ratio is not None:
+        s = _linear_score(fcf_debt_ratio, best=0.5, worst=0.0)
+        if s is not None:
+            sub_scores.append(s)
+
+    score = _avg_sub_scores(sub_scores)
+    if score is None:
+        return None, "missing_quality_metrics"
+    return score, None
+
+
+@traceable(run_type="parser")
+def compute_momentum_score(
+    rsi_14: Optional[float],
+    macd_signal: Optional[str] = None,
+    ma50_vs_ma200: Optional[str] = None,
+) -> Tuple[Optional[float], Optional[str]]:
+    """Normalize RSI(14) + MACD signal + MA50/MA200 cross เป็นคะแนน 0-100
+
+    หมายเหตุสำคัญ (ต้องส่งต่อให้ narrative LLM ทราบเสมอ): คะแนนนี้วัด 'ความแรงของโมเมนตัม
+    ขาขึ้นเชิงเทคนิค' (momentum-chasing view) ไม่ใช่คำแนะนำซื้อ/ขาย — RSI>70 ตาม technical
+    analysis convention ทั่วไปหมายถึง Overbought (ราคาขึ้นเร็ว เสี่ยงปรับฐาน) ไม่ใช่ 'สัญญาณซื้อ'
+    momentum_score สูงจึงอาจหมายถึงทั้ง 'ขาขึ้นแข็งแกร่ง' และ 'เสี่ยง overbought' พร้อมกัน
+
+    Threshold: RSI>=70 → 100, RSI<=30 → 0 (เชิงเส้น) | MACD bullish → 100, bearish → 0
+    | MA50/MA200: golden_cross → 100, death_cross → 0, อื่นๆ → 50
+    """
+    sub_scores = []
+    if rsi_14 is not None:
+        s = _linear_score(rsi_14, best=70, worst=30)
+        if s is not None:
+            sub_scores.append(s)
+    if macd_signal is not None:
+        sub_scores.append(100.0 if macd_signal == "bullish" else 0.0)
+    if ma50_vs_ma200 is not None:
+        if ma50_vs_ma200 == "golden_cross":
+            sub_scores.append(100.0)
+        elif ma50_vs_ma200 == "death_cross":
+            sub_scores.append(0.0)
+        else:
+            sub_scores.append(50.0)
+
+    score = _avg_sub_scores(sub_scores)
+    if score is None:
+        return None, "missing_momentum_inputs"
+    return score, None
+
+
+@traceable(run_type="parser")
+def compute_price_target_outlook(
+    current_price: Optional[float],
+    target_mean: Optional[float] = None,
+    target_high: Optional[float] = None,
+    target_low: Optional[float] = None,
+) -> Tuple[Optional[float], Optional[float]]:
+    """คำนวณ upside_pct (จาก target_high, fallback target_mean) และ downside_pct (จาก target_low)
+
+    คืน (None, None) ถ้าไม่มี current_price หรือไม่มี target price เลย (พบบ่อยกับหุ้นไทยใน yfinance)
+    """
+    if current_price is None or current_price <= 0:
+        return None, None
+
+    upside_pct = None
+    if target_high is not None:
+        upside_pct = round((target_high - current_price) / current_price * 100, 2)
+    elif target_mean is not None:
+        upside_pct = round((target_mean - current_price) / current_price * 100, 2)
+
+    downside_pct = None
+    if target_low is not None:
+        downside_pct = round((target_low - current_price) / current_price * 100, 2)
+
+    return upside_pct, downside_pct
+
+
+@traceable(run_type="parser")
+def compute_growth_score(
+    revenue_growth_yoy_pct: Optional[float],
+    net_income_growth_yoy_pct: Optional[float] = None,
+) -> Tuple[Optional[float], Optional[str]]:
+    """Normalize Revenue Growth YoY (หลัก) + Net Income Growth YoY (เสริม, weight 2:1) เป็นคะแนน 0-100
+
+    Threshold: Revenue Growth >=20% → 100, <=-10% → 0 (เชิงเส้น) — Net Income ใช้ threshold เดียวกัน
+    ถ้ามีทั้งคู่ ให้น้ำหนัก Revenue:NetIncome = 2:1 (Revenue เป็นตัวชี้วัดหลักที่ Volatile น้อยกว่า)
+    """
+    if revenue_growth_yoy_pct is None:
+        return None, "missing_growth_data:growth"
+
+    rev_score = _linear_score(revenue_growth_yoy_pct, best=20, worst=-10)
+    if net_income_growth_yoy_pct is not None:
+        ni_score = _linear_score(net_income_growth_yoy_pct, best=20, worst=-10)
+        score = round((rev_score * 2 + ni_score) / 3, 1)
+    else:
+        score = round(rev_score, 1)
+    return score, None
+
+
+@traceable(run_type="parser")
+def compute_dividend_score(
+    dividend_yield_pct: Optional[float],
+    payout_ratio_pct: Optional[float] = None,
+) -> Tuple[Optional[float], Optional[str]]:
+    """Normalize Dividend Yield เป็นคะแนน 0-100 — Threshold: Yield>=5% → 100, 0% → 0 (เชิงเส้น)
+
+    หมายเหตุสำคัญ (ต้องส่งต่อให้ narrative LLM ทราบเสมอ): Yield สูงผิดปกติอาจเป็น 'Value Trap' —
+    ราคาหุ้นร่วงหนักทำให้ yield (=dividend/price) พุ่งสูงลวงตา ไม่ใช่สัญญาณบวกเสมอไป ต้องพิจารณา
+    ร่วมกับ payout_ratio และ momentum/value score เสมอ ห้ามตีความ yield สูง = น่าลงทุน โดยลำพัง
+
+    Payout Ratio >=100% (จ่ายเกินกำไร) หรือ <0% (ผิดปกติ) → แนบ flag เตือนแต่ยังคำนวณคะแนนจาก yield
+    ตามปกติ (ไม่ null คะแนนทิ้ง) เพื่อให้ downstream เห็นทั้งตัวเลขและคำเตือนพร้อมกัน
+    """
+    if dividend_yield_pct is None:
+        return None, "missing_dividend_data:dividend"
+
+    score = round(_linear_score(dividend_yield_pct, best=5, worst=0), 1)
+    if payout_ratio_pct is not None and (payout_ratio_pct >= 100 or payout_ratio_pct < 0):
+        return score, "unsustainable_payout:dividend"
+    return score, None
+
+
+@traceable(run_type="parser")
+def compute_solvency_score(
+    de_ratio_pct: Optional[float],
+    current_ratio: Optional[float] = None,
+) -> Tuple[Optional[float], Optional[str]]:
+    """Normalize D/E Ratio + Current Ratio เป็นคะแนน 0-100 — Risk Gate แยกต่างหาก ไม่รวมใน Composite Score
+
+    de_ratio_pct: ต้องเป็นค่าที่มาจาก yfinance `debtToEquity` ตรงๆ (สเกล % แบบเดียวกับที่
+    tools/market/fundamentals.py ใช้แสดงผล เช่น 150.0 = หนี้ 1.5 เท่าของทุน) — ห้ามหาร/คูณ 100 เพิ่ม
+
+    Threshold: D/E<=50% → 100, >=300% → 0 (เชิงเส้น) | Current Ratio>=2.0x → 100, <=0.5x → 0
+
+    คะแนนต่ำกว่า 30 จะแนบ flag 'high_leverage_risk:solvency' เพื่อเตือนความเสี่ยง leverage ชัดเจน
+    ถึงแม้คะแนนนี้จะไม่ถูกรวมเข้า Composite Score (เป็น risk indicator แยก ไม่ใช่ Return Driver การผสมรวมกับคะแนนบวกจะบดบังความเสี่ยง leverage ที่ควรเห็นชัดแยกต่างหาก)
+    """
+    sub_scores = []
+    if de_ratio_pct is not None:
+        s = _linear_score(de_ratio_pct, best=50, worst=300)
+        if s is not None:
+            sub_scores.append(s)
+    if current_ratio is not None:
+        s = _linear_score(current_ratio, best=2.0, worst=0.5)
+        if s is not None:
+            sub_scores.append(s)
+
+    score = _avg_sub_scores(sub_scores)
+    if score is None:
+        return None, "missing_solvency_data:solvency"
+    if score < 30:
+        return score, "high_leverage_risk:solvency"
+    return score, None
+
+
+@traceable(run_type="parser")
+def compute_trading_liquidity(
+    avg_volume: Optional[float],
+    avg_volume_10d: Optional[float],
+    current_price: Optional[float],
+    market: str,
+) -> Tuple[Optional[float], Optional[str]]:
+    """คำนวณ ADTV (Average Daily Trading Value) สกุลเงินท้องถิ่น — ไม่ใช่คะแนน 0-100
+
+    ใช้ avg_volume_10d (สดกว่า) ก่อน fallback ไป avg_volume (เฉลี่ย 3 เดือน) ถ้าไม่มี
+    ผลลัพธ์เป็นสกุลท้องถิ่นตาม market (THB สำหรับ TH, USD สำหรับ US) — ไม่ได้แปลงข้ามสกุล
+    ห้ามเปรียบเทียบ ADTV ข้าม market โดยตรงโดยไม่แปลง FX ก่อน
+
+    Threshold low_liquidity: US < 1,000,000 USD | TH < 5,000,000 THB
+    """
+    volume = avg_volume_10d if avg_volume_10d is not None else avg_volume
+    if volume is None or current_price is None or current_price <= 0:
+        return None, "missing_liquidity_data:liquidity"
+
+    adtv = round(volume * current_price, 2)
+    threshold = 5_000_000 if market == "TH" else 1_000_000
+    if adtv < threshold:
+        return adtv, "low_liquidity:liquidity"
+    return adtv, None
+
+
+_COMPOSITE_WEIGHTS = {"value": 0.25, "quality": 0.25, "growth": 0.25, "momentum": 0.15, "dividend": 0.10}
+
+
+@traceable(run_type="parser")
+def compute_composite_score(
+    value_score: Optional[float],
+    quality_score: Optional[float],
+    growth_score: Optional[float],
+    momentum_score: Optional[float],
+    dividend_score: Optional[float],
+) -> Tuple[Optional[float], Optional[str]]:
+    """Weighted Composite Score (0-100) — Value 25% / Quality 25% / Growth 25% / Momentum 15% / Dividend 10%
+
+    Solvency ไม่รวมในสูตรนี้โดยตั้งใจ — ดู compute_solvency_score docstring (เป็น Risk Gate แยก
+    ไม่ใช่ Return Driver การผสมรวมกับคะแนนบวกจะบดบังความเสี่ยง leverage ที่ควรเห็นชัดแยกต่างหาก)
+
+    ข้ามมิติที่เป็น None แล้ว re-normalize weight ที่เหลือ (ไม่บังคับให้มีครบทุกมิติ)
+    ถ้ามีข้อมูลไม่ถึง 2 มิติ → None พร้อม flag (ไม่น่าเชื่อถือพอจะสรุปเป็นคะแนนเดียว)
+    """
+    scores = {
+        "value": value_score,
+        "quality": quality_score,
+        "growth": growth_score,
+        "momentum": momentum_score,
+        "dividend": dividend_score,
+    }
+    available = {k: v for k, v in scores.items() if v is not None}
+    if len(available) < 2:
+        return None, "insufficient_dimensions:composite"
+
+    total_weight = sum(_COMPOSITE_WEIGHTS[k] for k in available)
+    composite = sum(v * _COMPOSITE_WEIGHTS[k] for k, v in available.items()) / total_weight
+    return round(composite, 1), None
+
+
+@traceable(run_type="parser")
+def compute_fcf_quality_score(
+    fcf_yield_pct: Optional[float],
+    ocf_to_net_income: Optional[float] = None,
+) -> Tuple[Optional[float], Optional[str]]:
+    """Normalize FCF Yield % (หลัก) + OCF/NetIncome (คุณภาพกำไร) เป็นคะแนน 0-100
+    Threshold: FCF Yield >= 6% -> 100, <= 0% -> 0 | OCF/NI >= 1.2 -> 100, <= 0.5 -> 0
+    """
+    sub_scores = []
+    if fcf_yield_pct is not None:
+        s = _linear_score(fcf_yield_pct, best=6.0, worst=0.0)
+        if s is not None:
+            sub_scores.append(s)
+    if ocf_to_net_income is not None:
+        s = _linear_score(ocf_to_net_income, best=1.2, worst=0.5)
+        if s is not None:
+            sub_scores.append(s)
+
+    score = _avg_sub_scores(sub_scores)
+    if score is None:
+        return None, "missing_fcf_quality_data:fcf_quality"
+    return score, None
+
+
+@traceable(run_type="parser")
+def compute_debt_quality_score(
+    interest_coverage: Optional[float],
+    net_debt_ebitda: Optional[float] = None,
+) -> Tuple[Optional[float], Optional[str]]:
+    """Normalize Interest Coverage + Net Debt / EBITDA เป็น Risk Score 0-100
+    Threshold: Interest Coverage >= 5.0x -> 100, <= 1.5x -> 0 | Net Debt/EBITDA <= 1.5x -> 100, >= 4.0x -> 0
+    """
+    sub_scores = []
+    if interest_coverage is not None:
+        s = _linear_score(interest_coverage, best=5.0, worst=1.5)
+        if s is not None:
+            sub_scores.append(s)
+    if net_debt_ebitda is not None:
+        s = _linear_score(net_debt_ebitda, best=1.5, worst=4.0)
+        if s is not None:
+            sub_scores.append(s)
+
+    score = _avg_sub_scores(sub_scores)
+    if score is None:
+        return None, "missing_debt_quality_data:debt_quality"
+    flag = "high_debt_risk:debt_quality" if score < 30 else None
+    return score, flag
+
+
+==================== tools\market\financial_autopsy.py ====================
+"""Typed Financial Autopsy สำหรับดึงและคำนวณข้อมูลการเงินย้อนหลัง 3-5 ปีจริง (FCF, Debt, Payout Ratio)"""
+from typing import Optional, Literal, Dict, Tuple, List, Any
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+import time
+import requests
+import pandas as pd
+import yfinance as yf
+from pydantic import BaseModel, model_validator
+from langchain_core.tools import tool
+from core.logger import get_logger
+from tools.market.asset_resolver import ResolvedAsset, resolve_asset, AssetClass
+
+log = get_logger(__name__)
+
+from threading import BoundedSemaphore
+
+_SHARED_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="yf_autopsy_pool")
+_POOL_SEMAPHORE = BoundedSemaphore(4)
+
+
+class ProviderBusyError(Exception):
+    """Raised when bounded pool semaphore cannot be acquired within admission deadline."""
+    pass
+
+
+def _run_with_deadline(func, args, timeout_sec: float, admission_timeout: float = 0.5):
+    if not _POOL_SEMAPHORE.acquire(timeout=admission_timeout):
+        raise ProviderBusyError("PROVIDER_BUSY: Autopsy thread pool saturated")
+    def _worker():
+        try:
+            return func(*args)
+        finally:
+            _POOL_SEMAPHORE.release()
+    future = _SHARED_POOL.submit(_worker)
+    try:
+        return future.result(timeout=timeout_sec)
+    except (FuturesTimeoutError, TimeoutError) as e:
+        future.cancel()
+        raise FuturesTimeoutError(f"Operation timed out after {timeout_sec}s") from e
+
+
+_run_with_hard_timeout = _run_with_deadline
+
+
+class FinancialAutopsyPeriod(BaseModel):
+    fiscal_period_end: str
+    free_cash_flow: Optional[float] = None
+    operating_cash_flow: Optional[float] = None
+    capital_expenditure: Optional[float] = None
+    total_debt: Optional[float] = None
+    total_revenue: Optional[float] = None
+    net_income: Optional[float] = None
+    dividends_paid: Optional[float] = None
+    payout_ratio_pct: Optional[float] = None
+    ebit: Optional[float] = None
+    operating_income: Optional[float] = None
+    interest_expense: Optional[float] = None
+    tax_expense: Optional[float] = None
+    income_before_tax: Optional[float] = None
+
+
+class FinancialAutopsySnapshot(BaseModel):
+    ticker: str
+    provider_symbol: str
+    market: Literal["TH", "US"]
+    currency: str
+    unit: str = "raw"
+    source: str = "Yahoo Finance (yfinance)"
+    retrieval_timestamp: str
+    periods: List[FinancialAutopsyPeriod]
+    current_pe: Optional[float] = None
+    forward_pe: Optional[float] = None
+    market_cap: Optional[float] = None
+    health_summary: Optional[str] = None
+
+    @property
+    def market_cap_formatted(self) -> str:
+        if self.market_cap is None:
+            return "N/A"
+        return f"{self.market_cap:,.2f} {self.currency}"
+
+    @property
+    def fcf_formatted(self) -> str:
+        if not self.periods or self.periods[0].free_cash_flow is None:
+            return "N/A"
+        return f"{self.periods[0].free_cash_flow:,.2f} {self.currency}"
+
+    @property
+    def total_debt_formatted(self) -> str:
+        if not self.periods or self.periods[0].total_debt is None:
+            return "N/A"
+        return f"{self.periods[0].total_debt:,.2f} {self.currency}"
+
+    @property
+    def revenue_formatted(self) -> str:
+        if not self.periods or self.periods[0].total_revenue is None:
+            return "N/A"
+        return f"{self.periods[0].total_revenue:,.2f} {self.currency}"
+
+    @property
+    def net_income_formatted(self) -> str:
+        if not self.periods or self.periods[0].net_income is None:
+            return "N/A"
+        return f"{self.periods[0].net_income:,.2f} {self.currency}"
+
+
+class FinancialAutopsyFetchResult(BaseModel):
+    asset: ResolvedAsset
+    status: Literal["success", "unavailable", "error"]
+    snapshot: Optional[FinancialAutopsySnapshot] = None
+    error_code: Optional[str] = None
+    error_message: Optional[str] = None
+
+    @property
+    def availability_block(self) -> bool:
+        return self.status != "success"
+
+    @model_validator(mode="after")
+    def validate_state(self):
+        if self.status == "success" and self.snapshot is None:
+            raise ValueError("Successful result requires snapshot")
+        if self.status != "success" and self.snapshot is not None:
+            raise ValueError("Failed result must not contain snapshot")
+        if self.status == "error" and not self.error_message:
+            raise ValueError("Error result requires error_message")
+        return self
+
+
+# --- Caches ---
+_AUTOPSY_SUCCESS_CACHE: Dict[str, Tuple[FinancialAutopsyFetchResult, float]] = {}
+_AUTOPSY_ERROR_CACHE: Dict[str, Tuple[FinancialAutopsyFetchResult, float]] = {}
+_SUCCESS_TTL_SECONDS = 12 * 3600
+_ERROR_TTL_SECONDS = 60.0
+
+
+def _to_float(val: Any) -> Optional[float]:
+    if val is None:
+        return None
+    try:
+        f = float(val)
+        if pd.isna(f):
+            return None
+        return f
+    except (TypeError, ValueError):
+        return None
+
+
+def _extract_df_val(df: Any, col: Any, candidate_rows: List[str]) -> Optional[float]:
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty or col not in df.columns:
+        return None
+    for row_name in candidate_rows:
+        if row_name in df.index:
+            v = _to_float(df.loc[row_name, col])
+            if v is not None:
+                return v
+    return None
+
+
+def _extract_df_val_aligned(df: Any, target_dt: Any, candidate_rows: List[str], tolerance_days: int = 45) -> Optional[float]:
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return None
+    best_col = None
+    min_diff = tolerance_days + 1
+    try:
+        if hasattr(pd, "to_datetime"):
+            t_dt = pd.to_datetime(target_dt)
+            for col in df.columns:
+                try:
+                    c_dt = pd.to_datetime(col)
+                    diff = abs((c_dt - t_dt).days)
+                    if diff <= tolerance_days and diff < min_diff:
+                        min_diff = diff
+                        best_col = col
+                except Exception:
+                    continue
+    except Exception:
+        pass
+
+    if best_col is None and target_dt in df.columns:
+        best_col = target_dt
+
+    if best_col is not None and best_col in df.columns:
+        return _extract_df_val(df, best_col, candidate_rows)
+    return None
+
+
+def _fetch_autopsy_raw(provider_symbol: str, timeout: float = 10.0) -> Tuple[dict, Any, Any, Any]:
+    session = None
+    try:
+        from curl_cffi import requests as c_requests
+        # impersonate="chrome" จำเป็น — Session เปล่าไม่มี browser TLS fingerprint ทำให้ Yahoo
+        # ตรวจจับเป็น bot และคืน YFRateLimitError ทันทีตั้งแต่ request แรก (ไม่เกี่ยวกับจำนวนครั้งที่ยิงจริง)
+        session = c_requests.Session(timeout=timeout, impersonate="chrome")
+    except Exception:
+        pass
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            if session is not None:
+                tk = yf.Ticker(provider_symbol, session=session)
+            else:
+                tk = yf.Ticker(provider_symbol)
+            info = tk.info or {}
+            financials = tk.financials
+            cashflow = tk.cashflow
+            balance_sheet = tk.balance_sheet
+            return info, financials, cashflow, balance_sheet
+        except Exception as e:
+            if "Too Many Requests" in str(e) or "Rate limited" in str(e):
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+            raise
+
+
+def get_financial_autopsy(resolved_asset: ResolvedAsset) -> FinancialAutopsyFetchResult:
+    """ดึงข้อมูล Snapshot การเงินเชิงลึกย้อนหลัง 3-5 ปีจริง โดย Align วันที่งบให้ตรงกัน และจัดการ timeout 10s พร้อม cache"""
+    prov_sym = resolved_asset.provider_symbol or resolved_asset.raw_symbol
+    now = time.time()
+
+    # Check eligibility
+    if not resolved_asset.eligible_for_financial_autopsy:
+        return FinancialAutopsyFetchResult(
+            asset=resolved_asset,
+            status="unavailable",
+            error_code="INELIGIBLE_ASSET",
+            error_message=f"Symbol {resolved_asset.raw_symbol} ({resolved_asset.asset_class}) is not eligible for financial autopsy",
+        )
+
+    # Check success cache
+    if prov_sym in _AUTOPSY_SUCCESS_CACHE:
+        res, ts = _AUTOPSY_SUCCESS_CACHE[prov_sym]
+        if now - ts < _SUCCESS_TTL_SECONDS:
+            return res
+        else:
+            del _AUTOPSY_SUCCESS_CACHE[prov_sym]
+
+    # Check error cache
+    if prov_sym in _AUTOPSY_ERROR_CACHE:
+        res, ts = _AUTOPSY_ERROR_CACHE[prov_sym]
+        if now - ts < _ERROR_TTL_SECONDS:
+            return res
+        else:
+            del _AUTOPSY_ERROR_CACHE[prov_sym]
+
+    try:
+        info, financials, cashflow, balance_sheet = _run_with_deadline(_fetch_autopsy_raw, (prov_sym, 10.0), timeout_sec=10.0, admission_timeout=0.5)
+    except ProviderBusyError as e:
+        log.warning("get_financial_autopsy busy for %s: %s", prov_sym, e)
+        err_res = FinancialAutopsyFetchResult(
+            asset=resolved_asset,
+            status="error",
+            error_code="PROVIDER_BUSY",
+            error_message="Autopsy thread pool saturated (max_workers=4)",
+        )
+        _AUTOPSY_ERROR_CACHE[prov_sym] = (err_res, now)
+        return err_res
+    except (FuturesTimeoutError, TimeoutError):
+        log.warning("get_financial_autopsy timed out after 10s for %s", prov_sym)
+        err_res = FinancialAutopsyFetchResult(
+            asset=resolved_asset,
+            status="error",
+            error_code="PROVIDER_TIMEOUT",
+            error_message="Yahoo Finance request timed out after 10s",
+        )
+        _AUTOPSY_ERROR_CACHE[prov_sym] = (err_res, now)
+        return err_res
+    except Exception as e:
+        log.warning("get_financial_autopsy failed for %s: %s", prov_sym, e)
+        err_res = FinancialAutopsyFetchResult(
+            asset=resolved_asset,
+            status="error",
+            error_code="PROVIDER_ERROR",
+            error_message=str(e),
+        )
+        _AUTOPSY_ERROR_CACHE[prov_sym] = (err_res, now)
+        return err_res
+
+    market: Literal["TH", "US"] = resolved_asset.market or ("TH" if prov_sym.endswith(".BK") else "US")
+    currency = info.get("currency") or ("THB" if market == "TH" else "USD")
+    current_pe = _to_float(info.get("trailingPE"))
+    forward_pe = _to_float(info.get("forwardPE"))
+    market_cap = _to_float(info.get("marketCap"))
+
+    # Gather all available date columns across statements
+    all_cols = set()
+    for df in (financials, cashflow, balance_sheet):
+        if df is not None and isinstance(df, pd.DataFrame) and not df.empty:
+            all_cols.update(df.columns)
+
+    if not all_cols:
+        unavail_res = FinancialAutopsyFetchResult(
+            asset=resolved_asset,
+            status="unavailable",
+            error_code="NO_FINANCIAL_DATA",
+            error_message=f"No statement data available for {prov_sym}",
+        )
+        _AUTOPSY_ERROR_CACHE[prov_sym] = (unavail_res, now)
+        return unavail_res
+
+    # Sort dates descending (most recent first) and cluster within 45 days for canonical fiscal periods
+    sorted_raw = sorted(list(all_cols), key=lambda c: pd.to_datetime(c) if hasattr(pd, "to_datetime") else str(c), reverse=True)
+    canonical_cols = []
+    for col in sorted_raw:
+        try:
+            if hasattr(pd, "to_datetime"):
+                col_dt = pd.to_datetime(col)
+                if not any(abs((pd.to_datetime(c) - col_dt).days) <= 45 for c in canonical_cols):
+                    canonical_cols.append(col)
+            else:
+                if col not in canonical_cols:
+                    canonical_cols.append(col)
+        except Exception:
+            if col not in canonical_cols:
+                canonical_cols.append(col)
+    sorted_cols = canonical_cols[:5]
+
+    periods: List[FinancialAutopsyPeriod] = []
+    for col in sorted_cols:
+        if hasattr(col, "strftime"):
+            dt_str = col.strftime("%Y-%m-%d")
+        else:
+            try:
+                dt_str = pd.to_datetime(col).strftime("%Y-%m-%d")
+            except Exception:
+                dt_str = str(col)[:10]
+
+        # Cashflow items
+        fcf = _extract_df_val_aligned(cashflow, col, ["Free Cash Flow"])
+        ocf = _extract_df_val_aligned(cashflow, col, ["Operating Cash Flow", "Total Cash From Operating Activities"])
+        capex = _extract_df_val_aligned(cashflow, col, ["Capital Expenditure", "Capital Expenditures"])
+        div_paid = _extract_df_val_aligned(cashflow, col, ["Common Stock Dividend Paid", "Cash Dividends Paid", "Dividends Paid"])
+
+        if fcf is None and ocf is not None and capex is not None:
+            fcf = ocf - abs(capex)
+
+        # Balance sheet items
+        total_debt = _extract_df_val_aligned(
+            balance_sheet, col,
+            ["Total Debt", "Total Debt And Capital Lease Obligation"]
+        )
+        if total_debt is None:
+            lt_debt = _extract_df_val_aligned(balance_sheet, col, ["Long Term Debt And Capital Lease Obligation", "Long Term Debt"])
+            st_debt = _extract_df_val_aligned(balance_sheet, col, ["Short Term Debt And Capital Lease Obligation", "Short Term Debt", "Current Debt"])
+            if lt_debt is not None or st_debt is not None:
+                total_debt = (lt_debt or 0.0) + (st_debt or 0.0)
+
+        # Financials / Income statement items
+        rev = _extract_df_val_aligned(financials, col, ["Total Revenue", "Operating Revenue"])
+        net_inc = _extract_df_val_aligned(financials, col, ["Net Income", "Net Income Common Stockholders"])
+        ebit_val = _extract_df_val_aligned(financials, col, ["EBIT", "Total Operating Income As Reported", "Operating Income"])
+        op_income_val = _extract_df_val_aligned(financials, col, ["Operating Income", "Total Operating Income As Reported", "EBIT"])
+        interest_exp = _extract_df_val_aligned(financials, col, ["Interest Expense", "Interest Expense Non Operating"])
+        tax_exp = _extract_df_val_aligned(financials, col, ["Tax Provision", "Tax Effect Of Unusual Items"])
+        pretax_inc = _extract_df_val_aligned(financials, col, ["Pretax Income", "Net Income From Continuing Operation Net Minority Interest"])
+
+        # Payout ratio
+        payout_pct = None
+        if div_paid is not None and net_inc is not None and net_inc > 0:
+            payout_pct = round((abs(div_paid) / net_inc) * 100.0, 2)
+
+        # Only add period if at least one quantitative metric exists
+        if any(v is not None for v in (fcf, ocf, capex, total_debt, rev, net_inc, div_paid, ebit_val, op_income_val)):
+            periods.append(
+                FinancialAutopsyPeriod(
+                    fiscal_period_end=dt_str,
+                    free_cash_flow=fcf,
+                    operating_cash_flow=ocf,
+                    capital_expenditure=capex,
+                    total_debt=total_debt,
+                    total_revenue=rev,
+                    net_income=net_inc,
+                    dividends_paid=div_paid,
+                    payout_ratio_pct=payout_pct,
+                    ebit=ebit_val,
+                    operating_income=op_income_val,
+                    interest_expense=interest_exp,
+                    tax_expense=tax_exp,
+                    income_before_tax=pretax_inc,
+                )
+            )
+
+    if not periods:
+        unavail_res = FinancialAutopsyFetchResult(
+            asset=resolved_asset,
+            status="unavailable",
+            error_code="NO_FINANCIAL_DATA",
+            error_message=f"No periods could be extracted for {prov_sym}",
+        )
+        _AUTOPSY_ERROR_CACHE[prov_sym] = (unavail_res, now)
+        return unavail_res
+
+    health_notes = []
+    latest = periods[0] if periods else None
+    if latest and latest.free_cash_flow is not None and latest.total_debt is not None:
+        if latest.total_debt > 0:
+            ratio = latest.free_cash_flow / latest.total_debt
+            if ratio < 0:
+                health_notes.append("Negative FCF relative to Debt")
+            elif ratio < 0.1:
+                health_notes.append("Low FCF/Debt coverage (<10%)")
+            else:
+                health_notes.append(f"FCF/Debt: {ratio:.2f}x")
+        elif latest.free_cash_flow > 0:
+            health_notes.append("Positive FCF with zero reported debt")
+    if current_pe is not None:
+        health_notes.append(f"PE: {current_pe:.1f}")
+    if forward_pe is not None:
+        health_notes.append(f"Fwd PE: {forward_pe:.1f}")
+    health_summary = "; ".join(health_notes) if health_notes else "Basic financial statements verified"
+
+    snapshot = FinancialAutopsySnapshot(
+        ticker=resolved_asset.raw_symbol,
+        provider_symbol=prov_sym,
+        market=market,
+        currency=str(currency),
+        unit="raw",
+        source="Yahoo Finance (yfinance)",
+        retrieval_timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        periods=periods,
+        current_pe=current_pe,
+        forward_pe=forward_pe,
+        market_cap=market_cap,
+        health_summary=health_summary,
+    )
+
+    succ_res = FinancialAutopsyFetchResult(
+        asset=resolved_asset,
+        status="success",
+        snapshot=snapshot,
+    )
+    _AUTOPSY_SUCCESS_CACHE[prov_sym] = (succ_res, now)
+    return succ_res
+
+
+@tool
+def ingest_financial_autopsy(symbol: str, market: str = "US") -> str:
+    """ดึงข้อมูล Financial Autopsy เชิงลึกของหุ้น (FCF, Debt, Payout Ratio ย้อนหลัง 3-5 ปี) พร้อมตรวจสอบสิทธิของสินทรัพย์
+
+    Args:
+        symbol (str): Ticker symbol เช่น 'NVDA', 'PTT'
+        market (str): 'US' หรือ 'TH' (default: 'US')
+    """
+    mkt: Optional[Literal["TH", "US"]] = "TH" if market.upper() == "TH" else "US"
+    asset = resolve_asset(symbol, market_hint=mkt)
+    if not asset.eligible_for_financial_autopsy:
+        res = FinancialAutopsyFetchResult(
+            asset=asset,
+            status="unavailable",
+            error_code="INELIGIBLE_ASSET",
+            error_message=f"Symbol {symbol} ({asset.asset_class}) is not eligible for financial autopsy",
+        )
+        return res.model_dump_json()
+
+    result = get_financial_autopsy(asset)
+    return result.model_dump_json()
+
+
+==================== core\llm_factory.py ====================
+import os
+from typing import Optional, Any
+
+import anthropic
+import google.genai as genai
+from langchain_anthropic import ChatAnthropic
+from langchain_core.language_models import BaseChatModel
+from langchain_core.runnables import RunnableWithFallbacks
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
+
+from core.logger import get_logger
+
+log = get_logger(__name__)
+
+# Cross-provider fallback — รุ่นที่ถูกเรียกเมื่อ primary fail ใน get_llm(use_fallback=True)
+FALLBACK_MODEL = "openai/gpt-oss-120b:free"
+
+
+def detect_provider(model_name: str) -> str:
+    """Auto-detect provider จาก model name (override ได้ผ่าน LLM_PROVIDER env)
+
+    Rules:
+      - claude-*              → anthropic
+      - gemini-* / models/gemini-*  → google
+      - มี '/' ใน name         → openrouter
+      - default               → google
+    """
+    override = os.getenv("LLM_PROVIDER")
+    if override:
+        return override
+    name = model_name.lower()
+    if name.startswith("claude"):
+        return "anthropic"
+    if name.startswith(("gemini", "models/gemini")):
+        return "google"
+    if "/" in model_name:
+        return "openrouter"
+    return "google"
+
+
+def _build_primary(provider: str, model_name: str, temperature: float, max_output_tokens: Optional[int] = None) -> BaseChatModel:
+    if provider == "google":
+        return ChatGoogleGenerativeAI(model=model_name, temperature=temperature, max_output_tokens=max_output_tokens, api_key=os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"))
+    if provider == "anthropic":
+        return ChatAnthropic(model=model_name, temperature=temperature, max_tokens=max_output_tokens)
+    if provider == "openrouter":
+        return ChatOpenAI(
+            api_key=os.getenv("OPENROUTER_API_KEY"),
+            base_url="https://openrouter.ai/api/v1",
+            model=model_name,
+            temperature=temperature,
+            max_tokens=max_output_tokens,
+        )
+    raise ValueError(f"Unknown provider '{provider}'. Choose 'anthropic', 'google', or 'openrouter'.")
+
+
+def get_llm(
+    provider: str,
+    model_name: str,
+    temperature: float = 0.0,
+    use_fallback: bool = False,
+    max_output_tokens: Optional[int] = None,
+) -> BaseChatModel | RunnableWithFallbacks:
+    """สร้าง LLM instance ตาม provider — เลือก wrap ด้วย cross-provider fallback ได้
+
+    Args:
+        provider: "google", "anthropic" หรือ "openrouter"
+        model_name: ชื่อ model เช่น "gemini-3.1-flash-lite-preview", "claude-sonnet-4-6",
+                    "openai/gpt-oss-120b:free"
+        temperature: ระดับความสร้างสรรค์ (0.0 = deterministic)
+        use_fallback: True = wrap primary ด้วย FALLBACK_MODEL (ข้าม provider ได้)
+                      ใช้กับ .invoke()/.stream() ตรงๆ
+                      สำหรับ with_structured_output ให้สร้าง fallback chain เองภายนอก
+        max_output_tokens: จำนวน token สูงสุดในการตอบกลับ (ใช้สำหรับควบคุม token length / ป้องกัน JSON truncate)
+    """
+    primary = _build_primary(provider, model_name, temperature, max_output_tokens=max_output_tokens)
+
+    if use_fallback and model_name != FALLBACK_MODEL:
+        fallback_provider = detect_provider(FALLBACK_MODEL)
+        fallback = _build_primary(fallback_provider, FALLBACK_MODEL, temperature, max_output_tokens=max_output_tokens)
+        return primary.with_fallbacks([fallback])
+
+    return primary
+
+
+def invoke_structured_llm(
+    schema: Any,
+    model_env: str,
+    prompt_lines: list[str],
+    purpose: Optional[str] = None,
+    max_output_tokens: Optional[int] = None,
+    default_model: str = "gemini-3.1-flash-lite-preview",
+    provider: str = "google",
+    **kwargs: Any,
+) -> Any:
+    """Helper สำหรับสร้างและเรียกใช้ structured LLM ด้วย schema ที่กำหนด
+
+    Args:
+        schema: Pydantic schema class
+        model_env: ชื่อ Environment variable สำหรับดึงชื่อ model
+        prompt_lines: รายการบรรทัดของ Prompt ที่จะส่งให้ LLM
+        purpose: คำอธิบายจุดประสงค์ของ call เพื่อใช้ใน log
+        max_output_tokens: จำนวน token สูงสุดในการตอบกลับ
+        default_model: ค่าเริ่มต้นของ model หากไม่ได้ตั้งใน env var
+        provider: "google", "anthropic" หรือ "openrouter"
+    """
+    model_name = os.getenv(model_env, default_model)
+    call_purpose = purpose or getattr(schema, "__name__", str(schema))
+    log.info("LLM Call | purpose=%s | model=%s | max_tokens=%s", call_purpose, model_name, max_output_tokens)
+    llm = get_llm(provider=provider, model_name=model_name, max_output_tokens=max_output_tokens)
+    structured_llm = llm.with_structured_output(schema)
+    return structured_llm.invoke("\n".join(prompt_lines))
+
+
+def _fetch_google_models() -> list[str]:
+    try:
+        client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+        return [
+            m.name
+            for m in client.models.list()
+            if "gemini" in m.name.lower()
+        ]
+    except Exception as e:
+        log.warning("Google models fetch failed: %s", e)
+        return []
+
+
+def _fetch_anthropic_models() -> list[str]:
+    try:
+        client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        return [m.id for m in client.models.list().data]
+    except Exception as e:
+        log.warning("Anthropic models fetch failed: %s", e)
+        return []
+
+
+def _fetch_openrouter_models() -> list[str]:
+    try:
+        import httpx
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        resp = httpx.get("https://openrouter.ai/api/v1/models", headers=headers, timeout=10)
+        resp.raise_for_status()
+        return [m["id"] for m in resp.json().get("data", [])]
+    except Exception as e:
+        log.warning("OpenRouter models fetch failed: %s", e)
+        return []
+
+
+def list_available_models(provider: str | None = None) -> list[str] | dict[str, list[str]]:
+    """ดึงรายชื่อโมเดลจาก Server ของ Provider โดยตรง (Dynamic Fetch)
+
+    Args:
+        provider: "google", "anthropic", "openrouter" หรือ None เพื่อดึงทั้งหมด
+
+    Returns:
+        list[str] ถ้าระบุ provider / dict[str, list[str]] ถ้าไม่ระบุ
+    """
+    if provider == "google":
+        return _fetch_google_models()
+    if provider == "anthropic":
+        return _fetch_anthropic_models()
+    if provider == "openrouter":
+        return _fetch_openrouter_models()
+    if provider is None:
+        return {
+            "google": _fetch_google_models(),
+            "anthropic": _fetch_anthropic_models(),
+            "openrouter": _fetch_openrouter_models(),
+        }
+    raise ValueError(f"Unknown provider '{provider}'. Choose 'google', 'anthropic', 'openrouter', or None.")
+
+
+==================== validators\valuation_guardrails.py ====================
+"""Valuation and Credit Spread guardrail rules for Macro Strategy Direction."""
+import re
+from typing import Any, Optional
+from schemas.warning_registry import (
+    WarningMessage,
+    VALUATION_RICH_WARNING,
+    CREDIT_SPREAD_WARNING,
+)
+from tools.macro.ticker_config import (
+    VALUATION_RICH_ERP_THRESHOLD,
+    CREDIT_SPREAD_DANGER_THRESHOLD,
+    CREDIT_SPREAD_WIDENING_3M_BPS,
+)
+from validators.contradiction_rules import ContradictionFinding, apply_contradiction_findings
+
+
+def _parse_val_to_float(val_str: Any) -> Optional[float]:
+    if isinstance(val_str, (int, float)):
+        return float(val_str)
+    if not isinstance(val_str, str) or not val_str.strip() or val_str.strip() == "-" or val_str.strip().upper() == "N/A":
+        return None
+    match = re.search(r"[-+]?\d*\.\d+|\d+", str(val_str))
+    if match:
+        try:
+            return float(match.group(0))
+        except ValueError:
+            return None
+    return None
+
+
+def check_valuation_contradiction(direction: Any, observable_registry: Optional[dict[str, Any]] = None) -> list[ContradictionFinding]:
+    """
+    Check if Equity Risk Premium (ERP) is below VALUATION_RICH_ERP_THRESHOLD (1.5%)
+    when US Equities is Overweight with HIGH confidence and without hedging/defensive rationale.
+    """
+    findings: list[ContradictionFinding] = []
+    reg = observable_registry if observable_registry is not None else getattr(direction, "observable_registry", {})
+    if not reg and hasattr(direction, "market_observables"):
+        reg = {o.observable_id: o for o in getattr(direction, "market_observables", [])}
+
+    # Locate ERP observable
+    erp_obs = None
+    if isinstance(reg, dict):
+        erp_obs = reg.get("obs_erp_gspc")
+        if not erp_obs:
+            for obs in reg.values():
+                if "erp" in getattr(obs, "observable_id", "").lower() or "equity risk premium" in getattr(obs, "indicator", "").lower():
+                    erp_obs = obs
+                    break
+    elif isinstance(reg, list):
+        for obs in reg:
+            if "erp" in getattr(obs, "observable_id", "").lower() or "equity risk premium" in getattr(obs, "indicator", "").lower():
+                erp_obs = obs
+                break
+
+    if not erp_obs or not getattr(erp_obs, "is_valid", True):
+        return findings
+
+    # Get ERP decimal
+    erp_dec: Optional[float] = None
+    meta = getattr(erp_obs, "metadata", {})
+    if isinstance(meta, dict) and "erp_decimal" in meta and meta["erp_decimal"] is not None:
+        erp_dec = float(meta["erp_decimal"])
+    else:
+        val_num = _parse_val_to_float(getattr(erp_obs, "value", None))
+        if val_num is not None:
+            # If value is e.g. 0.75 and unit is %, convert to decimal
+            unit = str(getattr(erp_obs, "unit", "")).strip()
+            erp_dec = val_num / 100.0 if unit == "%" or val_num > 0.20 else val_num
+
+    if erp_dec is None or erp_dec >= VALUATION_RICH_ERP_THRESHOLD:
+        return findings
+
+    # Check US Equities allocation
+    for a in getattr(direction, "asset_allocation", []):
+        bucket = str(getattr(a, "asset_bucket", "")).lower()
+        ac = str(getattr(a, "asset_class", "")).lower()
+        stance = str(getattr(a, "stance", "")).split(".")[-1].upper()
+        conf = str(getattr(a, "confidence", "")).lower()
+
+        is_us_eq = (bucket == "equities" or "equity" in ac or "equities" in ac or "หุ้น" in ac) and ("us" in ac or "สหรัฐ" in ac or "s&p" in ac or "nasdaq" in ac or bucket == "equities")
+        if is_us_eq and stance == "OVERWEIGHT" and conf == "high":
+            # Check keywords for hedging or earnings revision
+            text_lower = (
+                str(getattr(a, "rationale", "")) + " " +
+                " ".join(str(x) for x in getattr(a, "supporting_data", [])) + " " +
+                str(getattr(a, "why_not_high", ""))
+            ).lower()
+            hedge_keywords = ["hedge", "defensive", "option", "put", "collar", "barbell", "earnings revision", "ป้องกันความเสี่ยง", "ปรับประมาณการ", "ประกันความเสี่ยง"]
+            if not any(k in text_lower for k in hedge_keywords):
+                findings.append(ContradictionFinding(
+                    warning=WarningMessage(VALUATION_RICH_WARNING),
+                    target_object=a,
+                    downgrade_confidence=True,
+                ))
+
+    return findings
+
+
+def check_credit_spread_warning(direction: Any, observable_registry: Optional[dict[str, Any]] = None) -> list[ContradictionFinding]:
+    """
+    Check High Yield Credit Spread observable against CREDIT_SPREAD_DANGER_THRESHOLD (5.0%)
+    or widening > 100 bps over 3 months. Warning-only (no confidence/conviction downgrade).
+    """
+    findings: list[ContradictionFinding] = []
+    reg = observable_registry if observable_registry is not None else getattr(direction, "observable_registry", {})
+    if not reg and hasattr(direction, "market_observables"):
+        reg = {o.observable_id: o for o in getattr(direction, "market_observables", [])}
+
+    hy_obs = None
+    if isinstance(reg, dict):
+        hy_obs = reg.get("obs_hy_spread")
+        if not hy_obs:
+            for obs in reg.values():
+                if "bamlh0a0hym2" in getattr(obs, "observable_id", "").lower() or "high yield" in getattr(obs, "indicator", "").lower():
+                    hy_obs = obs
+                    break
+    elif isinstance(reg, list):
+        for obs in reg:
+            if "bamlh0a0hym2" in getattr(obs, "observable_id", "").lower() or "high yield" in getattr(obs, "indicator", "").lower():
+                hy_obs = obs
+                break
+
+    if not hy_obs or not getattr(hy_obs, "is_valid", True):
+        return findings
+
+    val_num: Optional[float] = None
+    meta = getattr(hy_obs, "metadata", {})
+    widening_3m = 0.0
+    if isinstance(meta, dict):
+        if "hy_spread_pct" in meta and meta["hy_spread_pct"] is not None:
+            val_num = float(meta["hy_spread_pct"])
+        if "widening_3m_bps" in meta and meta["widening_3m_bps"] is not None:
+            widening_3m = float(meta["widening_3m_bps"])
+
+    if val_num is None:
+        val_num = _parse_val_to_float(getattr(hy_obs, "value", None))
+
+    if val_num is not None:
+        if val_num > CREDIT_SPREAD_DANGER_THRESHOLD or widening_3m > CREDIT_SPREAD_WIDENING_3M_BPS:
+            findings.append(ContradictionFinding(
+                warning=WarningMessage(CREDIT_SPREAD_WARNING),
+                target_object=direction,
+                downgrade_confidence=False,
+                downgrade_conviction=False,
+            ))
+
+    return findings
+
+
+def validate_valuation_guardrails(direction: Any) -> list[ContradictionFinding]:
+    findings = check_valuation_contradiction(direction)
+    findings.extend(check_credit_spread_warning(direction))
+    apply_contradiction_findings(findings, direction)
+    return findings

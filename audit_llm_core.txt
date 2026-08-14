@@ -1,0 +1,908 @@
+============================================================
+ TRINITY LLM CORE ARCHITECTURE — SOURCE AUDIT
+============================================================
+
+[1] core/model_registry.py
+============================================================
+"""Centralized LLM model registry.
+
+Single-model architecture:
+    NVIDIA Nemotron 3 Super 120B A12B via OpenRouter
+
+Every agent and tool uses the same model.
+"""
+
+from dataclasses import dataclass
+
+
+FREE_MODEL = "nvidia/nemotron-3-super-120b-a12b:free"
+
+
+@dataclass(frozen=True)
+class ModelSlot:
+    env_var: str
+    default: str
+    purpose: str
+    layer: str  # "agent" | "tool"
+
+
+REGISTRY: dict[str, ModelSlot] = {
+    # --- Agent Layer ---
+    "manager": ModelSlot(
+        "MANAGER_MODEL",
+        FREE_MODEL,
+        "Manager Agent — routing and orchestration",
+        "agent",
+    ),
+    "router": ModelSlot(
+        "ROUTER_MODEL",
+        FREE_MODEL,
+        "Structured routing (RouterDecision)",
+        "agent",
+    ),
+    "archivist": ModelSlot(
+        "ARCHIVIST_MODEL",
+        FREE_MODEL,
+        "PKM management agent",
+        "agent",
+    ),
+    "bookkeeper": ModelSlot(
+        "BOOKKEEPER_MODEL",
+        FREE_MODEL,
+        "Portfolio & accounting agent",
+        "agent",
+    ),
+    "macro_quant": ModelSlot(
+        "MACRO_QUANT_MODEL",
+        FREE_MODEL,
+        "Quant Macro Matrix agent",
+        "agent",
+    ),
+    "economist": ModelSlot(
+        "MACRO_ECONOMIST_MODEL",
+        FREE_MODEL,
+        "Macroeconomic narrative synthesis agent",
+        "agent",
+    ),
+    "allocator": ModelSlot(
+        "STRATEGIC_ALLOCATOR_MODEL",
+        FREE_MODEL,
+        "Strategic Allocator agent",
+        "agent",
+    ),
+    "equity_quant": ModelSlot(
+        "EQUITY_QUANT_MODEL",
+        FREE_MODEL,
+        "Equity Quant Signals agent (deterministic)",
+        "agent",
+    ),
+    "equity_narrative": ModelSlot(
+        "EQUITY_NARRATIVE_MODEL",
+        FREE_MODEL,
+        "Equity Sentiment/Narrative synthesis agent",
+        "agent",
+    ),
+    "equity_synthesizer": ModelSlot(
+        "EQUITY_SYNTHESIZER_MODEL",
+        FREE_MODEL,
+        "Equity final report synthesis agent",
+        "agent",
+    ),
+
+    # --- Tool Layer ---
+    "extractor": ModelSlot(
+        "EXTRACTOR_MODEL",
+        FREE_MODEL,
+        "Article/PDF/YouTube content extraction",
+        "tool",
+    ),
+    "youtube_pitch": ModelSlot(
+        "YOUTUBE_PITCH_MODEL",
+        FREE_MODEL,
+        "YouTube Pitch generation + Briefing Book",
+        "tool",
+    ),
+    "news_triage": ModelSlot(
+        "NEWS_FUNNEL_TRIAGE_MODEL",
+        FREE_MODEL,
+        "News impact scoring (batch triage)",
+        "tool",
+    ),
+    "thai_title_translation": ModelSlot(
+        "NEWS_FUNNEL_SYNTHESIS_MODEL",
+        FREE_MODEL,
+        "Thai title translation for news",
+        "tool",
+    ),
+}
+
+
+def get_model_name(slot_key: str) -> str:
+    """Return the single approved free model."""
+    if slot_key not in REGISTRY:
+        raise KeyError(f"Unknown model slot: {slot_key}")
+
+    return FREE_MODEL
+
+
+def get_registry_summary() -> list[dict]:
+    """Return all slots with their resolved model."""
+    return [
+        {
+            "slot": key,
+            "env_var": slot.env_var,
+            "resolved_model": FREE_MODEL,
+            "default": FREE_MODEL,
+            "is_overridden": False,
+            "purpose": slot.purpose,
+            "layer": slot.layer,
+        }
+        for key, slot in REGISTRY.items()
+    ]
+
+[2] core/llm_factory.py
+============================================================
+"""Centralized LLM factory.
+
+Single-provider / single-model architecture.
+
+ALL LLM requests are routed through OpenRouter using:
+    openai/gpt-oss-120b:free
+
+No Google or Anthropic runtime provider is supported.
+"""
+
+import os
+from typing import Optional, Any
+
+from dotenv import load_dotenv
+from langchain_core.language_models import BaseChatModel
+from langchain_core.runnables import RunnableWithFallbacks
+from langchain_openai import ChatOpenAI
+
+from core.logger import get_logger
+from core.model_registry import FREE_MODEL
+
+# Always load project .env when this module is imported.
+load_dotenv()
+
+log = get_logger(__name__)
+
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+# Single approved model.
+FALLBACK_MODEL = FREE_MODEL
+
+
+def detect_provider(model_name: str) -> str:
+    """Return the only supported provider."""
+    return "openrouter"
+
+
+def _build_primary(
+    provider: str,
+    model_name: str,
+    temperature: float,
+    max_output_tokens: Optional[int] = None,
+) -> BaseChatModel:
+    """Build the single supported LLM implementation."""
+
+    if provider != "openrouter":
+        raise ValueError(
+            f"Unsupported provider '{provider}'. "
+            "Trinity-Wealth-Engine uses OpenRouter only."
+        )
+
+    # Hard-lock the model.
+    if model_name != FREE_MODEL:
+        log.warning(
+            "Requested model '%s' was rejected. "
+            "Using enforced free model '%s'.",
+            model_name,
+            FREE_MODEL,
+        )
+        model_name = FREE_MODEL
+
+    api_key = os.getenv("OPENROUTER_API_KEY")
+
+    if not api_key:
+        raise RuntimeError(
+            "OPENROUTER_API_KEY is not configured. "
+            "Check the project .env file."
+        )
+
+    return ChatOpenAI(
+        api_key=api_key,
+        base_url=OPENROUTER_BASE_URL,
+        model=FREE_MODEL,
+        temperature=temperature,
+        max_tokens=max_output_tokens,
+    )
+
+
+def get_llm(
+    provider: str = "openrouter",
+    model_name: str = FREE_MODEL,
+    temperature: float = 0.0,
+    use_fallback: bool = False,
+    max_output_tokens: Optional[int] = None,
+) -> BaseChatModel | RunnableWithFallbacks:
+    """Create the single approved LLM.
+
+    provider and model_name are retained for backwards compatibility,
+    but runtime always uses OpenRouter + FREE_MODEL.
+    """
+
+    primary = _build_primary(
+        provider="openrouter",
+        model_name=FREE_MODEL,
+        temperature=temperature,
+        max_output_tokens=max_output_tokens,
+    )
+
+    # Single-model policy: no alternate model fallback.
+    if use_fallback:
+        log.info(
+            "Fallback requested, but single-model policy is active. "
+            "No alternate model will be used."
+        )
+
+    return primary
+
+
+def invoke_structured_llm(
+    schema: Any,
+    model_env: str,
+    prompt_lines: list[str],
+    purpose: Optional[str] = None,
+    max_output_tokens: Optional[int] = None,
+    default_model: str = FREE_MODEL,
+    provider: str = "openrouter",
+    **kwargs: Any,
+) -> Any:
+    """Invoke the single approved model with structured output."""
+
+    model_name = FREE_MODEL
+
+    call_purpose = purpose or getattr(
+        schema,
+        "__name__",
+        str(schema),
+    )
+
+    log.info(
+        "LLM Call | purpose=%s | model=%s | provider=openrouter | max_tokens=%s",
+        call_purpose,
+        model_name,
+        max_output_tokens,
+    )
+
+    llm = get_llm(
+        provider="openrouter",
+        model_name=FREE_MODEL,
+        temperature=0.0,
+        max_output_tokens=max_output_tokens,
+    )
+
+    structured_llm = llm.with_structured_output(schema)
+
+    return structured_llm.invoke(
+        "\n".join(prompt_lines)
+    )
+
+
+def _fetch_openrouter_models() -> list[str]:
+    """Fetch available OpenRouter models."""
+
+    try:
+        import httpx
+
+        api_key = os.getenv("OPENROUTER_API_KEY")
+
+        if not api_key:
+            log.warning("OPENROUTER_API_KEY is not configured.")
+            return []
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+        }
+
+        resp = httpx.get(
+            f"{OPENROUTER_BASE_URL}/models",
+            headers=headers,
+            timeout=10,
+        )
+
+        resp.raise_for_status()
+
+        return [
+            m["id"]
+            for m in resp.json().get("data", [])
+        ]
+
+    except Exception as e:
+        log.warning(
+            "OpenRouter models fetch failed: %s",
+            e,
+        )
+        return []
+
+
+def list_available_models(
+    provider: str | None = None,
+) -> list[str] | dict[str, list[str]]:
+    """Return available OpenRouter models."""
+
+    if provider not in (None, "openrouter"):
+        raise ValueError(
+            f"Unsupported provider '{provider}'. "
+            "Only 'openrouter' is supported."
+        )
+
+    models = _fetch_openrouter_models()
+
+    if provider == "openrouter":
+        return models
+
+    return {
+        "openrouter": models,
+    }
+
+[3] agents/manager_agent.py — FIRST 380 LINES
+============================================================
+import os
+import re
+import time
+import uuid
+import json
+from datetime import datetime, timezone
+from functools import lru_cache
+from typing import Literal, TypedDict, Optional, Any
+
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.runnables.config import RunnableConfig
+from langgraph.graph import END, START, MessagesState, StateGraph
+from langgraph.types import Command
+from pydantic import BaseModel, Field
+
+from agents.archivist_agent import create_archivist
+from agents.bookkeeper_agent import create_bookkeeper
+from agents.macro_quant_agent import create_macro_quant
+from agents.macro_economist_agent import create_macro_economist
+from agents.strategic_allocator import invoke_strategic_allocator
+from agents.equity_quant_agent import create_equity_quant
+from agents.equity_narrative_agent import create_equity_narrative
+from agents.equity_synthesizer import invoke_equity_synthesizer
+from schemas.macro_schemas import MarketObservable
+from schemas.micro_quant_schemas import QuantSignals, EquitySentimentContext, MicroQuantOutput
+from tools.macro.report_formatter import format_macro_strategy_report, write_strategy_json_sidecar
+from tools.macro.ingest import fetch_and_save_macro_snapshots
+from tools.market.equity_report_formatter import format_equity_analysis_report
+from tools.market.quant_history import save_equity_quant_snapshot
+from tools.market.equity_sidecar import write_equity_sidecar
+from core.agent_log import log_turn_start, log_manager_plan, log_worker_result, log_system_action, log_routing
+from core.llm_factory import FALLBACK_MODEL, detect_provider, get_llm
+from core.logger import get_logger
+from core.model_registry import get_model_name
+from core.prompt_harness import get_harness
+from core.utils import normalize_content
+
+log = get_logger(__name__)
+
+
+def _msg_role(m) -> str:
+    return "human" if isinstance(m, HumanMessage) else "assistant"
+
+
+# Single-tier config: ทุก agent ใช้ gemini-3.1-flash-lite-preview เป็น default
+# Fallback chain (core/llm_factory.FALLBACK_MODEL) = openai/gpt-oss-120b:free (OpenRouter)
+# ค่า default ของแต่ละ slot มาจาก core.model_registry (single source of truth ที่ /api/debug/models
+# อ่านด้วย) — ยกเว้น _ROUTER_MODEL ที่คง behavior เดิมไว้ตั้งใจ: ถ้าไม่ตั้ง ROUTER_MODEL เอง จะ
+# chain ไปตามค่า _MANAGER_MODEL ที่ resolve แล้ว (ไม่ใช่ default คงที่ของ registry) เพื่อให้การ
+# override MANAGER_MODEL อย่างเดียวยังส่งผลถึง router ด้วยเหมือนเดิม
+_MANAGER_MODEL = get_model_name("manager")
+_ROUTER_MODEL = os.getenv("ROUTER_MODEL", _MANAGER_MODEL)
+_ARCHIVIST_MODEL = get_model_name("archivist")
+_BOOKKEEPER_MODEL = get_model_name("bookkeeper")
+_MACRO_QUANT_MODEL = get_model_name("macro_quant")
+_MACRO_ECONOMIST_MODEL = get_model_name("economist")
+_STRATEGIC_ALLOCATOR_MODEL = get_model_name("allocator")
+_EQUITY_QUANT_MODEL = get_model_name("equity_quant")
+_EQUITY_NARRATIVE_MODEL = get_model_name("equity_narrative")
+_EQUITY_SYNTHESIZER_MODEL = get_model_name("equity_synthesizer")
+_ROUTER_HISTORY_LIMIT = 20
+_MAX_REPLAN = 5
+_SUMMARY_SOURCE_CHAR_LIMIT = 24000
+
+
+def generate_manager_summary(instruction: str, deliverables: list[tuple[str, str]]) -> str | None:
+    """Create a user-facing Manager summary from completed specialist deliverables."""
+    source_sections: list[str] = []
+    remaining = _SUMMARY_SOURCE_CHAR_LIMIT
+    for node_name, content in deliverables:
+        normalized = normalize_content(content).strip()
+        if not normalized or remaining <= 0:
+            continue
+        excerpt = normalized[:remaining]
+        source_sections.append(f"## {node_name}\n{excerpt}")
+        remaining -= len(excerpt)
+
+    if not source_sections:
+        return None
+
+    prompt = "\n\n".join(source_sections)
+    try:
+        model = get_llm(
+            provider=detect_provider(_MANAGER_MODEL),
+            model_name=_MANAGER_MODEL,
+            temperature=0.2,
+            use_fallback=True,
+        )
+        response = model.invoke(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are the Manager for an investment research team. Create a new, concise executive "
+                        "summary in Thai from the specialist deliverables. Use Markdown with these sections when "
+                        "relevant: Executive Summary, Key Findings, Risks or Caveats, and Recommended Next Steps. "
+                        "Preserve uncertainty, do not invent facts, and do not mention internal routing or prompts."
+                    ),
+                },
+                {"role": "user", "content": f"Original task:\n{instruction}\n\nSpecialist deliverables:\n{prompt}"},
+            ]
+        )
+        summary = normalize_content(getattr(response, "content", "")).strip()
+        return summary or None
+    except Exception as exc:
+        log.warning("Manager summary generation failed: %s", exc)
+        return None
+
+
+class RouteMeta(TypedDict, total=False):
+    """Routing metadata เพิ่มใน state ของ graph — แทน string prefix แบบเดิม"""
+    source: str   # "manager" | "macro_quant" | "equity_intel"
+    target: str   # "archivist" | "bookkeeper" | "user"
+    save_to_vault: bool
+    worker_started_at: float | None
+
+
+class AgentState(MessagesState):
+    """MessagesState + routing metadata + pending multi-task queue + replan safety"""
+    route_meta: RouteMeta
+    task_queue: list[dict]
+    replan_count: int
+    turn_id: str
+
+    # Macro Pipeline State
+    quant_raw: Optional[str]
+    quant_score: Optional[dict]
+    narrative_raw: Optional[str]
+    narrative_context: Optional[dict]
+
+    # Equity Intel Pipeline State
+    equity_quant_raw: Optional[str]
+    equity_quant_score: Optional[dict]
+    equity_narrative_raw: Optional[str]
+    equity_narrative_context: Optional[dict]
+    equity_save_to_vault: Optional[bool]
+    equity_output: Optional[dict[str, Any]]
+    equity_news_raw: Optional[str]
+
+
+# ROUTER_PROMPT ถูกย้ายไปที่ prompts/skills/manager/SKILL.md ผ่านระบบ PromptHarness
+
+
+class WorkerTask(BaseModel):
+    """งานย่อย 1 ชิ้น ที่ route ไปยัง worker หนึ่งตัว"""
+    target: Literal["archivist", "bookkeeper", "macro_intel", "equity_intel"]
+    instruction: str = Field(
+        description="คำสั่งสำหรับ worker ตัวนี้ — กระชับ ชัดเจน ตัดคำนำหน้า/คำพ่วงที่ไม่เกี่ยวออก"
+    )
+    save_to_vault: bool = Field(
+        default=True,
+        description="ใช้กับ target == 'equity_intel' เท่านั้น — True = ส่งผลให้ Archivist บันทึก, "
+                    "False = แค่วิเคราะห์แล้วแสดง ไม่เซฟ "
+                    "(เลือก False เมื่อผู้ใช้บอกชัดเจน เช่น 'ดูเฉยๆ', 'ไม่ต้องเซฟ', 'แค่อยากรู้')",
+    )
+
+    from pydantic import model_validator
+    @model_validator(mode='before')
+    @classmethod
+    def alias_target(cls, values):
+        if isinstance(values, dict) and values.get("target") == "macro_analyst":
+            values["target"] = "macro_intel"
+        return values
+
+
+class RouterDecision(BaseModel):
+    """แผนการทำงานของ turn นี้ — แตกคำขอ user เป็นรายการ task ตามลำดับ"""
+    tasks: list[WorkerTask] = Field(
+        default_factory=list,
+        description="รายการงานเรียงตามลำดับที่ต้องทำ (1 task = 1 worker call) — "
+                    "ว่าง [] เมื่อ Manager ตอบ user ได้เองโดยไม่ต้องเรียก worker",
+    )
+    response_text: str = Field(
+        default="",
+        description="คำตอบที่ส่งกลับให้ผู้ใช้โดยตรง (ภาษาไทย กระชับ) — ใช้เมื่อ tasks ว่างเท่านั้น",
+    )
+
+
+def _is_worker_error(messages: list) -> str | None:
+    if not messages:
+        return None
+    last = messages[-1]
+    if not isinstance(last, AIMessage):
+        return None
+    content = normalize_content(last.content).strip()
+    if content.startswith("Error:") or content.startswith("Error "):
+        return content
+    return None
+
+
+def _msg_role(m) -> str:
+    return "human" if isinstance(m, HumanMessage) else "assistant"
+
+
+def _has_entity_frontmatter(text: str) -> bool:
+    stripped = text.lstrip()
+    if not stripped.startswith("---"):
+        return False
+    head = "\n".join(stripped.splitlines()[:30])
+    return "entity_type:" in head
+
+
+@lru_cache(maxsize=1)
+def _get_archivist_graph():
+    provider = detect_provider(_ARCHIVIST_MODEL)
+    return create_archivist(get_llm(provider=provider, model_name=_ARCHIVIST_MODEL, use_fallback=True))
+
+
+@lru_cache(maxsize=1)
+def _get_bookkeeper_graph():
+    provider = detect_provider(_BOOKKEEPER_MODEL)
+    return create_bookkeeper(get_llm(provider=provider, model_name=_BOOKKEEPER_MODEL, use_fallback=True))
+
+
+@lru_cache(maxsize=1)
+def _get_macro_quant_graph():
+    provider = detect_provider(_MACRO_QUANT_MODEL)
+    return create_macro_quant(get_llm(provider=provider, model_name=_MACRO_QUANT_MODEL, use_fallback=True))
+
+@lru_cache(maxsize=1)
+def _get_macro_economist_graph():
+    provider = detect_provider(_MACRO_ECONOMIST_MODEL)
+    return create_macro_economist(get_llm(provider=provider, model_name=_MACRO_ECONOMIST_MODEL, use_fallback=True))
+
+
+@lru_cache(maxsize=1)
+def _get_equity_quant_graph():
+    provider = detect_provider(_EQUITY_QUANT_MODEL)
+    return create_equity_quant(get_llm(provider=provider, model_name=_EQUITY_QUANT_MODEL, use_fallback=True))
+
+
+@lru_cache(maxsize=1)
+def _get_equity_narrative_graph():
+    provider = detect_provider(_EQUITY_NARRATIVE_MODEL)
+    return create_equity_narrative(get_llm(provider=provider, model_name=_EQUITY_NARRATIVE_MODEL, use_fallback=True))
+
+
+@lru_cache(maxsize=1)
+def _get_router_model():
+    provider = detect_provider(_ROUTER_MODEL)
+    primary = get_llm(provider=provider, model_name=_ROUTER_MODEL)
+    structured = primary.with_structured_output(RouterDecision)
+
+    if _ROUTER_MODEL == FALLBACK_MODEL:
+        return structured
+
+    fallback_provider = detect_provider(FALLBACK_MODEL)
+    fallback = get_llm(provider=fallback_provider, model_name=FALLBACK_MODEL)
+    return structured.with_fallbacks([fallback.with_structured_output(RouterDecision)])
+
+
+def extract_worker_reply(messages: list) -> str:
+    start_idx = 0
+    for i in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[i], HumanMessage) and getattr(messages[i], "name", None) == "manager":
+            start_idx = i
+            break
+    recent_msgs = messages[start_idx:]
+    tool_msg = next((m for m in reversed(recent_msgs) if isinstance(m, ToolMessage)), None)
+    return normalize_content(tool_msg.content if tool_msg is not None else recent_msgs[-1].content)
+
+
+def _get_elapsed(meta: dict) -> float | None:
+    started_at = meta.get("worker_started_at")
+    if started_at is None or not isinstance(started_at, (int, float)):
+        return None
+    elapsed = time.monotonic() - started_at
+    return elapsed if elapsed >= 0 else None
+
+
+def build_graph(checkpointer=None) -> StateGraph:
+    archivist_graph = _get_archivist_graph()
+    bookkeeper_graph = _get_bookkeeper_graph()
+    macro_quant_graph = _get_macro_quant_graph()
+    macro_economist_graph = _get_macro_economist_graph()
+    equity_quant_graph = _get_equity_quant_graph()
+    equity_narrative_graph = _get_equity_narrative_graph()
+    router_model = _get_router_model()
+
+    def supervisor_node(state: AgentState) -> Command[Literal["prepare_archivist", "bookkeeper", "macro_quant", "equity_quant", "__end__"]]:
+        messages = state["messages"]
+        turn_id = state.get("turn_id")
+
+        if isinstance(messages[-1], HumanMessage) and getattr(messages[-1], "name", None) != "manager":
+            turn_id = uuid.uuid4().hex[:8]
+            log_turn_start(turn_id, messages[-1].content)
+
+            router_messages = [
+                {"role": "system", "content": get_harness("manager").get_system_prompt()},
+                *[{"role": _msg_role(m), "content": normalize_content(m.content)}
+                  for m in messages[-_ROUTER_HISTORY_LIMIT:] if not isinstance(m, ToolMessage)],
+            ]
+            decision: RouterDecision = router_model.invoke(router_messages)
+            log.info("route plan: tasks=%d", len(decision.tasks))
+
+            if not decision.tasks:
+                reply = decision.response_text.strip() or "ขอโทษครับ ผมยังไม่เข้าใจคำสั่ง ลองพิมพ์ใหม่อีกครั้งได้ไหมครับ"
+                log_worker_result(turn_id, "manager", reply, status="info")
+                return Command(
+                    goto=END,
+                    update={
+                        "messages": [AIMessage(content=reply)],
+                        "route_meta": {"source": "manager", "target": "user"},
+                        "task_queue": [],
+                        "replan_count": 0,
+                        "turn_id": turn_id,
+                    },
+                )
+            log_manager_plan(turn_id, [t.model_dump() for t in decision.tasks])
+            queue = [t.model_dump() for t in decision.tasks]
+            messages_update = []
+            replan_count_update = 0
+        else:
+            error_msg = _is_worker_error(messages)
+            replan_count = state.get("replan_count", 0)
+
+            if error_msg and replan_count < _MAX_REPLAN:
+                log.warning("worker error detected, re-planning (attempt %d/%d): %s", replan_count + 1, _MAX_REPLAN, error_msg[:100])
+                log_system_action(turn_id, "Re-plan Triggered", error_msg, status="warning")
+
+                replan_hint = HumanMessage(
+                    content=(
+                        f"[REPLAN] งานก่อนหน้าล้มเหลว: {error_msg}\n"
+                        "กรุณาวางแผนงานใหม่เพื่อแก้ปัญหาโดยปรับเปลี่ยนแนวทางเดิมที่ล้มเหลว"
+                    ),
+                    name="manager",
+                )
+
+                router_messages = [
+                    {"role": "system", "content": get_harness("manager").get_system_prompt()},
+                    *[{"role": _msg_role(m), "content": normalize_content(m.content)}
+                      for m in messages[-_ROUTER_HISTORY_LIMIT:]
+                      if not isinstance(m, ToolMessage)],
+                    {"role": "human", "content": replan_hint.content},
+                ]
+                decision: RouterDecision = router_model.invoke(router_messages)
+
+                if not decision.tasks:
+                    reply = decision.response_text.strip() or error_msg
+                    log_worker_result(turn_id, "manager", reply, status="warning")
+                    return Command(
+                        goto=END,
+                        update={
+                            "messages": [replan_hint, AIMessage(content=reply)],
+                            "route_meta": {"source": "manager", "target": "user"},
+                            "task_queue": [],
+                            "replan_count": replan_count + 1,
+                            "turn_id": turn_id,
+                        },
+                    )
+                log_manager_plan(turn_id, [t.model_dump() for t in decision.tasks])
+                queue = [t.model_dump() for t in decision.tasks]
+                messages_update = [replan_hint]
+                replan_count_update = replan_count + 1
+            elif error_msg:
+                log.error("max replan reached, returning error to user: %s", error_msg[:100])
+                log_system_action(turn_id, "Re-plan Exhausted", error_msg, status="failure")
+                return Command(
+                    goto=END,
+                    update={
+                        "messages": [AIMessage(content=f"ขออภัยครับ ระบบพยายามแก้ปัญหาแล้วแต่ยังไม่สำเร็จ: {error_msg}")],
+                        "route_meta": {"source": "manager", "target": "user"},
+                        "task_queue": [],
+                        "replan_count": replan_count,
+                        "turn_id": turn_id,
+                    },
+                )
+            else:
+                queue = state.get("task_queue") or []
+                messages_update = []
+                replan_count_update = replan_count
+
+        if not queue:
+            return Command(
+                goto=END,
+                update={"replan_count": 0, "turn_id": turn_id}
+            )
+
+        task, rest = queue[0], queue[1:]
+        target = task["target"]
+
+[4] tools/knowledge/youtube.py — MODEL SECTION
+============================================================
+            content = sub_files[0].read_text(encoding="utf-8", errors="ignore")
+            lines = []
+            for line in content.splitlines():
+                line = line.strip()
+                if not line or "-->" in line or line.startswith("WEBVTT") or re.match(r"^\d+$", line):
+                    continue
+                clean_line = re.sub(r"<[^>]+>", "", line).strip()
+                if clean_line and (not lines or lines[-1] != clean_line):
+                    lines.append(clean_line)
+            text = " ".join(lines)
+            return text if text.strip() else None
+        except Exception as e:
+            log.warning("yt-dlp subtitle execution error | video_id=%s: %s", video_id, e)
+            return None
+
+
+def _extract_via_gemini_url_direct(url: str, video_id: str) -> str:
+    """Tier 3: ส่ง YouTube URL ให้ Google Gemini ดู/ฟังโดยตรง (Zero-Download Multimodal)"""
+    from google import genai
+    from google.genai.types import Part
+
+    api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError("ไม่พบ GOOGLE_API_KEY หรือ GEMINI_API_KEY สำหรับใช้งาน Gemini Multimodal")
+
+    extractor_model = get_model_name("extractor")
+    model_name = extractor_model if "gemini" in extractor_model.lower() else "gemini-3.1-flash-lite-preview"
+
+    client = genai.Client(api_key=api_key)
+    prompt = f"Source: YouTube: {video_id}\n\nกรุณาดู/ฟังวิดีโอ YouTube นี้ และสกัดข้อมูลการลงทุนตามคำสั่งใน System Prompt"
+
+    response = client.models.generate_content(
+        model=model_name,
+        contents=[
+            Part.from_uri(file_uri=url, mime_type="video/mp4"),
+            prompt,
+        ],
+        config={
+            "system_instruction": _extractor_system_prompt(),
+            "temperature": 0.0,
+        },
+    )
+    return str(response.text).strip()
+
+
+@tool
+def ingest_youtube_transcript(url: str) -> str:
+    """ดึงซับไตเติ้ล (Transcript) จากวิดีโอ YouTube และแปลงเป็น Markdown
+
+    [Usage/When to use]
+    ใช้เมื่อผู้ใช้ส่ง URL ของ YouTube ให้สรุป หรือสั่งให้ดึงข้อมูลจากคลิป YouTube
+    - สามารถดึงข้อมูล Channel Name, วันที่เผยแพร่, และ Title มาใส่ใน YAML ให้อัตโนมัติ
+
+    [Caution]
+    - **Live Event**: หากวิดีโอยังเป็น Live Stream ที่ยังไม่จบ หรือรอ Live จะไม่สามารถดึง Transcript ได้
+    - เครื่องมือนี้แค่ส่งคืนข้อความ Markdown (ไม่บันทึกไฟล์เอง)
+
+    Args:
+        url (str): ลิงก์วิดีโอ YouTube หรือ Video ID (เช่น 'https://www.youtube.com/watch?v=RjOEkDIZFZU' หรือ 'RjOEkDIZFZU')
+
+
+[5] tools/macro/news_funnel.py — MODEL SECTION
+============================================================
+"""News Funnel Pipeline สำหรับสถาปัตยกรรมคัดกรองข่าวและสร้าง Obsidian Linking Key
+
+ครอบคลุม:
+1. canonicalize_ticker_names แปลงชื่อหุ้นและสัญลักษณ์ให้เป็นมาตรฐาน
+2. ensure_concept_stubs_exist สร้าง stub พื้นฐานในโฟลเดอร์ 30_Knowledge_Base/Concepts/
+3. run_news_funnel_ingest ดึงข่าว ทำ clustering, คัดกรองผ่าน Batch LLM และบันทึกสถานะลง JSON Store
+4. run_news_funnel_synthesize สร้างโน้ตข่าวเดี่ยวสำคัญลงใน 30_Knowledge_Base/News/ พร้อมระบบ Zero-Pending Protection
+"""
+from datetime import datetime
+import os
+from pathlib import Path
+import re
+import shutil
+import threading
+from typing import Any, Dict, List, Optional, Union
+from urllib.parse import urlsplit
+import uuid
+
+from core.logger import get_logger
+from core.nlp_utils import (
+    group_similar_news,
+    select_representative_news,
+)
+from schemas.news_funnel_schemas import (
+    MacroImpactTriageResult,
+    TriageBatchResult,
+    strip_wikilink,
+)
+from tools._atomic_io import _atomic_write_to
+from tools.archivist.core import _sanitize_filename
+from tools.archivist.indexer import _index_upsert, flush_index_if_dirty
+from tools.knowledge.core import _build_article_md
+from tools.knowledge.article import extract_article_content
+from tools.macro.news_funnel_store import (
+    get_pending_high_impact_events,
+    is_title_or_url_processed,
+    load_store,
+    save_triage_events,
+    update_events_status,
+    commit_event_synthesis_results,
+    save_raw_candidates,
+    get_raw_candidates,
+    remove_processed_raw_candidates,
+)
+
+
+logger = get_logger(__name__)
+
+
+def _is_mock_mode() -> bool:
+    """ตรวจสอบว่าเปิดใช้งาน MOCK_NEWS_FUNNEL_LLM สำหรับเทสต์หรือออฟไลน์หรือไม่"""
+    return os.getenv("MOCK_NEWS_FUNNEL_LLM", "false").lower() == "true"
+
+
+def get_synthesis_period(now: Optional[datetime] = None) -> str:
+    """คืนรอบสังเคราะห์ปัจจุบัน: morning (ก่อนเที่ยง) หรือ evening — จุดเดียวที่กำหนด cutoff"""
+    current = now or datetime.now()
+    return "morning" if current.hour < 12 else "evening"
+
+
+def _invoke_structured(
+    schema: Any,
+    model_env: str,
+    prompt_lines: List[str],
+    purpose: Optional[str] = None,
+    max_output_tokens: Optional[int] = None,
+    default_model: str = "gemini-3.1-flash-lite-preview",
+    **kwargs: Any,
+) -> Any:
+    """Helper สำหรับสร้างและเรียกใช้ structured LLM ด้วย provider='google'
+
+    default_model เป็น named parameter จริง (ไม่ใช่แค่ hardcode inline) เพื่อให้ caller ส่ง
+    ค่าจาก core.model_registry.REGISTRY[key].default เข้ามา override ได้ — ถ้า hardcode
+    default_model="..." ไว้ในบรรทัด invoke_structured_llm(...) ด้านล่างเฉยๆ แล้วให้ caller ส่ง
+    default_model ผ่าน **kwargs จะชนกันเป็น TypeError: got multiple values for keyword argument
+    """
+    from core.llm_factory import invoke_structured_llm
+    return invoke_structured_llm(
+        schema=schema,
+        model_env=model_env,
+        prompt_lines=prompt_lines,
+        purpose=purpose,
+        max_output_tokens=max_output_tokens,
+        default_model=default_model,
+        provider="google",
+        **kwargs,
+    )
+
+
+TICKER_ALIAS_MAP: Dict[str, str] = {
+    "NVIDIA": "NVDA",
+    "APPLE": "AAPL",
+    "MICROSOFT": "MSFT",
+    "ALPHABET": "GOOGL",
+    "GOOGLE": "GOOGL",
+    "AMAZON": "AMZN",
+    "META": "META",
+    "TESLA": "TSLA",
+    "PTT": "PTT",
+}
+
+
+def _clean_and_truncate_summary(text: str, max_len: int = 500) -> str:
+    """ทำความสะอาด HTML tags จาก summary ด้วย BeautifulSoup ก่อนทำการตัดคำ (truncate) เพื่อไม่ให้ tag ว่างหรือ HTML ขาดกลางเมื่อเจอ tag ยาว"""
+    if not text:
+        return ""
+    try:
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(text, "html.parser")
+        clean = soup.get_text(separator=" ", strip=True)

@@ -1,131 +1,200 @@
 import pytest
-import os
 from unittest.mock import patch, MagicMock
+
+from langchain_openai import ChatOpenAI
 
 from core.llm_factory import (
     detect_provider,
     _build_primary,
     get_llm,
-    _fetch_google_models,
-    _fetch_anthropic_models,
     _fetch_openrouter_models,
     list_available_models,
 )
 
-def test_detect_provider(monkeypatch):
-    assert detect_provider("claude-sonnet") == "anthropic"
-    assert detect_provider("gemini-pro") == "google"
-    assert detect_provider("models/gemini-pro") == "google"
+from core.model_registry import FREE_MODEL
+
+
+def test_detect_provider():
+    """Only OpenRouter is supported."""
+    assert detect_provider(FREE_MODEL) == "openrouter"
     assert detect_provider("openai/gpt-4") == "openrouter"
-    assert detect_provider("unknown-model") == "google"
-    
-    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
-    assert detect_provider("gemini-pro") == "anthropic"
+    assert detect_provider("gemini-pro") == "openrouter"
+    assert detect_provider("claude-sonnet") == "openrouter"
+    assert detect_provider("unknown-model") == "openrouter"
 
-def test_build_primary(monkeypatch):
-    from langchain_google_genai import ChatGoogleGenerativeAI
-    from langchain_anthropic import ChatAnthropic
-    from langchain_openai import ChatOpenAI
-    
-    monkeypatch.setenv("GOOGLE_API_KEY", "fake")
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "fake")
-    
-    with patch("core.llm_factory.os.getenv", return_value="fake_key"):
-        assert isinstance(_build_primary("google", "gemini", 0.0), ChatGoogleGenerativeAI)
-        assert isinstance(_build_primary("anthropic", "claude", 0.0), ChatAnthropic)
-        assert isinstance(_build_primary("openrouter", "openai/gpt", 0.0), ChatOpenAI)
-    
-    with pytest.raises(ValueError, match="Unknown provider"):
-        _build_primary("invalid", "model", 0.0)
 
-def test_get_llm():
-    from langchain_core.runnables import RunnableWithFallbacks
-    
+def test_build_primary_openrouter(monkeypatch):
+    """Build the single approved OpenRouter model."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "fake_key")
+
+    llm = _build_primary(
+        "openrouter",
+        FREE_MODEL,
+        0.0,
+    )
+
+    assert isinstance(llm, ChatOpenAI)
+    assert llm.model_name == FREE_MODEL
+
+
+def test_build_primary_rejects_non_openrouter():
+    """Non-OpenRouter providers are forbidden."""
+    with pytest.raises(ValueError, match="OpenRouter only"):
+        _build_primary(
+            "google",
+            "gemini-pro",
+            0.0,
+        )
+
+    with pytest.raises(ValueError, match="OpenRouter only"):
+        _build_primary(
+            "anthropic",
+            "claude-sonnet",
+            0.0,
+        )
+
+
+def test_build_primary_requires_api_key(monkeypatch):
+    """OPENROUTER_API_KEY must be configured."""
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    with pytest.raises(
+        RuntimeError,
+        match="OPENROUTER_API_KEY is not configured",
+    ):
+        _build_primary(
+            "openrouter",
+            FREE_MODEL,
+            0.0,
+        )
+
+
+def test_build_primary_hard_locks_model(monkeypatch):
+    """Any requested model must resolve to FREE_MODEL."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "fake_key")
+
+    llm = _build_primary(
+        "openrouter",
+        "some/other-model",
+        0.0,
+    )
+
+    assert isinstance(llm, ChatOpenAI)
+    assert llm.model_name == FREE_MODEL
+
+
+def test_get_llm_single_model(monkeypatch):
+    """get_llm always returns the single approved model."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "fake_key")
+
+    llm = get_llm(
+        provider="google",
+        model_name="gemini-pro",
+    )
+
+    assert isinstance(llm, ChatOpenAI)
+    assert llm.model_name == FREE_MODEL
+
+
+def test_get_llm_ignores_fallback(monkeypatch):
+    """Fallback requests must not create an alternate model."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "fake_key")
+
     with patch("core.llm_factory._build_primary") as mock_build:
         mock_primary = MagicMock()
-        mock_fallback_chain = MagicMock()
-        mock_primary.with_fallbacks.return_value = mock_fallback_chain
-        
-        mock_build.side_effect = [mock_primary, MagicMock()] # primary, then fallback
-        
-        # Test no fallback
-        res1 = get_llm("google", "gemini")
-        assert res1 == mock_primary
-        assert mock_build.call_count == 1
-        
-        mock_build.reset_mock()
-        mock_build.side_effect = [mock_primary, MagicMock()]
-        
-        # Test with fallback
-        res2 = get_llm("google", "gemini", use_fallback=True)
-        assert res2 == mock_fallback_chain
-        assert mock_build.call_count == 2
-        
-        mock_build.reset_mock()
-        mock_build.side_effect = [mock_primary, MagicMock()]
-        
-        # Test with fallback but model is already fallback model
-        from core.llm_factory import FALLBACK_MODEL
-        res3 = get_llm("google", FALLBACK_MODEL, use_fallback=True)
-        assert res3 == mock_primary
+        mock_build.return_value = mock_primary
+
+        result = get_llm(
+            provider="openrouter",
+            model_name=FREE_MODEL,
+            use_fallback=True,
+        )
+
+        assert result == mock_primary
         assert mock_build.call_count == 1
 
-@patch("core.llm_factory.genai.Client")
-def test_fetch_google_models(mock_client_cls):
-    mock_client = MagicMock()
-    mock_model = MagicMock()
-    mock_model.name = "models/gemini-pro"
-    mock_model_bad = MagicMock()
-    mock_model_bad.name = "other-model"
-    
-    mock_client.models.list.return_value = [mock_model, mock_model_bad]
-    mock_client_cls.return_value = mock_client
-    
-    assert _fetch_google_models() == ["models/gemini-pro"]
-    
-    # Test failure
-    mock_client_cls.side_effect = Exception("API error")
-    assert _fetch_google_models() == []
 
-@patch("core.llm_factory.anthropic.Anthropic")
-def test_fetch_anthropic_models(mock_anthropic_cls):
-    mock_client = MagicMock()
-    mock_model = MagicMock()
-    mock_model.id = "claude-sonnet"
-    mock_client.models.list().data = [mock_model]
-    mock_anthropic_cls.return_value = mock_client
-    
-    assert _fetch_anthropic_models() == ["claude-sonnet"]
-    
-    # Test failure
-    mock_anthropic_cls.side_effect = Exception("API error")
-    assert _fetch_anthropic_models() == []
+def test_fetch_openrouter_models(monkeypatch):
+    """Fetch available models from OpenRouter."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "fake_key")
 
-@patch("httpx.get")
-def test_fetch_openrouter_models(mock_get):
     mock_resp = MagicMock()
-    mock_resp.json.return_value = {"data": [{"id": "openai/gpt"}]}
-    mock_get.return_value = mock_resp
-    
-    assert _fetch_openrouter_models() == ["openai/gpt"]
-    
-    # Test failure
-    mock_get.side_effect = Exception("Network error")
-    assert _fetch_openrouter_models() == []
+    mock_resp.json.return_value = {
+        "data": [
+            {"id": "model-a"},
+            {"id": "model-b"},
+        ]
+    }
 
-@patch("core.llm_factory._fetch_google_models", return_value=["g1"])
-@patch("core.llm_factory._fetch_anthropic_models", return_value=["a1"])
-@patch("core.llm_factory._fetch_openrouter_models", return_value=["o1"])
-def test_list_available_models(mock_or, mock_ant, mock_goo):
-    assert list_available_models("google") == ["g1"]
-    assert list_available_models("anthropic") == ["a1"]
-    assert list_available_models("openrouter") == ["o1"]
-    
-    all_models = list_available_models(None)
-    assert all_models["google"] == ["g1"]
-    assert all_models["anthropic"] == ["a1"]
-    assert all_models["openrouter"] == ["o1"]
-    
-    with pytest.raises(ValueError, match="Unknown provider"):
+    with patch("httpx.get", return_value=mock_resp):
+        result = _fetch_openrouter_models()
+
+    assert result == ["model-a", "model-b"]
+
+
+def test_fetch_openrouter_models_failure(monkeypatch):
+    """OpenRouter model discovery failures return an empty list."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "fake_key")
+
+    with patch(
+        "httpx.get",
+        side_effect=Exception("Network error"),
+    ):
+        result = _fetch_openrouter_models()
+
+    assert result == []
+
+
+def test_fetch_openrouter_models_without_api_key(monkeypatch):
+    """Model discovery without an API key returns an empty list."""
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    result = _fetch_openrouter_models()
+
+    assert result == []
+
+
+def test_list_available_models_openrouter(monkeypatch):
+    """Only OpenRouter model listing is supported."""
+    with patch(
+        "core.llm_factory._fetch_openrouter_models",
+        return_value=["model-a", "model-b"],
+    ):
+        result = list_available_models("openrouter")
+
+    assert result == ["model-a", "model-b"]
+
+
+def test_list_available_models_none(monkeypatch):
+    """Default listing returns only OpenRouter."""
+    with patch(
+        "core.llm_factory._fetch_openrouter_models",
+        return_value=["model-a", "model-b"],
+    ):
+        result = list_available_models(None)
+
+    assert result == {
+        "openrouter": ["model-a", "model-b"],
+    }
+
+
+def test_list_available_models_rejects_other_providers():
+    """Google and Anthropic are no longer supported."""
+    with pytest.raises(ValueError):
+        list_available_models("google")
+
+    with pytest.raises(ValueError):
+        list_available_models("anthropic")
+
+    with pytest.raises(ValueError):
         list_available_models("invalid")
+
+
+def test_model_registry_is_single_model():
+    """All registry slots must resolve to the same approved model."""
+    from core.model_registry import REGISTRY
+
+    assert len(REGISTRY) == 14
+
+    for slot_key, slot in REGISTRY.items():
+        assert slot.default == FREE_MODEL
