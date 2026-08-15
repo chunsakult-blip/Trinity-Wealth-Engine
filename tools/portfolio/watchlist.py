@@ -44,21 +44,14 @@ _PCT_DP = 2
 _LOCK_TIMEOUT = 15  # seconds — wait up to 15s for another process to release
 _PRICE_FETCH_TIMEOUT = 6  # seconds per symbol when refreshing
 
-_PORTFOLIO_LOCK_PATH = str(PORTFOLIO_PATH) + ".lock"
-_portfolio_lock = FileLock(_PORTFOLIO_LOCK_PATH, timeout=_LOCK_TIMEOUT)
-
-
-
-from .core import _get_portfolio_lock, _load_or_init, _save
+from .core import _get_portfolio_lock, _load_or_init, _save, _portfolio_exists, _normalize_portfolio_id
 
 
 def _get_watchlist_filepath(portfolio_id: str = "default") -> Path:
-    pid = portfolio_id.strip().lower() if portfolio_id else "default"
-    if pid == "default":
-        return WATCHLIST_PATH
-    pdir = VAULT_PATH / "20_Portfolio_Management/Current_Holdings/Portfolios"
+    pid = _normalize_portfolio_id(portfolio_id)
+    pdir = PORTFOLIOS_DIR / pid
     pdir.mkdir(parents=True, exist_ok=True)
-    return pdir / f"{pid}_watchlist.md"
+    return pdir / "Watchlist.md"
 
 
 def _atomic_write_watchlist(serialized: str, portfolio_id: str = "default") -> None:
@@ -92,8 +85,7 @@ def _save_watchlist(post: frontmatter.Post, state: WatchlistState, portfolio_id:
     post.content = ""
 
     _atomic_write_watchlist(frontmatter.dumps(post, sort_keys=False), portfolio_id=portfolio_id)
-    if portfolio_id == "default":
-        _sync_watchlist_sidecars(state)
+    _sync_watchlist_sidecars(state, portfolio_id=portfolio_id)
 
 
 def _watchlist_item_to_md(item: WatchlistItem) -> str:
@@ -117,25 +109,35 @@ def _watchlist_item_to_md(item: WatchlistItem) -> str:
     return "\n".join(lines)
 
 
-def _sync_watchlist_sidecars(state: WatchlistState) -> None:
-    """Sync derived sidecar files ใน WATCHLIST_ITEMS_DIR จาก master WatchlistState"""
-    WATCHLIST_ITEMS_DIR.mkdir(parents=True, exist_ok=True)
+def _get_watchlist_items_dir(portfolio_id: str = "default") -> Path:
+    """WatchlistItems sidecar dir namespace ตาม portfolio_id — ป้องกัน symbol ชนกันข้ามพอร์ต"""
+    pid = _normalize_portfolio_id(portfolio_id)
+    return PORTFOLIOS_DIR / pid / "WatchlistItems"
+
+
+def _sync_watchlist_sidecars(state: WatchlistState, portfolio_id: str = "default") -> None:
+    """Sync derived sidecar files ใน WatchlistItems dir ของพอร์ตนั้นๆ จาก master WatchlistState"""
+    items_dir = _get_watchlist_items_dir(portfolio_id)
+    items_dir.mkdir(parents=True, exist_ok=True)
     live: set[str] = set()
 
     for item in state.items:
         safe = item.symbol.replace("/", "_")
-        _atomic_write_to(WATCHLIST_ITEMS_DIR / f"{safe}.md", _watchlist_item_to_md(item))
+        _atomic_write_to(items_dir / f"{safe}.md", _watchlist_item_to_md(item))
         live.add(safe)
 
-    for old in WATCHLIST_ITEMS_DIR.glob("*.md"):
+    for old in items_dir.glob("*.md"):
         if old.stem not in live:
             old.unlink(missing_ok=True)
             log.debug("[SIDECAR DEL] | watchlist/%s", old.name)
 
 
 def _load_or_init_watchlist(portfolio_id: str = "default") -> tuple[frontmatter.Post, WatchlistState]:
-    wpath = _get_watchlist_filepath(portfolio_id)
+    pid = _normalize_portfolio_id(portfolio_id)
+    wpath = _get_watchlist_filepath(pid)
     if not wpath.exists():
+        if pid != "default" and not _portfolio_exists(pid):
+            raise ValueError(f"ไม่พบพอร์ตไอดี '{pid}' ในระบบ — ใช้ tool_create_portfolio ก่อน")
         wpath.parent.mkdir(parents=True, exist_ok=True)
         post = frontmatter.Post(content="")
         state = WatchlistState(last_updated=_now_iso())
@@ -275,6 +277,8 @@ def read_watchlist(portfolio_id: str = "default") -> str:
             {"error": f"watchlist lock timeout ({_LOCK_TIMEOUT}s)"},
             ensure_ascii=False,
         )
+    except ValueError as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
 
     items = dump.get("items", [])
     return json.dumps(
@@ -349,5 +353,3 @@ def structured_remove_watchlist_item(symbol: str, portfolio_id: str = "default")
         return state
 
 
-_WATCHLIST_LOCK_PATH = str(WATCHLIST_PATH) + ".lock"
-_watchlist_lock = _get_portfolio_lock("default")

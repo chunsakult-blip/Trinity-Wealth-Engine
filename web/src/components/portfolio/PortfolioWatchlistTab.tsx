@@ -4,12 +4,13 @@ import { api } from '../../api/client'
 import WatchlistModal from './Modals/WatchlistModal'
 
 interface Props {
+  portfolioId: string
   items: ActualWatchlistItemDTO[]
   lastUpdated: string | null
   onSuccess?: (state: ActualWatchlistStateDTO) => void
 }
 
-export default function PortfolioWatchlistTab({ items, lastUpdated, onSuccess }: Props) {
+export default function PortfolioWatchlistTab({ portfolioId, items, lastUpdated, onSuccess }: Props) {
   const [modalOpen, setModalOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<ActualWatchlistItemDTO | null>(null)
 
@@ -17,7 +18,7 @@ export default function PortfolioWatchlistTab({ items, lastUpdated, onSuccess }:
     if (!onSuccess) return
     if (!window.confirm(`คุณต้องการลบ ${symbol} ออกจาก Watchlist หรือไม่?`)) return
     try {
-      const state = await api.removeWatchlistItem(symbol)
+      const state = await api.removeWatchlistItem(symbol, portfolioId)
       onSuccess(state)
     } catch (err: any) {
       alert(err?.message || 'ลบ Watchlist ไม่สำเร็จ')
@@ -119,6 +120,7 @@ export default function PortfolioWatchlistTab({ items, lastUpdated, onSuccess }:
 
       {(modalOpen || editingItem) && onSuccess && (
         <WatchlistModal
+          portfolioId={portfolioId}
           initialItem={editingItem}
           onClose={() => {
             setModalOpen(false)

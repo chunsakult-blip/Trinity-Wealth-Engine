@@ -16,7 +16,6 @@ interface Props {
   column: ColumnDef
   cards: KanbanCardDTO[]
   isBacklogColumn: boolean
-  isCardFaded: (card: KanbanCardDTO) => boolean
   removingIds: Set<string>
   selectedCardId?: string | null
   workspacePreviewFor: (card: KanbanCardDTO) => WorkspacePreview | undefined
@@ -32,7 +31,6 @@ export default function KanbanColumn({
   column,
   cards,
   isBacklogColumn,
-  isCardFaded,
   removingIds,
   selectedCardId,
   workspacePreviewFor,
@@ -54,7 +52,6 @@ export default function KanbanColumn({
           <KanbanCard
             key={c.card_id}
             card={c}
-            faded={isCardFaded(c)}
             removing={removingIds.has(c.card_id)}
             selected={c.card_id === selectedCardId}
             workspacePreview={workspacePreviewFor(c)}

@@ -23,6 +23,7 @@ describe('BucketTargetModal', () => {
 
     render(
       <BucketTargetModal
+        portfolioId="default"
         initialTargets={initialTargets}
         onClose={vi.fn()}
         onSuccess={vi.fn()}
@@ -49,6 +50,7 @@ describe('BucketTargetModal', () => {
 
     render(
       <BucketTargetModal
+        portfolioId="default"
         initialTargets={initialTargets}
         onClose={vi.fn()}
         onSuccess={vi.fn()}
@@ -73,6 +75,7 @@ describe('BucketTargetModal', () => {
 
     render(
       <BucketTargetModal
+        portfolioId="default"
         initialTargets={initialTargets}
         onClose={vi.fn()}
         onSuccess={vi.fn()}

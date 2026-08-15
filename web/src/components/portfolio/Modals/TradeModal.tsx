@@ -2,17 +2,18 @@ import { useState } from 'react'
 import FormModal, { FormField, FormInput, FormSelect } from './FormModal'
 import { TradeIcon } from '../icons/PortfolioIcons'
 import { api } from '../../../api/client'
+import { todayLocalDateString } from '../../../utils/formatters'
 import type { AllocationTargetDTO, ActualPortfolioStateDTO, ActualHoldingDTO } from '../../../api/types'
 
 interface Props {
   targets: AllocationTargetDTO[]
   holdings?: ActualHoldingDTO[]
-  selectedPortfolioId?: string
+  selectedPortfolioId: string
   onClose: () => void
   onSuccess: (state: ActualPortfolioStateDTO) => void
 }
 
-export default function TradeModal({ targets, holdings, selectedPortfolioId = 'default', onClose, onSuccess }: Props) {
+export default function TradeModal({ targets, holdings, selectedPortfolioId, onClose, onSuccess }: Props) {
   const [symbol, setSymbol] = useState('')
   const [assetType, setAssetType] = useState('Stock')
   const [action, setAction] = useState<'buy' | 'sell'>('buy')
@@ -20,12 +21,30 @@ export default function TradeModal({ targets, holdings, selectedPortfolioId = 'd
   const [price, setPrice] = useState<string>('')
   const [currency, setCurrency] = useState<'THB' | 'USD'>('THB')
   const [exchangeRate, setExchangeRate] = useState<string>('')
-  const [date, setDate] = useState<string>(() => new Date().toISOString().split('T')[0] || '')
+  const [date, setDate] = useState<string>(() => todayLocalDateString())
   const [notes, setNotes] = useState<string>('')
   const [bucketId, setBucketId] = useState<string>('')
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [fxSource, setFxSource] = useState<string | null>(null)
+  const [fetchingFx, setFetchingFx] = useState(false)
+
+  const fetchFxForDate = async (targetDate: string) => {
+    if (currency !== 'USD') return
+    setFetchingFx(true)
+    try {
+      const res = await api.getFxRate(targetDate, selectedPortfolioId)
+      if (res?.rate) {
+        setExchangeRate(res.rate.toFixed(4))
+        setFxSource(res.source)
+      }
+    } catch {
+      // fallback smoothly
+    } finally {
+      setFetchingFx(false)
+    }
+  }
 
   const cashUsd = holdings?.find((h) => h.symbol === 'CASH_USD')?.units ?? 0
   const cashThb = holdings?.find((h) => h.symbol === 'CASH_THB')?.units ?? 0
@@ -47,7 +66,7 @@ export default function TradeModal({ targets, holdings, selectedPortfolioId = 'd
         exchange_rate: exchangeRate ? parseFloat(exchangeRate) : null,
         date: date || null,
         notes: `Auto top-up for ${symbol.trim().toUpperCase()} buy trade`,
-      })
+      }, selectedPortfolioId)
 
       // 2. Auto retry buy trade
       const state = await api.executeTrade({
@@ -61,7 +80,7 @@ export default function TradeModal({ targets, holdings, selectedPortfolioId = 'd
         date: date || null,
         notes: notes.trim(),
         bucket_id: bucketId || null,
-      })
+      }, selectedPortfolioId)
 
       onSuccess(state)
       onClose()
@@ -262,17 +281,36 @@ export default function TradeModal({ targets, holdings, selectedPortfolioId = 'd
       {currency === 'USD' && (
         <FormField
           label="อัตราแลกเปลี่ยน (USD/THB)"
-          hint="* ว่างไว้เพื่อใช้เรทตลาดปัจจุบันอัตโนมัติจากระบบ"
+          hint={
+            fetchingFx
+              ? '⏳ กำลังดึงเรทอัตราแลกเปลี่ยน...'
+              : fxSource
+              ? `* เรท (${fxSource}): ${exchangeRate || '-'} THB/USD`
+              : '* ว่างไว้เพื่อใช้เรทตลาดปัจจุบันอัตโนมัติจากระบบ'
+          }
         >
-          <FormInput
-            type="number"
-            step="any"
-            min="0"
-            value={exchangeRate}
-            onChange={(e) => setExchangeRate(e.target.value)}
-            placeholder="e.g. 34.50"
-            className="font-mono"
-          />
+          <div className="relative">
+            <FormInput
+              type="number"
+              step="any"
+              min="0"
+              value={exchangeRate}
+              onChange={(e) => {
+                setExchangeRate(e.target.value)
+                setFxSource('manual')
+              }}
+              placeholder="e.g. 34.50"
+              className="font-mono pr-16"
+            />
+            <button
+              type="button"
+              onClick={() => fetchFxForDate(date)}
+              disabled={fetchingFx}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-lg bg-zinc-100 hover:bg-zinc-200 px-2 py-1 text-[11px] font-semibold text-zinc-600 disabled:opacity-50 transition-colors"
+            >
+              {fetchingFx ? '⏳' : '🔄 ดึงเรท'}
+            </button>
+          </div>
         </FormField>
       )}
 
@@ -281,7 +319,13 @@ export default function TradeModal({ targets, holdings, selectedPortfolioId = 'd
           <FormInput
             type="date"
             value={date}
-            onChange={(e) => setDate(e.target.value)}
+            onChange={(e) => {
+              const newDate = e.target.value
+              setDate(newDate)
+              if (currency === 'USD' && newDate) {
+                fetchFxForDate(newDate)
+              }
+            }}
             className="font-medium"
           />
         </FormField>

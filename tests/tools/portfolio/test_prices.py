@@ -256,10 +256,17 @@ class TestRefreshPrices:
 
 class TestSyncMarketPricesExceptions:
     def test_sync_market_prices_lock_timeout(self, monkeypatch):
-        def mock_lock(*args, **kwargs):
-            from filelock import Timeout
-            raise Timeout("mock")
-        monkeypatch.setattr(prices._portfolio_lock, "acquire", mock_lock)
+        class DummyLock:
+            def __enter__(self):
+                from filelock import Timeout
+                raise Timeout("mock")
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                pass
+        # patch the exact module object `sync_market_prices` was defined in (not a fresh
+        # re-import) — this test doesn't use isolated_portfolio, so `prices`/`sync_market_prices`
+        # stay bound to whatever module instance was live at collection time; patching via a
+        # dotted string here would land on a *different* (fresh) module and silently not apply
+        monkeypatch.setattr(prices, "_get_portfolio_lock", lambda pid="default": DummyLock())
         
         result = sync_market_prices.func()
 

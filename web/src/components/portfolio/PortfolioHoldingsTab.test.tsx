@@ -55,7 +55,7 @@ describe('PortfolioHoldingsTab', () => {
   ]
 
   it('renders all holdings with 2-line stacked grid details', () => {
-    render(<PortfolioHoldingsTab holdings={holdings} selectedBucket={null} onClearBucketFilter={vi.fn()} />)
+    render(<PortfolioHoldingsTab portfolioId="default" holdings={holdings} selectedBucket={null} onClearBucketFilter={vi.fn()} />)
     expect(screen.getByText('AAPL')).toBeInTheDocument()
     expect(screen.getByText('Apple Inc.')).toBeInTheDocument()
     expect(screen.getByText('MSFT')).toBeInTheDocument()
@@ -64,7 +64,7 @@ describe('PortfolioHoldingsTab', () => {
 
   it('filters holdings by selectedBucket and shows clear banner', () => {
     const onClearMock = vi.fn()
-    render(<PortfolioHoldingsTab holdings={holdings} selectedBucket="CORE" onClearBucketFilter={onClearMock} />)
+    render(<PortfolioHoldingsTab portfolioId="default" holdings={holdings} selectedBucket="CORE" onClearBucketFilter={onClearMock} />)
 
     expect(screen.getByText('AAPL')).toBeInTheDocument()
     expect(screen.queryByText('MSFT')).not.toBeInTheDocument()
@@ -75,7 +75,7 @@ describe('PortfolioHoldingsTab', () => {
   })
 
   it('allows row selection and displays floating action bar placeholder', () => {
-    render(<PortfolioHoldingsTab holdings={holdings} selectedBucket={null} onClearBucketFilter={vi.fn()} />)
+    render(<PortfolioHoldingsTab portfolioId="default" holdings={holdings} selectedBucket={null} onClearBucketFilter={vi.fn()} />)
 
     const checkboxes = screen.getAllByRole('checkbox')
     // First checkbox is select all, next 2 are rows
@@ -97,6 +97,7 @@ describe('PortfolioHoldingsTab', () => {
     ]
     render(
       <PortfolioHoldingsTab
+        portfolioId="default"
         holdings={holdings}
         selectedBucket={null}
         onClearBucketFilter={vi.fn()}

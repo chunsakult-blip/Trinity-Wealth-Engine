@@ -50,9 +50,6 @@ _PCT_DP = 2
 _LOCK_TIMEOUT = 15  # seconds — wait up to 15s for another process to release
 _PRICE_FETCH_TIMEOUT = 6  # seconds per symbol when refreshing
 
-_PORTFOLIO_LOCK_PATH = str(PORTFOLIO_PATH) + ".lock"
-_portfolio_lock = FileLock(_PORTFOLIO_LOCK_PATH, timeout=_LOCK_TIMEOUT)
-
 
 
 class AllocationTarget(BaseModel):
@@ -60,7 +57,7 @@ class AllocationTarget(BaseModel):
 
     bucket_id: str
     name: str
-    target_percent: float
+    target_percent: float = Field(ge=0, le=100)
     color: str | None = None
 
 
@@ -70,6 +67,24 @@ def default_allocation_targets() -> list[AllocationTarget]:
         AllocationTarget(bucket_id="defensive", name="Defensive Assets", target_percent=20.0, color="#A855F7"),
         AllocationTarget(bucket_id="cash", name="💰 Cash & Equivalents", target_percent=20.0, color="#06B6D4"),
     ]
+
+
+class DividendRound(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    symbol: str
+    ex_date: str
+    pay_date: str | None = None
+    dps: float
+    currency: str
+    units_held: float
+    status: Literal["received", "upcoming"] = "received"
+    gross_native: float = 0.0
+    net_native: float = 0.0
+    gross_thb: float = 0.0
+    tax_rate: float = 0.0
+    net_thb: float = 0.0
+    fx_rate: float = 1.0
 
 
 class Holding(BaseModel):
@@ -91,6 +106,11 @@ class Holding(BaseModel):
     market_value_thb: float = 0.0
     unrealized_pnl_percent: float | None = None
     accumulated_dividend_thb: float | None = None
+    accumulated_dividend_native: float | None = None
+    upcoming_dividend_thb: float | None = None
+    upcoming_dividend_native: float | None = None
+    dividend_rounds: list[DividendRound] = Field(default_factory=list)
+    dividend_source: Literal["synced", "manual"] | None = None
     bucket_id: str | None = None
     fundamentals_updated_at: float | None = None
 

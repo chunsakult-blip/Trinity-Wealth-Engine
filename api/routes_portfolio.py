@@ -44,6 +44,15 @@ from api.schemas import (
     NewsFunnelFilteredItemDTO,
     CalendarEventDTO,
     PortfolioCalendarDTO,
+    TransactionItemDTO,
+    TransactionSummaryDTO,
+    TransactionListResponseDTO,
+    UpdateTransactionNoteRequestDTO,
+    EditTransactionRequestDTO,
+    DeleteTransactionRequestDTO,
+    FXRateResponseDTO,
+    DividendRoundDTO,
+    SyncDividendsResponseDTO,
 )
 from tools.archivist.core import VAULT_PATH
 from tools.macro.dashboard import load_indicator_series
@@ -170,6 +179,9 @@ from tools.portfolio import (
     goals as portfolio_goals,
     performance as portfolio_perf,
     journal as portfolio_journal,
+    prices as portfolio_prices,
+    dividends as portfolio_dividends,
+    ledger_replay as portfolio_ledger_replay,
 )
 
 # ---------------------------------------------------------
@@ -293,6 +305,10 @@ def get_portfolio_calendar(portfolio_id: str = "default") -> PortfolioCalendarDT
         if clean and clean not in seen:
             seen.add(clean)
             resolved = resolve_asset(clean)
+            # ticker ที่ resolve ไม่ผ่าน (confidence='low') ข้ามไปเลย — ยิง calendar
+            # พร้อมกับ ticker เสียจะทำให้ shared yfinance session เสีย crumb จน ticker ดีพังไปด้วย
+            if resolved and resolved.confidence == "low":
+                continue
             provider_sym = resolved.provider_symbol if resolved else clean
             company_name = holding_names.get(clean)
             ticker_items.append({
@@ -307,6 +323,8 @@ def get_portfolio_calendar(portfolio_id: str = "default") -> PortfolioCalendarDT
         if clean and clean not in seen:
             seen.add(clean)
             resolved = resolve_asset(clean)
+            if resolved and resolved.confidence == "low":
+                continue
             provider_sym = resolved.provider_symbol if resolved else clean
             company_name = None
             ticker_items.append({
@@ -435,6 +453,125 @@ def get_actual_journal(
             days=days, keyword=keyword, limit=limit, portfolio_id=portfolio_id
         )
         return [JournalEntryDTO.model_validate(r) for r in rows]
+
+
+@router.get(
+    "/api/portfolio/actual/transactions",
+    response_model=TransactionListResponseDTO,
+)
+def get_actual_transactions(
+    symbol: Optional[str] = None,
+    portfolio_id: str = "default",
+) -> TransactionListResponseDTO:
+    with handle_portfolio_exceptions("Transactions lock timeout"):
+        rows = portfolio_trading.get_structured_trades_log(
+            portfolio_id=portfolio_id, symbol=symbol
+        )
+        tx_items = [TransactionItemDTO.model_validate(r) for r in rows]
+
+        # Calculate summary statistics
+        total_buy_count = sum(1 for t in tx_items if t.action == "BUY")
+        total_sell_count = sum(1 for t in tx_items if t.action == "SELL")
+        total_buy_thb = sum(t.cost_thb for t in tx_items if t.action == "BUY")
+        total_sell_thb = sum(t.cost_thb for t in tx_items if t.action == "SELL")
+        total_realized_pnl_thb = sum(
+            t.realized_pnl_thb for t in tx_items if t.realized_pnl_thb is not None
+        )
+
+        summary = TransactionSummaryDTO(
+            total_buy_count=total_buy_count,
+            total_sell_count=total_sell_count,
+            total_buy_thb=total_buy_thb,
+            total_sell_thb=total_sell_thb,
+            total_realized_pnl_thb=total_realized_pnl_thb,
+        )
+        return TransactionListResponseDTO(
+            portfolio_id=portfolio_id,
+            transactions=tx_items,
+            summary=summary,
+        )
+
+
+@router.patch(
+    "/api/portfolio/actual/transactions/{tx_id}/note",
+    response_model=TransactionItemDTO,
+)
+def update_transaction_note_endpoint(
+    tx_id: str,
+    payload: UpdateTransactionNoteRequestDTO,
+    portfolio_id: str = "default",
+) -> TransactionItemDTO:
+    with handle_portfolio_exceptions("Transactions lock timeout"):
+        updated = portfolio_trading.update_trade_note(
+            tx_id=tx_id, notes=payload.notes, portfolio_id=portfolio_id
+        )
+        return TransactionItemDTO.model_validate(updated)
+
+
+@router.put(
+    "/api/portfolio/actual/transactions/{tx_id}",
+    response_model=ActualPortfolioStateDTO,
+)
+def edit_transaction_endpoint(
+    tx_id: str,
+    payload: EditTransactionRequestDTO,
+    portfolio_id: str = "default",
+) -> ActualPortfolioStateDTO:
+    with handle_portfolio_exceptions("Transactions lock timeout"):
+        state = portfolio_ledger_replay.edit_transaction(
+            tx_id=tx_id,
+            timestamp=payload.timestamp,
+            units=payload.units,
+            price=payload.price,
+            fx_rate=payload.fx_rate,
+            notes=payload.notes,
+            adjust_cash=payload.adjust_cash,
+            portfolio_id=portfolio_id,
+        )
+        return ActualPortfolioStateDTO.model_validate(
+            state.model_dump(exclude_none=True)
+        )
+
+
+@router.delete(
+    "/api/portfolio/actual/transactions/{tx_id}",
+    response_model=ActualPortfolioStateDTO,
+)
+def delete_transaction_endpoint(
+    tx_id: str,
+    adjust_cash: bool = True,
+    portfolio_id: str = "default",
+) -> ActualPortfolioStateDTO:
+    with handle_portfolio_exceptions("Transactions lock timeout"):
+        state = portfolio_ledger_replay.delete_transaction(
+            tx_id=tx_id,
+            adjust_cash=adjust_cash,
+            portfolio_id=portfolio_id,
+        )
+        return ActualPortfolioStateDTO.model_validate(
+            state.model_dump(exclude_none=True)
+        )
+
+
+@router.get("/api/portfolio/actual/fx-rate", response_model=FXRateResponseDTO)
+def get_fx_rate_endpoint(date: str | None = None, portfolio_id: str = "default") -> FXRateResponseDTO:
+    with handle_portfolio_exceptions(f"Get FX rate for date '{date}'"):
+        post, state = portfolio_core._load_or_init(portfolio_id=portfolio_id)
+        portfolio_fallback = state.fx_rates.get("USDTHB", 36.5)
+        rate, source = portfolio_prices.fetch_fx_rate(date_str=date, fallback_rate=portfolio_fallback)
+        return FXRateResponseDTO(
+            date=date or _now_iso()[:10],
+            currency_pair="USDTHB",
+            rate=rate,
+            source=source,
+        )
+
+
+@router.post("/api/portfolio/actual/sync-dividends", response_model=SyncDividendsResponseDTO)
+def sync_dividends_endpoint(portfolio_id: str = "default") -> SyncDividendsResponseDTO:
+    with handle_portfolio_exceptions(f"Sync dividends for portfolio '{portfolio_id}'"):
+        raw_data = portfolio_dividends.sync_dividends_from_history(portfolio_id=portfolio_id)
+        return SyncDividendsResponseDTO.model_validate(raw_data)
 
 
 # ---------------------------------------------------------

@@ -19,7 +19,7 @@ from tools._atomic_io import _atomic_write_to
 logger = get_logger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_STORE_PATH = str(PROJECT_ROOT / "data" / "news_funnel_state.json")
+DEFAULT_STORE_PATH = os.getenv("NEWS_FUNNEL_STORE_PATH", str(PROJECT_ROOT / "data" / "news_funnel_state.json"))
 
 
 def _get_paths(store_path: Union[str, Path, None] = None):

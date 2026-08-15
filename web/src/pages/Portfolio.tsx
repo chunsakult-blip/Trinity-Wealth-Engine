@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
@@ -23,6 +23,8 @@ import CashFlowModal from '../components/portfolio/Modals/CashFlowModal'
 import IncomeModal from '../components/portfolio/Modals/IncomeModal'
 import ResetConfirmModal from '../components/portfolio/Modals/ResetConfirmModal'
 import PortfolioCalendarTab from '../components/portfolio/PortfolioCalendarTab'
+import PortfolioTransactionsTab from '../components/portfolio/PortfolioTransactionsTab'
+import PortfolioIncomesTab from '../components/portfolio/PortfolioIncomesTab'
 import {
   TradeIcon,
   CashFlowIcon,
@@ -38,8 +40,8 @@ const TABS = [
   {
     key: 'overview',
     label: (
-      <span className="flex items-center gap-1.5">
-        <ChartBarIcon className="w-4 h-4 text-flow-blue" />
+      <span className="flex items-center gap-2 text-sm sm:text-base font-semibold">
+        <ChartBarIcon className="w-4 h-4 sm:w-5 sm:h-5 text-flow-blue shrink-0" />
         <span>Strategy Buckets & Allocation</span>
       </span>
     ),
@@ -47,17 +49,35 @@ const TABS = [
   {
     key: 'holdings',
     label: (
-      <span className="flex items-center gap-1.5">
-        <BriefcaseIcon className="w-4 h-4 text-emerald-600" />
+      <span className="flex items-center gap-2 text-sm sm:text-base font-semibold">
+        <BriefcaseIcon className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600 shrink-0" />
         <span>Holdings & Trading Journal</span>
+      </span>
+    ),
+  },
+  {
+    key: 'transactions',
+    label: (
+      <span className="flex items-center gap-2 text-sm sm:text-base font-semibold">
+        <TradeIcon className="w-4 h-4 sm:w-5 sm:h-5 text-sky-500 shrink-0" />
+        <span>Transactions</span>
+      </span>
+    ),
+  },
+  {
+    key: 'incomes',
+    label: (
+      <span className="flex items-center gap-2 text-sm sm:text-base font-semibold">
+        <IncomeIcon className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-500 shrink-0" />
+        <span>Dividends & Income</span>
       </span>
     ),
   },
   {
     key: 'watchlist',
     label: (
-      <span className="flex items-center gap-1.5">
-        <WatchlistIcon className="w-4 h-4 text-amber-500" />
+      <span className="flex items-center gap-2 text-sm sm:text-base font-semibold">
+        <WatchlistIcon className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500 shrink-0" />
         <span>Watchlist</span>
       </span>
     ),
@@ -65,8 +85,8 @@ const TABS = [
   {
     key: 'calendar',
     label: (
-      <span className="flex items-center gap-1.5">
-        <span className="text-sm">📅</span>
+      <span className="flex items-center gap-2 text-sm sm:text-base font-semibold">
+        <span className="text-base shrink-0">📅</span>
         <span>Corporate Calendar</span>
       </span>
     ),
@@ -77,6 +97,7 @@ export default function Portfolio() {
   const [searchParams, setSearchParams] = useSearchParams()
   const activeTab = searchParams.get('tab') || 'overview'
   const selectedBucket = searchParams.get('bucket') || null
+  const selectedSymbol = searchParams.get('symbol') || null
   const selectedPortfolioId = searchParams.get('portfolio_id') || 'default'
 
   // Multi-Portfolio state
@@ -113,7 +134,15 @@ export default function Portfolio() {
 
   const handlePortfolioStateSuccess = (newState: ActualPortfolioStateDTO) => {
     setPortfolioState(newState)
-    api.getActualBucketAllocations(selectedPortfolioId).then((allocRes) => setAllocationsResponse(allocRes)).catch(() => {})
+    const myFetchId = ++fetchIdRef.current
+    api.getActualBucketAllocations(selectedPortfolioId).then((allocRes) => {
+      if (fetchIdRef.current === myFetchId) setAllocationsResponse(allocRes)
+    }).catch(() => {})
+    // Goals คำนวณจาก NAV/เงินสด/เงินปันผลของพอร์ต — ต้องรีเฟรชทุกครั้งที่พอร์ตมีการเปลี่ยนแปลง
+    // ไม่กรองตามพอร์ตที่เลือกอยู่ (โชว์ทุกเป้าหมายจากทุกพอร์ตรวมกันเสมอ ดู badge ในการ์ด)
+    api.getActualGoals().then((gRes) => {
+      if (fetchIdRef.current === myFetchId) setGoalsResponse(gRes)
+    }).catch(() => {})
   }
 
   // Loading & Error
@@ -121,7 +150,12 @@ export default function Portfolio() {
   const [refreshingPrices, setRefreshingPrices] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
 
+  // นับรอบ fetch แบบ monotonic — กัน response ของพอร์ตเก่าที่มาช้ากว่ามาทับพอร์ตใหม่ที่โหลดเสร็จไปแล้ว
+  // (fetchAllData เป็น useCallback ที่ถูกเรียกทั้งจาก effect และปุ่ม refresh เลยใช้ isMounted แบบ effect เดี่ยวไม่ได้)
+  const fetchIdRef = useRef(0)
+
   const fetchAllData = useCallback(async (refreshPrices: boolean = false) => {
+    const myFetchId = ++fetchIdRef.current
     try {
       if (refreshPrices) {
         setRefreshingPrices(true)
@@ -135,8 +169,11 @@ export default function Portfolio() {
         api.getActualPortfolioState(refreshPrices, refreshPrices, selectedPortfolioId),
         api.getActualBucketAllocations(selectedPortfolioId),
         api.getActualWatchlist(selectedPortfolioId),
-        api.getActualGoals(selectedPortfolioId),
+        // Goals ไม่กรองตามพอร์ตที่เลือกอยู่ — โชว์ทุกเป้าหมายจากทุกพอร์ตรวมกันเสมอ (ดู badge ในการ์ด)
+        api.getActualGoals(),
       ])
+
+      if (fetchIdRef.current !== myFetchId) return // มี fetch ใหม่กว่าแซงไปแล้ว ทิ้งผลลัพธ์นี้
 
       setPortfolios(ports)
       setPortfolioState(pState)
@@ -145,13 +182,18 @@ export default function Portfolio() {
       setGoalsResponse(gRes)
 
       if (refreshPrices) {
-        api.getActualPerformance(daysRange, selectedPortfolioId).then((rows) => setPerformanceRows(rows)).catch(() => {})
+        api.getActualPerformance(daysRange, selectedPortfolioId).then((rows) => {
+          if (fetchIdRef.current === myFetchId) setPerformanceRows(rows)
+        }).catch(() => {})
       }
     } catch (err: any) {
+      if (fetchIdRef.current !== myFetchId) return
       setError(err?.message || 'ไม่สามารถโหลดข้อมูล Actual Portfolio ได้')
     } finally {
-      setLoading(false)
-      setRefreshingPrices(false)
+      if (fetchIdRef.current === myFetchId) {
+        setLoading(false)
+        setRefreshingPrices(false)
+      }
     }
   }, [daysRange, selectedPortfolioId])
 
@@ -162,21 +204,29 @@ export default function Portfolio() {
 
   // Load performance when daysRange or portfolio_id changes
   useEffect(() => {
+    let isMounted = true
     api
       .getActualPerformance(daysRange, selectedPortfolioId)
-      .then((rows) => setPerformanceRows(rows))
-      .catch(() => setPerformanceRows([]))
+      .then((rows) => { if (isMounted) setPerformanceRows(rows) })
+      .catch(() => { if (isMounted) setPerformanceRows([]) })
+    return () => {
+      isMounted = false
+    }
   }, [daysRange, selectedPortfolioId])
 
   // Load journal when keyword or portfolio_id changes
   useEffect(() => {
+    let isMounted = true
     const timer = setTimeout(() => {
       api
         .getActualJournal(365, journalKeyword || undefined, 100, selectedPortfolioId)
-        .then((rows) => setJournalRows(rows))
-        .catch(() => setJournalRows([]))
+        .then((rows) => { if (isMounted) setJournalRows(rows) })
+        .catch(() => { if (isMounted) setJournalRows([]) })
     }, 300)
-    return () => clearTimeout(timer)
+    return () => {
+      isMounted = false
+      clearTimeout(timer)
+    }
   }, [journalKeyword, selectedPortfolioId])
 
   // Auto-redirect legacy tabs to overview or holdings
@@ -204,6 +254,19 @@ export default function Portfolio() {
   const handleClearBucketFilter = () => {
     const nextParams = new URLSearchParams(searchParams)
     nextParams.delete('bucket')
+    setSearchParams(nextParams)
+  }
+
+  const handleViewTransactionsForSymbol = (symbol: string) => {
+    const nextParams = new URLSearchParams(searchParams)
+    nextParams.set('tab', 'transactions')
+    nextParams.set('symbol', symbol)
+    setSearchParams(nextParams)
+  }
+
+  const handleClearSymbolFilter = () => {
+    const nextParams = new URLSearchParams(searchParams)
+    nextParams.delete('symbol')
     setSearchParams(nextParams)
   }
 
@@ -268,10 +331,10 @@ export default function Portfolio() {
       <div className="flow-panel rounded-2xl border border-sky-100/80 p-5 md:p-6 shadow-sm bg-gradient-to-r from-white/90 via-sky-50/40 to-blue-50/30 backdrop-blur-md flex flex-col justify-between gap-4 md:flex-row md:items-center">
         {/* Left: Branding & Title */}
         <div className="space-y-1.5 max-w-xl">
-          <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-zinc-900">
+          <h1 className="text-2xl md:text-3xl lg:text-4xl font-extrabold tracking-tight text-zinc-900">
             Actual Portfolio Hub
           </h1>
-          <p className="text-xs md:text-sm text-zinc-500 font-normal leading-relaxed">
+          <p className="text-xs md:text-sm text-zinc-500 font-medium leading-relaxed">
             ศูนย์กลางติดตามพอร์ตการลงทุนจริง (Actual Portfolio) พร้อมกลยุทธ์สัดส่วน การจัดกลุ่ม Bucket และระบบบันทึก Trading Journal
           </p>
         </div>
@@ -280,7 +343,7 @@ export default function Portfolio() {
         <div className="flex flex-col items-stretch md:items-end gap-3 shrink-0">
           {/* Portfolio Selector Pill */}
           <div className="flex w-full items-center justify-between gap-2 bg-white/95 backdrop-blur border border-sky-200/90 shadow-xs rounded-xl px-3.5 py-1.5 transition-all hover:border-sky-300">
-            <span className="text-xs font-semibold text-zinc-500 flex items-center gap-1.5 shrink-0">
+            <span className="text-xs sm:text-sm font-bold text-zinc-600 flex items-center gap-1.5 shrink-0">
               <span>📁</span> พอร์ต:
             </span>
             <select
@@ -290,7 +353,7 @@ export default function Portfolio() {
                 nextParams.set('portfolio_id', e.target.value)
                 setSearchParams(nextParams)
               }}
-              className="flex-1 min-w-0 rounded-lg border border-sky-200 bg-sky-50/60 px-3 py-1 text-xs font-bold text-zinc-800 shadow-xs focus:outline-none focus:ring-2 focus:ring-sky-400 cursor-pointer hover:bg-white transition-colors"
+              className="flex-1 min-w-0 rounded-lg border border-sky-200 bg-sky-50/60 px-3 py-1.5 text-xs sm:text-sm font-bold text-zinc-800 shadow-xs focus:outline-none focus:ring-2 focus:ring-sky-400 cursor-pointer hover:bg-white transition-colors"
             >
               {portfolios.length > 0 ? (
                 portfolios.map((p) => (
@@ -305,7 +368,7 @@ export default function Portfolio() {
             <button
               type="button"
               onClick={handleOpenRenameModal}
-              className="shrink-0 rounded-lg bg-sky-100/80 px-2 py-1 text-xs font-bold text-sky-700 hover:bg-sky-600 hover:text-white active:scale-95 transition-all flex items-center gap-1"
+              className="shrink-0 rounded-lg bg-sky-100/80 px-2.5 py-1.5 text-xs sm:text-sm font-bold text-sky-700 hover:bg-sky-600 hover:text-white active:scale-95 transition-all flex items-center gap-1"
               title="แก้ไขชื่อพอร์ตนี้"
             >
               ✏️
@@ -313,7 +376,7 @@ export default function Portfolio() {
             <button
               type="button"
               onClick={() => setCreatePortModalOpen(true)}
-              className="shrink-0 rounded-lg bg-emerald-600 px-3 py-1 text-xs font-bold text-white shadow-xs hover:bg-emerald-700 active:scale-95 transition-all flex items-center gap-1"
+              className="shrink-0 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs sm:text-sm font-bold text-white shadow-xs hover:bg-emerald-700 active:scale-95 transition-all flex items-center gap-1"
               title="สร้างพอร์ตใหม่"
             >
               <span>+ พอร์ตใหม่</span>
@@ -322,7 +385,7 @@ export default function Portfolio() {
               <button
                 type="button"
                 onClick={handleDeletePortfolio}
-                className="shrink-0 rounded-lg bg-rose-100/80 px-2 py-1 text-xs font-bold text-rose-700 hover:bg-rose-600 hover:text-white active:scale-95 transition-all"
+                className="shrink-0 rounded-lg bg-rose-100/80 px-2.5 py-1.5 text-xs sm:text-sm font-bold text-rose-700 hover:bg-rose-600 hover:text-white active:scale-95 transition-all"
                 title="ลบพอร์ตนี้"
               >
                 🗑️
@@ -331,39 +394,39 @@ export default function Portfolio() {
           </div>
 
           {/* Action Toolbar */}
-          <div className="flex flex-wrap items-center justify-between md:justify-end gap-2 md:gap-2.5 w-full">
+          <div className="flex flex-wrap items-center justify-between md:justify-end gap-2 sm:gap-2.5 w-full">
             <button
               type="button"
               onClick={() => setTradeModalOpen(true)}
-              className="rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 px-4 py-2 text-xs font-bold text-white shadow-md shadow-sky-500/20 hover:from-sky-600 hover:to-blue-700 hover:shadow-lg hover:shadow-sky-500/30 active:scale-98 transition-all flex items-center gap-2"
+              className="rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 px-4 py-2 sm:py-2.5 text-xs sm:text-sm font-bold text-white shadow-md shadow-sky-500/20 hover:from-sky-600 hover:to-blue-700 hover:shadow-lg hover:shadow-sky-500/30 active:scale-98 transition-all flex items-center gap-1.5 sm:gap-2 whitespace-nowrap"
             >
-              <TradeIcon className="w-4 h-4 text-white" />
+              <TradeIcon className="w-4 h-4 text-white shrink-0" />
               <span>บันทึกเทรด (Trade)</span>
             </button>
             <button
               type="button"
               onClick={() => setCashFlowModalOpen(true)}
-              className="rounded-xl border border-sky-200/90 bg-white/90 px-3.5 py-2 text-xs font-bold text-zinc-700 shadow-xs hover:bg-sky-50/90 hover:border-sky-300 active:scale-98 transition-all flex items-center gap-1.5"
+              className="rounded-xl border border-sky-200/90 bg-white/90 px-3.5 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm font-bold text-zinc-700 shadow-xs hover:bg-sky-50/90 hover:border-sky-300 active:scale-98 transition-all flex items-center gap-1.5 whitespace-nowrap"
             >
-              <CashFlowIcon className="w-4 h-4 text-emerald-600" />
+              <CashFlowIcon className="w-4 h-4 text-emerald-600 shrink-0" />
               <span>ฝาก/ถอน (Cash)</span>
             </button>
             <button
               type="button"
               onClick={() => setIncomeModalOpen(true)}
-              className="rounded-xl border border-sky-200/90 bg-white/90 px-3.5 py-2 text-xs font-bold text-zinc-700 shadow-xs hover:bg-sky-50/90 hover:border-sky-300 active:scale-98 transition-all flex items-center gap-1.5"
+              className="rounded-xl border border-sky-200/90 bg-white/90 px-3.5 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm font-bold text-zinc-700 shadow-xs hover:bg-sky-50/90 hover:border-sky-300 active:scale-98 transition-all flex items-center gap-1.5 whitespace-nowrap"
             >
-              <IncomeIcon className="w-4 h-4 text-emerald-600" />
+              <IncomeIcon className="w-4 h-4 text-emerald-600 shrink-0" />
               <span>ปันผล/รายรับ (Income)</span>
             </button>
             <div className="h-5 w-px bg-sky-200/60 mx-0.5 hidden sm:block" />
             <button
               type="button"
               onClick={() => setResetModalOpen(true)}
-              className="rounded-xl border border-rose-200/70 bg-rose-50/60 px-3 py-2 text-xs font-bold text-rose-600 shadow-xs hover:bg-rose-600 hover:text-white active:scale-98 transition-all flex items-center gap-1.5"
+              className="rounded-xl border border-rose-200/70 bg-rose-50/60 px-3 sm:px-3.5 py-2 sm:py-2.5 text-xs sm:text-sm font-bold text-rose-600 shadow-xs hover:bg-rose-600 hover:text-white active:scale-98 transition-all flex items-center gap-1.5 whitespace-nowrap"
               title="ล้างข้อมูลพอร์ตทั้งหมดกลับเป็นค่าเริ่มต้น"
             >
-              <ResetIcon className="w-3.5 h-3.5" />
+              <ResetIcon className="w-4 h-4 shrink-0" />
               <span>ล้างพอร์ต</span>
             </button>
           </div>
@@ -575,6 +638,7 @@ export default function Portfolio() {
       <div className="mt-4">
         {activeTab === 'overview' && (
           <PortfolioOverviewTab
+            portfolioId={selectedPortfolioId}
             targets={portfolioState?.allocation_targets ?? []}
             summaries={allocationsResponse?.summaries ?? []}
             warning={allocationsResponse?.warning ?? null}
@@ -586,6 +650,7 @@ export default function Portfolio() {
 
         {activeTab === 'holdings' && (
           <PortfolioHoldingsTab
+            portfolioId={selectedPortfolioId}
             holdings={portfolioState?.holdings ?? []}
             selectedBucket={selectedBucket}
             onClearBucketFilter={handleClearBucketFilter}
@@ -596,11 +661,33 @@ export default function Portfolio() {
             onChangeJournalKeyword={setJournalKeyword}
             onSuccessJournal={(entries) => setJournalRows(entries)}
             onOpenTradeModal={() => setTradeModalOpen(true)}
+            onViewTransactions={handleViewTransactionsForSymbol}
+          />
+        )}
+
+        {activeTab === 'transactions' && (
+          <PortfolioTransactionsTab
+            portfolioId={selectedPortfolioId}
+            initialSymbol={selectedSymbol}
+            holdings={portfolioState?.holdings}
+            onClearSymbolFilter={handleClearSymbolFilter}
+            onOpenTradeModal={() => setTradeModalOpen(true)}
+            onSuccess={handlePortfolioStateSuccess}
+          />
+        )}
+
+        {activeTab === 'incomes' && (
+          <PortfolioIncomesTab
+            state={portfolioState}
+            selectedPortfolioId={selectedPortfolioId}
+            onSuccess={handlePortfolioStateSuccess}
+            onOpenIncomeModal={() => setIncomeModalOpen(true)}
           />
         )}
 
         {activeTab === 'watchlist' && (
           <PortfolioWatchlistTab
+            portfolioId={selectedPortfolioId}
             items={watchlistState?.items ?? []}
             lastUpdated={watchlistState?.last_updated ?? null}
             onSuccess={(wState) => setWatchlistState(wState)}

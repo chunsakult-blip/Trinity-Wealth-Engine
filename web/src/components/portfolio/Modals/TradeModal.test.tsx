@@ -7,6 +7,7 @@ vi.mock('../../../api/client', () => ({
   api: {
     executeTrade: vi.fn(),
     manageCashFlow: vi.fn(),
+    getFxRate: vi.fn().mockResolvedValue({ date: '2026-08-15', currency_pair: 'USDTHB', rate: 36.5, source: 'live' }),
   },
   ApiError: class ApiError extends Error {},
 }))
@@ -14,6 +15,7 @@ vi.mock('../../../api/client', () => ({
 describe('TradeModal', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    vi.mocked(api.getFxRate).mockResolvedValue({ date: '2026-08-15', currency_pair: 'USDTHB', rate: 36.5, source: 'live' })
   })
 
   it('renders cash balance badge correctly', () => {
@@ -25,7 +27,8 @@ describe('TradeModal', () => {
     render(
       <TradeModal
         targets={[]}
-        holdings={holdings}
+        holdings={holdings as any}
+        selectedPortfolioId="default"
         onClose={vi.fn()}
         onSuccess={vi.fn()}
       />
@@ -53,7 +56,8 @@ describe('TradeModal', () => {
     render(
       <TradeModal
         targets={[]}
-        holdings={holdings}
+        holdings={holdings as any}
+        selectedPortfolioId="default"
         onClose={onClose}
         onSuccess={onSuccess}
       />
@@ -62,12 +66,12 @@ describe('TradeModal', () => {
     // Fill trade form for buying PG
     fireEvent.change(screen.getByPlaceholderText('e.g. AAPL, PTT, NVDA'), { target: { value: 'PG' } })
     const numberInputs = screen.getAllByPlaceholderText('0.00') as HTMLInputElement[]
-    fireEvent.change(numberInputs[0], { target: { value: '2.1338612' } })
-    fireEvent.change(numberInputs[1], { target: { value: '140.59' } })
+    fireEvent.change(numberInputs[0]!, { target: { value: '2.1338612' } })
+    fireEvent.change(numberInputs[1]!, { target: { value: '140.59' } })
 
     const selects = screen.getAllByRole('combobox') as HTMLSelectElement[]
     // 3rd select is Currency (THB/USD)
-    fireEvent.change(selects[2], { target: { value: 'USD' } })
+    fireEvent.change(selects[2]!, { target: { value: 'USD' } })
 
     // Click Buy button
     const buyBtn = screen.getByRole('button', { name: /ยืนยันการซื้อ/i })
@@ -89,7 +93,8 @@ describe('TradeModal', () => {
         expect.objectContaining({
           action: 'deposit',
           currency: 'USD',
-        })
+        }),
+        'default'
       )
       expect(api.executeTrade).toHaveBeenCalledTimes(2)
       expect(onSuccess).toHaveBeenCalled()

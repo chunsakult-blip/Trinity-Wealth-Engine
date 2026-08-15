@@ -8,27 +8,11 @@ from filelock import Timeout
 @pytest.fixture
 def isolated_mutation_portfolio(tmp_path, monkeypatch):
     """Set up isolated vault path and reattach modules for mutation API tests."""
-    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
-
-    for mod_name in list(sys.modules):
-        if mod_name.startswith("tools.portfolio.") or mod_name.startswith("tools.portfolio_tools"):
-            del sys.modules[mod_name]
-
-    import tools.portfolio.core as core
-    import tools.portfolio.trading as trading
-    import tools.portfolio.watchlist as watchlist
-    import tools.portfolio.goals as goals
-    import tools.portfolio.performance as perf
-    import tools.portfolio.journal as journal
-
-    if "api.routes_portfolio" in sys.modules:
-        import api.routes_portfolio as rp
-        rp.portfolio_core = core
-        rp.portfolio_trading = trading
-        rp.portfolio_watchlist = watchlist
-        rp.portfolio_goals = goals
-        rp.portfolio_perf = perf
-        rp.portfolio_journal = journal
+    from tests.conftest import _reset_portfolio_modules
+    mods = _reset_portfolio_modules(tmp_path, monkeypatch)
+    core = mods.core
+    watchlist = mods.watchlist
+    goals = mods.goals
 
     # Initialize basic holdings
     post, state = core._load_or_init()
@@ -240,4 +224,41 @@ def test_rename_default_portfolio_endpoint(authed_client, isolated_mutation_port
     assert r_list.status_code == 200
     meta = next(p for p in r_list.json() if p["id"] == "default")
     assert meta["name"] == "พอร์ตลงทุนหลัก (VIP)"
+
+
+def test_edit_and_delete_transaction_endpoints(authed_client, isolated_mutation_portfolio):
+    # 1. Execute a trade
+    r_trade = authed_client.post("/api/portfolio/actual/trade", json={
+        "symbol": "NVDA", "asset_type": "Stock", "action": "buy", "units": 50.0, "price": 30.0, "currency": "THB"
+    })
+    assert r_trade.status_code == 200
+    trade_data = r_trade.json()
+    nvda_holding = next(h for h in trade_data["holdings"] if h["symbol"] == "NVDA")
+    assert nvda_holding["units"] == 50.0
+
+    # 2. Get transaction list to find tx_id
+    r_txs = authed_client.get("/api/portfolio/actual/transactions")
+    assert r_txs.status_code == 200
+    txs = r_txs.json()["transactions"]
+    assert len(txs) >= 1
+    tx_id = txs[0]["transaction_id"]
+
+    # 3. Edit transaction units and price
+    r_edit = authed_client.put(f"/api/portfolio/actual/transactions/{tx_id}", json={
+        "units": 60.0,
+        "price": 32.0,
+        "notes": "Edited note via API",
+        "adjust_cash": True,
+    })
+    assert r_edit.status_code == 200
+    edit_data = r_edit.json()
+    nvda_holding_edited = next(h for h in edit_data["holdings"] if h["symbol"] == "NVDA")
+    assert nvda_holding_edited["units"] == 60.0
+
+    # 4. Delete transaction
+    r_del = authed_client.delete(f"/api/portfolio/actual/transactions/{tx_id}?adjust_cash=true")
+    assert r_del.status_code == 200
+    del_data = r_del.json()
+    assert not any(h["symbol"] == "NVDA" for h in del_data["holdings"])
+
 

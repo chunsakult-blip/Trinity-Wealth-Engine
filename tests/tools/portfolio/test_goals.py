@@ -185,6 +185,25 @@ class TestGoals:
         assert data["n_goals"] == 0
         assert data["goals"] == []
 
+    def test_get_goals_progress_bucket_target_without_bucket_id_is_zero_not_passive_income(self, isolated_portfolio):
+        """bucket_target goal ที่ไม่มี bucket_id ต้องได้ current=0 ไม่ใช่แอบยืม passive_income_ytd มาโชว์"""
+        pt = isolated_portfolio
+        pt._manage_cash_flow_locked(500_000.0, "deposit", "THB")
+        pt._execute_trade_locked(
+            symbol="PTT", asset_type="Stock", action="buy",
+            units=1000, price=30.0, currency="THB",
+        )
+        pt._record_income_locked("Dividend", 50_000.0, "PTT")
+        pt.set_goal.invoke({
+            "name": "bucket ไม่ผูก", "goal_type": "bucket_target",
+            "target_amount_thb": 100_000.0,
+        })
+        result = pt.get_goals_progress.invoke({})
+        data = json.loads(result)
+        g = data["goals"][0]
+        assert g["goal_type"] == "bucket_target"
+        assert g["current_amount_thb"] == 0.0
+
     def test_sidecar_files_created(self, isolated_portfolio):
         """set_goal ต้องสร้าง sidecar .md ไฟล์ใน Goals/Items/"""
         pt = isolated_portfolio

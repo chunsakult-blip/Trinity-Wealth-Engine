@@ -24,6 +24,8 @@ import type {
   NotebookLMAvailableSourceDTO,
   NotebookLMGenerateResponse,
   NotebookLMStatusDTO,
+  FXRateResponseDTO,
+  SyncDividendsResponseDTO,
 } from './types'
 
 export class ApiError extends Error {
@@ -230,71 +232,71 @@ export const api = {
   // ---------------------------------------------------------
   // Actual Portfolio Hub Mutation Endpoints (Phase 2.1 & 2.2)
   // ---------------------------------------------------------
-  upsertAllocationTargets: (payload: UpsertAllocationTargetsPayload, portfolioId: string = 'default') =>
+  upsertAllocationTargets: (payload: UpsertAllocationTargetsPayload, portfolioId: string) =>
     request<ActualPortfolioStateDTO>(`/api/portfolio/actual/allocations/targets?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
 
-  assignHoldingBucket: (symbol: string, payload: AssignBucketPayload, portfolioId: string = 'default') =>
+  assignHoldingBucket: (symbol: string, payload: AssignBucketPayload, portfolioId: string) =>
     request<ActualPortfolioStateDTO>(`/api/portfolio/actual/holdings/${encodeURIComponent(symbol)}/bucket?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
 
-  batchAssignHoldingBuckets: (payload: BatchAssignBucketPayload, portfolioId: string = 'default') =>
+  batchAssignHoldingBuckets: (payload: BatchAssignBucketPayload, portfolioId: string) =>
     request<ActualPortfolioStateDTO>(`/api/portfolio/actual/holdings/batch-bucket?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
 
-  batchRemoveHoldings: (payload: BatchRemoveHoldingsPayload, portfolioId: string = 'default') =>
+  batchRemoveHoldings: (payload: BatchRemoveHoldingsPayload, portfolioId: string) =>
     request<ActualPortfolioStateDTO>(`/api/portfolio/actual/holdings/batch-delete?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
 
-  resetPortfolioCleanSlate: (portfolioId: string = 'default') =>
+  resetPortfolioCleanSlate: (portfolioId: string) =>
     request<ActualPortfolioStateDTO>(`/api/portfolio/actual/reset?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'POST',
     }),
 
-  executeTrade: (payload: TradePayload, portfolioId: string = 'default') =>
+  executeTrade: (payload: TradePayload, portfolioId: string) =>
     request<ActualPortfolioStateDTO>(`/api/portfolio/actual/trade?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
 
-  manageCashFlow: (payload: CashFlowPayload, portfolioId: string = 'default') =>
+  manageCashFlow: (payload: CashFlowPayload, portfolioId: string) =>
     request<ActualPortfolioStateDTO>(`/api/portfolio/actual/cashflow?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
 
-  recordIncome: (payload: IncomePayload, portfolioId: string = 'default') =>
+  recordIncome: (payload: IncomePayload, portfolioId: string) =>
     request<ActualPortfolioStateDTO>(`/api/portfolio/actual/income?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
 
-  editHolding: (symbol: string, payload: EditHoldingPayload, portfolioId: string = 'default') =>
+  editHolding: (symbol: string, payload: EditHoldingPayload, portfolioId: string) =>
     request<ActualPortfolioStateDTO>(`/api/portfolio/actual/holdings/${encodeURIComponent(symbol)}/edit?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
 
-  removeHolding: (symbol: string, portfolioId: string = 'default') =>
+  removeHolding: (symbol: string, portfolioId: string) =>
     request<ActualPortfolioStateDTO>(`/api/portfolio/actual/holdings/${encodeURIComponent(symbol)}?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'DELETE',
     }),
 
-  upsertWatchlistItem: (symbol: string, payload: UpsertWatchlistItemPayload, portfolioId: string = 'default') =>
+  upsertWatchlistItem: (symbol: string, payload: UpsertWatchlistItemPayload, portfolioId: string) =>
     request<ActualWatchlistStateDTO>(`/api/portfolio/actual/watchlist/${encodeURIComponent(symbol)}?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
 
-  removeWatchlistItem: (symbol: string, portfolioId: string = 'default') =>
+  removeWatchlistItem: (symbol: string, portfolioId: string) =>
     request<ActualWatchlistStateDTO>(`/api/portfolio/actual/watchlist/${encodeURIComponent(symbol)}?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'DELETE',
     }),
@@ -312,10 +314,48 @@ export const api = {
     })
   },
 
-  appendJournal: (payload: AppendJournalPayload, portfolioId: string = 'default') =>
+  appendJournal: (payload: AppendJournalPayload, portfolioId: string) =>
     request<JournalEntryDTO[]>(`/api/portfolio/actual/journal?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'POST',
       body: JSON.stringify(payload),
+    }),
+
+  getTransactions: (portfolioId: string = 'default', symbol?: string) => {
+    const params = new URLSearchParams()
+    params.set('portfolio_id', portfolioId)
+    if (symbol) params.set('symbol', symbol)
+    return request<import('./types').TransactionListResponseDTO>(`/api/portfolio/actual/transactions?${params.toString()}`)
+  },
+
+  updateTransactionNote: (txId: string, notes: string, portfolioId: string = 'default') =>
+    request<import('./types').TransactionItemDTO>(`/api/portfolio/actual/transactions/${encodeURIComponent(txId)}/note?portfolio_id=${encodeURIComponent(portfolioId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ notes }),
+    }),
+
+  editTransaction: (txId: string, payload: import('./types').EditTransactionPayload, portfolioId: string = 'default') =>
+    request<import('./types').ActualPortfolioStateDTO>(`/api/portfolio/actual/transactions/${encodeURIComponent(txId)}?portfolio_id=${encodeURIComponent(portfolioId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+  deleteTransaction: (txId: string, payload?: import('./types').DeleteTransactionPayload, portfolioId: string = 'default') => {
+    const adjustCash = payload?.adjust_cash ?? true
+    return request<import('./types').ActualPortfolioStateDTO>(`/api/portfolio/actual/transactions/${encodeURIComponent(txId)}?adjust_cash=${adjustCash}&portfolio_id=${encodeURIComponent(portfolioId)}`, {
+      method: 'DELETE',
+    })
+  },
+
+  getFxRate: (date?: string, portfolioId: string = 'default') => {
+    const params = new URLSearchParams()
+    if (date) params.set('date', date)
+    params.set('portfolio_id', portfolioId)
+    return request<FXRateResponseDTO>(`/api/portfolio/actual/fx-rate?${params.toString()}`)
+  },
+
+  syncDividends: (portfolioId: string = 'default') =>
+    request<SyncDividendsResponseDTO>(`/api/portfolio/actual/sync-dividends?portfolio_id=${encodeURIComponent(portfolioId)}`, {
+      method: 'POST',
     }),
 
   // ---------------------------------------------------------

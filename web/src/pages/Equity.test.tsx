@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { api } from '../api/client'
 import { mockEquitySummary, mockEquityDetailAAPL } from '../mocks/equity'
+import { normalizeTicker } from './Equity'
 
 vi.mock('../api/client', () => ({
   api: {
@@ -16,7 +17,7 @@ vi.mock('../api/client', () => ({
   },
 }))
 
-describe('Equity Page', () => {
+describe('Equity Page & normalizeTicker', () => {
   beforeEach(() => {
     cleanup()
     vi.clearAllMocks()
@@ -37,8 +38,14 @@ describe('Equity Page', () => {
     vi.resetModules()
   })
 
+  it('normalizeTicker strips .BK and .TH suffix and upper-cases', () => {
+    expect(normalizeTicker('ptt.bk')).toBe('PTT')
+    expect(normalizeTicker('PTT.TH')).toBe('PTT')
+    expect(normalizeTicker('aapl')).toBe('AAPL')
+    expect(normalizeTicker('  NVDA  ')).toBe('NVDA')
+  })
+
   const renderComponent = async (initialRoute = '/equity') => {
-    // Dynamic import to ensure it reads the stubbed env vars
     const { default: Equity } = await import('./Equity')
     return render(
       <MemoryRouter initialEntries={[initialRoute]}>
@@ -50,7 +57,7 @@ describe('Equity Page', () => {
     )
   }
 
-  it('renders list of equities from api', async () => {
+  it('renders list of equities from api under respective sections', async () => {
     vi.mocked(api.getEquityLatest).mockResolvedValue(mockEquitySummary)
 
     await renderComponent()
@@ -58,26 +65,190 @@ describe('Equity Page', () => {
     await waitFor(() => {
       expect(screen.getByText('AAPL')).toBeInTheDocument()
       expect(screen.getByText('PTT')).toBeInTheDocument()
+      expect(screen.getByText('📊 วิเคราะห์แล้วอื่นๆ')).toBeInTheDocument()
     })
   })
 
   it('filters list using search bar', async () => {
     vi.mocked(api.getEquityLatest).mockResolvedValue(mockEquitySummary)
-    
+
     await renderComponent()
-    
+
     await waitFor(() => {
       expect(screen.getByText('AAPL')).toBeInTheDocument()
       expect(screen.getByText('PTT')).toBeInTheDocument()
     })
-    
-    const searchInput = screen.getAllByPlaceholderText('ค้นหาหุ้น (เช่น AAPL)...')[0]
+
+    const searchInput = screen.getByPlaceholderText('ค้นหาหุ้น (เช่น AAPL, PTT)...')
     await userEvent.type(searchInput, 'pt')
-    
+
     await waitFor(() => {
       expect(screen.queryByText('AAPL')).not.toBeInTheDocument()
       expect(screen.getByText('PTT')).toBeInTheDocument()
     })
+  })
+
+  it('renders portfolio and watchlist sections with correct per-holding market tags and unanalyzed status', async () => {
+    vi.mocked(api.getEquityLatest).mockResolvedValue([
+      {
+        ticker: 'AAPL',
+        market: 'US',
+        company_name: 'Apple Inc.',
+        analysis_date: '2026-08-03',
+        evaluated_at: '2026-08-03T10:00:00Z',
+        market_sentiment: 'bullish',
+        composite_score: 82.5,
+        data_quality_flags: [],
+        source_file: 'AAPL.md',
+        sidecar_file: 'AAPL.json',
+      },
+    ])
+
+    // Portfolio has AAPL (US, analyzed), PTT (TH, unanalyzed), and UNH (US, unanalyzed)
+    vi.mocked(api.getActualPortfolioState).mockResolvedValue({
+      last_updated: null,
+      fx_rates: {},
+      summary: { total_value_thb: 1000, total_cost_basis_thb: 800, total_unrealized_profit: 200, passive_income_ytd: 0 },
+      allocation_targets: [],
+      holdings: [
+        {
+          symbol: 'AAPL', asset_type: 'Stock', units: 10, bucket_id: null,
+          avg_cost_usd: 150, avg_cost_thb: null, current_price_usd: 180, current_price_thb: 6300,
+          market_value_thb: 63000, unrealized_pnl_percent: 20, unrealized_pnl_value: 300,
+          market_cap_tier: null, yield_on_cost: null, company_name: 'Apple Inc.',
+          pe_ratio: null, eps: null, payout_ratio: null, market_cap_value: null,
+          dividend_per_share: null, dividend_yield: null, accumulated_dividend_thb: null, fundamentals_updated_at: null,
+        },
+        {
+          symbol: 'PTT', asset_type: 'Stock', units: 100, bucket_id: null,
+          avg_cost_usd: null, avg_cost_thb: 34.5, current_price_usd: null, current_price_thb: 35,
+          market_value_thb: 3500, unrealized_pnl_percent: 1.4, unrealized_pnl_value: 50,
+          market_cap_tier: null, yield_on_cost: null, company_name: 'PTT Public Co.',
+          pe_ratio: null, eps: null, payout_ratio: null, market_cap_value: null,
+          dividend_per_share: null, dividend_yield: null, accumulated_dividend_thb: null, fundamentals_updated_at: null,
+        },
+        {
+          symbol: 'UNH', asset_type: 'Stock', units: 2, bucket_id: null,
+          avg_cost_usd: 480, avg_cost_thb: null, current_price_usd: 500, current_price_thb: 17500,
+          market_value_thb: 35000, unrealized_pnl_percent: 4.1, unrealized_pnl_value: 40,
+          market_cap_tier: null, yield_on_cost: null, company_name: 'UnitedHealth Group',
+          pe_ratio: null, eps: null, payout_ratio: null, market_cap_value: null,
+          dividend_per_share: null, dividend_yield: null, accumulated_dividend_thb: null, fundamentals_updated_at: null,
+        },
+      ],
+      price_refresh_info: null,
+    })
+
+    // Watchlist has BH.BK (TH) and MSFT (US)
+    vi.mocked(api.getActualWatchlist).mockResolvedValue({
+      last_updated: null,
+      items: [
+        { symbol: 'BH.BK', asset_type: 'Stock', target_price: 250, added_date: '2026-08-01', notes: 'Bumrungrad Hospital' },
+        { symbol: 'MSFT', asset_type: 'Stock', target_price: 400, added_date: '2026-08-01', notes: 'Microsoft' },
+      ],
+    })
+
+    await renderComponent()
+
+    await waitFor(() => {
+      // Portfolio section should be visible
+      expect(screen.getByText('💼 หุ้นในพอร์ต')).toBeInTheDocument()
+      // Watchlist section should be visible
+      expect(screen.getByText('⭐ Watchlist')).toBeInTheDocument()
+    })
+
+    // AAPL has report (analyzed)
+    expect(screen.getByText('AAPL')).toBeInTheDocument()
+    // PTT & UNH are in portfolio with unanalyzed badge
+    expect(screen.getByText('PTT')).toBeInTheDocument()
+    expect(screen.getByText('UNH')).toBeInTheDocument()
+    expect(screen.getAllByText('⏳ ยังไม่วิเคราะห์').length).toBeGreaterThanOrEqual(2)
+
+    // Quick analysis button on PTT opens modal with pre-filled ticker="PTT" and market="TH"
+    const pttAnalyzeButtons = screen.getAllByRole('button', { name: /วิเคราะห์/i })
+    expect(pttAnalyzeButtons.length).toBeGreaterThan(0)
+  })
+
+  it('clicking quick-analyze button opens RunEquityAnalysisModal with pre-filled ticker and market', async () => {
+    vi.mocked(api.getEquityLatest).mockResolvedValue([])
+    vi.mocked(api.getActualPortfolioState).mockResolvedValue({
+      last_updated: null,
+      fx_rates: {},
+      summary: { total_value_thb: 0, total_cost_basis_thb: 0, total_unrealized_profit: 0, passive_income_ytd: 0 },
+      allocation_targets: [],
+      holdings: [
+        {
+          symbol: 'PTT', asset_type: 'Stock', units: 100, bucket_id: null,
+          avg_cost_usd: null, avg_cost_thb: 34.5, current_price_usd: null, current_price_thb: 35,
+          market_value_thb: 3500, unrealized_pnl_percent: 1.4, unrealized_pnl_value: 50,
+          market_cap_tier: null, yield_on_cost: null, company_name: 'PTT Public Co.',
+          pe_ratio: null, eps: null, payout_ratio: null, market_cap_value: null,
+          dividend_per_share: null, dividend_yield: null, accumulated_dividend_thb: null, fundamentals_updated_at: null,
+        },
+      ],
+      price_refresh_info: null,
+    })
+
+    await renderComponent()
+
+    await waitFor(() => {
+      expect(screen.getByText('PTT')).toBeInTheDocument()
+    })
+
+    const analyzeBtn = screen.getByTitle('สั่งวิเคราะห์หุ้น PTT (TH)')
+    await userEvent.click(analyzeBtn)
+
+    // Modal should be open with PTT and TH pre-selected
+    expect(screen.getByText('📊 วิเคราะห์หุ้นและดึงข่าวล่าสุด')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('เช่น AAPL, NVDA, PTT.BK')).toHaveValue('PTT')
+  })
+
+  it('switches tabs between All, Portfolio, and Watchlist', async () => {
+    vi.mocked(api.getEquityLatest).mockResolvedValue([])
+    vi.mocked(api.getActualPortfolioState).mockResolvedValue({
+      last_updated: null,
+      fx_rates: {},
+      summary: { total_value_thb: 0, total_cost_basis_thb: 0, total_unrealized_profit: 0, passive_income_ytd: 0 },
+      allocation_targets: [],
+      holdings: [
+        {
+          symbol: 'PG', asset_type: 'Stock', units: 5, bucket_id: null,
+          avg_cost_usd: 150, avg_cost_thb: null, current_price_usd: 160, current_price_thb: 5600,
+          market_value_thb: 28000, unrealized_pnl_percent: 6.6, unrealized_pnl_value: 50,
+          market_cap_tier: null, yield_on_cost: null, company_name: 'Procter & Gamble',
+          pe_ratio: null, eps: null, payout_ratio: null, market_cap_value: null,
+          dividend_per_share: null, dividend_yield: null, accumulated_dividend_thb: null, fundamentals_updated_at: null,
+        },
+      ],
+      price_refresh_info: null,
+    })
+    vi.mocked(api.getActualWatchlist).mockResolvedValue({
+      last_updated: null,
+      items: [
+        { symbol: 'TSLA', asset_type: 'Stock', target_price: 200, added_date: '2026-08-01', notes: 'Tesla' },
+      ],
+    })
+
+    await renderComponent()
+
+    await waitFor(() => {
+      expect(screen.getByText('PG')).toBeInTheDocument()
+      expect(screen.getByText('TSLA')).toBeInTheDocument()
+    })
+
+    // Filter to Portfolio only
+    const portTab = screen.getByRole('button', { name: /💼 ในพอร์ต/i })
+    await userEvent.click(portTab)
+
+    expect(screen.getByText('PG')).toBeInTheDocument()
+    expect(screen.queryByText('TSLA')).not.toBeInTheDocument()
+
+    // Filter to Watchlist only
+    const watchTab = screen.getByRole('button', { name: /⭐ Watch/i })
+    await userEvent.click(watchTab)
+
+    expect(screen.queryByText('PG')).not.toBeInTheDocument()
+    expect(screen.getByText('TSLA')).toBeInTheDocument()
   })
 
   it('renders not found state when api returns 404', async () => {
@@ -98,9 +269,8 @@ describe('Equity Page', () => {
     await renderComponent('/equity/aapl')
 
     await waitFor(() => {
-      // The Base Case Summary should appear
       expect(screen.getByText('Base Case Summary')).toBeInTheDocument()
-      expect(screen.getByText('Apple Inc.')).toBeInTheDocument()
+      expect(screen.getAllByText('Apple Inc.').length).toBeGreaterThan(0)
     })
   })
 
@@ -109,7 +279,7 @@ describe('Equity Page', () => {
     vi.mocked(api.getEquityDetail).mockResolvedValue(mockEquityDetailAAPL)
 
     await renderComponent('/equity/aapl')
-    await waitFor(() => expect(screen.getByText('Apple Inc.')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Base Case Summary')).toBeInTheDocument())
 
     await userEvent.click(screen.getByTitle('วิเคราะห์ใหม่และดึงข่าวล่าสุด'))
 
@@ -133,7 +303,7 @@ describe('Equity Page', () => {
     })
 
     await renderComponent('/equity/aapl')
-    await waitFor(() => expect(screen.getByText('Apple Inc.')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Base Case Summary')).toBeInTheDocument())
 
     await userEvent.click(screen.getByTitle('วิเคราะห์ใหม่และดึงข่าวล่าสุด'))
     const tickerInput = screen.getByPlaceholderText('เช่น AAPL, NVDA, PTT.BK')
@@ -145,7 +315,6 @@ describe('Equity Page', () => {
       expect(screen.getByText('สั่งงานวิเคราะห์หุ้น NVDA และดึงข่าวเรียบร้อย')).toBeInTheDocument()
       expect(screen.getByText('ดูสถานะใน Kanban')).toBeInTheDocument()
     })
-    // Modal ต้องปิดหลัง dispatch สำเร็จ
     expect(screen.queryByText('📊 วิเคราะห์หุ้นและดึงข่าวล่าสุด')).not.toBeInTheDocument()
   })
 })

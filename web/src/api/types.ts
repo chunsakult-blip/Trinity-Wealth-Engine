@@ -295,11 +295,14 @@ export interface ActualHoldingDTO {
   symbol: string
   asset_type: string
   units: number
+  status?: string
+  archived_at?: string | null
   bucket_id: string | null
   avg_cost_usd: number | null
   avg_cost_thb: number | null
   current_price_usd: number | null
   current_price_thb: number | null
+  fx_rate?: number | null
   market_value_thb: number
   unrealized_pnl_percent: number | null
   unrealized_pnl_value: number | null
@@ -313,6 +316,11 @@ export interface ActualHoldingDTO {
   dividend_per_share: number | null
   dividend_yield: number | null
   accumulated_dividend_thb: number | null
+  accumulated_dividend_native?: number | null
+  upcoming_dividend_thb?: number | null
+  upcoming_dividend_native?: number | null
+  dividend_rounds?: DividendRoundDTO[]
+  dividend_source?: 'synced' | 'manual' | null
   fundamentals_updated_at: number | null
 }
 
@@ -320,7 +328,9 @@ export interface ActualSummaryDTO {
   total_value_thb: number
   total_cost_basis_thb: number
   total_unrealized_profit: number
+  total_realized_profit_ytd?: number
   passive_income_ytd: number
+  total_accumulated_dividend?: number
 }
 
 export interface AllocationTargetDTO {
@@ -677,4 +687,84 @@ export interface PortfolioCalendarDTO {
   tickers_fetched: number
   tickers_failed: string[]
 }
+
+export interface TransactionItemDTO {
+  transaction_id: string
+  timestamp: string
+  symbol: string
+  action: 'BUY' | 'SELL' | string
+  units: number
+  price: number
+  currency: string
+  fx_rate?: number | null
+  cost_thb: number
+  realized_pnl_thb?: number | null
+  notes: string
+}
+
+export interface TransactionSummaryDTO {
+  total_buy_count: number
+  total_sell_count: number
+  total_buy_thb: number
+  total_sell_thb: number
+  total_realized_pnl_thb: number
+}
+
+export interface TransactionListResponseDTO {
+  portfolio_id: string
+  transactions: TransactionItemDTO[]
+  summary: TransactionSummaryDTO
+}
+
+export interface UpdateTransactionNoteRequestDTO {
+  notes: string
+}
+
+export interface EditTransactionPayload {
+  timestamp?: string | null
+  units?: number | null
+  price?: number | null
+  fx_rate?: number | null
+  notes?: string | null
+  adjust_cash?: boolean
+}
+
+export interface DeleteTransactionPayload {
+  adjust_cash?: boolean
+}
+
+export interface FXRateResponseDTO {
+  date: string
+  currency_pair: string
+  rate: number
+  source: 'historical' | 'live' | 'fallback'
+}
+
+export interface DividendRoundDTO {
+  symbol: string
+  ex_date: string
+  pay_date?: string | null
+  dps: number
+  currency: string
+  units_held: number
+  status?: 'received' | 'upcoming'
+  gross_native?: number
+  net_native?: number
+  gross_thb: number
+  tax_rate: number
+  net_thb: number
+  fx_rate: number
+}
+
+export interface SyncDividendsResponseDTO {
+  synced_symbols: number
+  total_rounds: number
+  total_received_rounds?: number
+  total_upcoming_rounds?: number
+  total_dividend_thb: number
+  total_upcoming_thb?: number
+  skipped_manual: string[]
+  details: Record<string, DividendRoundDTO[]>
+}
+
 

@@ -49,16 +49,31 @@ _locks: dict[str, FileLock] = {}
 _locks_registry_lock = threading.Lock()
 
 
-def _get_portfolio_lock_path(portfolio_id: str = "default") -> str:
-    pid = portfolio_id.strip().lower() if portfolio_id else "default"
+_PORTFOLIO_ID_RE = re.compile(r'^[a-zA-Z0-9_-]+$')
+
+
+def _normalize_portfolio_id(portfolio_id: str | None) -> str:
+    """ทำความสะอาด + ตรวจสอบ portfolio_id ก่อนใช้สร้าง filesystem path ใดๆ เสมอ
+    กัน path traversal (เช่น '../../etc', '/', '\\\\') — ถ้าไม่ผ่านให้ raise ValueError ทันที
+    แทนที่จะปล่อยให้อักขระแปลกปลอมหลุดเข้าไปประกอบ Path โดยตรง
+    """
+    pid = (portfolio_id or "default").strip().lower()
     if pid == "default":
-        return str(PORTFOLIO_PATH) + ".lock"
-    PORTFOLIOS_DIR.mkdir(parents=True, exist_ok=True)
-    return str(PORTFOLIOS_DIR / f"{pid}.md.lock")
+        return pid
+    if not _PORTFOLIO_ID_RE.match(pid):
+        raise ValueError(f"portfolio_id ไม่ถูกต้อง — อนุญาตเฉพาะ a-z, 0-9, _, - เท่านั้น (ได้ {portfolio_id!r})")
+    return pid
+
+
+def _get_portfolio_lock_path(portfolio_id: str = "default") -> str:
+    pid = _normalize_portfolio_id(portfolio_id)
+    pdir = PORTFOLIOS_DIR / pid
+    pdir.mkdir(parents=True, exist_ok=True)
+    return str(pdir / "Portfolio_Holdings.md.lock")
 
 
 def _get_portfolio_lock(portfolio_id: str = "default") -> FileLock:
-    pid = portfolio_id.strip().lower() if portfolio_id else "default"
+    pid = _normalize_portfolio_id(portfolio_id)
     lock_path = _get_portfolio_lock_path(pid)
     with _locks_registry_lock:
         if pid not in _locks:
@@ -66,21 +81,27 @@ def _get_portfolio_lock(portfolio_id: str = "default") -> FileLock:
         return _locks[pid]
 
 
-_PORTFOLIO_LOCK_PATH = str(PORTFOLIO_PATH) + ".lock"
-_portfolio_lock = _get_portfolio_lock("default")
-
-
 def _get_portfolios_dir() -> Path:
     return VAULT_PATH / "20_Portfolio_Management/Current_Holdings/Portfolios"
 
 
+def _get_portfolio_dir(portfolio_id: str) -> Path:
+    """โฟลเดอร์เฉพาะของพอร์ต — Portfolios/{id}/ เก็บทุกไฟล์ของพอร์ตนั้นแยกจากพอร์ตอื่น (ทุกพอร์ตรวมถึง default)"""
+    return _get_portfolios_dir() / portfolio_id
+
+
 def _get_portfolio_filepath(portfolio_id: str = "default") -> Path:
-    pid = portfolio_id.strip().lower() if portfolio_id else "default"
-    if pid == "default":
-        return PORTFOLIO_PATH
-    pdir = _get_portfolios_dir()
+    pid = _normalize_portfolio_id(portfolio_id)
+    pdir = _get_portfolio_dir(pid)
     pdir.mkdir(parents=True, exist_ok=True)
-    return pdir / f"{pid}.md"
+    return pdir / "Portfolio_Holdings.md"
+
+
+def _portfolio_exists(portfolio_id: str = "default") -> bool:
+    """เช็คว่าพอร์ตนี้ถูกสร้างจริงหรือไม่ — ใช้ guard ก่อน lazy-init ไฟล์ลูก (watchlist/journal/performance)
+    เพื่อป้องกันไฟล์กำพร้าที่ไม่มี master คู่กัน
+    """
+    return _get_portfolio_filepath(portfolio_id).exists()
 
 
 def list_portfolios() -> list[PortfolioMeta]:
@@ -101,10 +122,8 @@ def list_portfolios() -> list[PortfolioMeta]:
     ]
     pdir = _get_portfolios_dir()
     if pdir.exists():
-        for pfile in sorted(pdir.glob("*.md")):
-            if pfile.name.endswith(".lock") or pfile.name.endswith("_watchlist.md") or pfile.name.endswith("_journal.md"):
-                continue
-            pid = pfile.stem
+        for pfile in sorted(pdir.glob("*/Portfolio_Holdings.md")):
+            pid = pfile.parent.name
             if pid == "default":
                 continue
             try:
@@ -155,7 +174,7 @@ def create_portfolio(name: str, portfolio_id: str | None = None) -> PortfolioMet
 
 def delete_portfolio(portfolio_id: str):
     """ลบพอร์ตการลงทุน"""
-    pid = portfolio_id.strip().lower() if portfolio_id else "default"
+    pid = _normalize_portfolio_id(portfolio_id)
     if pid == "default":
         raise ValueError("ไม่สามารถลบพอร์ตหลัก (default) ได้")
 
@@ -164,17 +183,12 @@ def delete_portfolio(portfolio_id: str):
     with lock:
         if not fpath.exists():
             raise ValueError(f"ไม่พบพอร์ตไอดี '{pid}' ในระบบ")
-        fpath.unlink(missing_ok=True)
+        # ลบทั้งโฟลเดอร์ Portfolios/{id}/ รวดเดียว — ครอบคลุม master, watchlist, journal,
+        # trades log, performance log, และ sidecar dirs (Holdings/, WatchlistItems/) ทั้งหมด
+        import shutil
+        shutil.rmtree(fpath.parent, ignore_errors=True)
 
-    # Clean up associated files (watchlist, journal, performance)
-    from .watchlist import _get_watchlist_filepath
-    from .journal import _get_journal_filepath
-    from .performance import _get_performance_filepath
     from .goals import _load_or_init_goals, _save_goals, _goals_lock
-
-    _get_watchlist_filepath(pid).unlink(missing_ok=True)
-    _get_journal_filepath(pid).unlink(missing_ok=True)
-    _get_performance_filepath(pid).unlink(missing_ok=True)
 
     # Clean up goals associated with this portfolio
     try:
@@ -202,7 +216,7 @@ def update_portfolio_name(portfolio_id: str, name: str) -> PortfolioMeta:
     if not name or not name.strip():
         raise ValueError("ชื่อพอร์ตการลงทุนต้องไม่เป็นค่าว่าง")
 
-    pid = portfolio_id.strip().lower() if portfolio_id else "default"
+    pid = _normalize_portfolio_id(portfolio_id)
     clean_name = name.strip()
     fpath = _get_portfolio_filepath(pid)
     lock = _get_portfolio_lock(pid)
@@ -328,11 +342,12 @@ def _initial_state() -> PortfolioState:
 def _load_or_init(portfolio_id: str = "default") -> tuple[frontmatter.Post, PortfolioState]:
     fpath = _get_portfolio_filepath(portfolio_id)
     if not fpath.exists():
+        pid = _normalize_portfolio_id(portfolio_id)
+        if pid != "default":
+            raise ValueError(f"ไม่พบพอร์ตไอดี '{pid}' ในระบบ — ใช้ tool_create_portfolio ก่อน")
         fpath.parent.mkdir(parents=True, exist_ok=True)
-        post = frontmatter.Post(content="", metadata={"name": portfolio_id} if portfolio_id != "default" else {})
+        post = frontmatter.Post(content="", metadata={})
         state = _initial_state()
-        if portfolio_id != "default":
-            state.name = portfolio_id
         _save(post, state, portfolio_id=portfolio_id)
         return post, state
 
@@ -396,21 +411,28 @@ def _holding_to_md(h: Holding) -> str:
     return "\n".join(lines)
 
 
-def _sync_holding_sidecars(state: "PortfolioState") -> None:
-    """Sync derived sidecar files ใน HOLDINGS_DIR จาก master PortfolioState
+def _get_holdings_dir(portfolio_id: str = "default") -> Path:
+    """Holdings sidecar dir namespace ตาม portfolio_id — ป้องกัน symbol ชนกันข้ามพอร์ต"""
+    pid = _normalize_portfolio_id(portfolio_id)
+    return PORTFOLIOS_DIR / pid / "Holdings"
+
+
+def _sync_holding_sidecars(state: "PortfolioState", portfolio_id: str = "default") -> None:
+    """Sync derived sidecar files ใน Holdings dir ของพอร์ตนั้นๆ จาก master PortfolioState
     เขียน 1 ไฟล์ต่อ holding (ข้าม Cash) — archive sidecar เก่าที่ holding ถูกลบ/ขายออกแล้ว
     """
-    HOLDINGS_DIR.mkdir(parents=True, exist_ok=True)
+    holdings_dir = _get_holdings_dir(portfolio_id)
+    holdings_dir.mkdir(parents=True, exist_ok=True)
     live: set[str] = set()
 
     for h in state.holdings:
         if h.asset_type == "Cash":
             continue
         safe = h.symbol.replace("/", "_")
-        _atomic_write_to(HOLDINGS_DIR / f"{safe}.md", _holding_to_md(h))
+        _atomic_write_to(holdings_dir / f"{safe}.md", _holding_to_md(h))
         live.add(safe)
 
-    for old in HOLDINGS_DIR.glob("*.md"):
+    for old in holdings_dir.glob("*.md"):
         if old.stem not in live:
             try:
                 with old.open("r", encoding="utf-8") as f:
@@ -594,8 +616,7 @@ def _save(post: frontmatter.Post, state: PortfolioState, portfolio_id: str = "de
     serialized = frontmatter.dumps(post, sort_keys=False)
     fpath = _get_portfolio_filepath(portfolio_id)
     _atomic_write_to(fpath, serialized)
-    if portfolio_id == "default":
-        _sync_holding_sidecars(state)
+    _sync_holding_sidecars(state, portfolio_id=portfolio_id)
 
 
 def _find_holding(state: PortfolioState, symbol: str) -> Holding | None:
@@ -620,7 +641,7 @@ def _require_fx(state: PortfolioState) -> float:
 
 
 @tool
-def get_portfolio_state(refresh_prices: bool = True) -> str:
+def get_portfolio_state(refresh_prices: bool = True, portfolio_id: str = "default") -> str:
     """อ่านสถานะ Portfolio ปัจจุบันคืนเป็น JSON string (Read-only)
 
     [Usage/When to use]
@@ -632,19 +653,21 @@ def get_portfolio_state(refresh_prices: bool = True) -> str:
 
     Args:
         refresh_prices (bool): True (ดึงราคาตลาดล่าสุด, default), False (ใช้ราคาเดิม)
+        portfolio_id (str): พอร์ตการลงทุนที่ต้องการอ่าน (ค่าเริ่มต้น 'default')
 
     Returns:
         str: JSON string ของ PortfolioState พร้อมสถานะการอัปเดตราคา (_price_refresh)
     """
+    lock = _get_portfolio_lock(portfolio_id)
     try:
-        with _portfolio_lock:
-            post, state = _load_or_init()
+        with lock:
+            post, state = _load_or_init(portfolio_id=portfolio_id)
             refresh_info: dict[str, str] = {}
             if refresh_prices:
                 from .prices import _refresh_prices
                 refresh_info = _refresh_prices(state)
             if refresh_info:
-                _save(post, state)
+                _save(post, state, portfolio_id=portfolio_id)
             else:
                 _recalc_all(state)
     except Timeout:
@@ -873,6 +896,7 @@ def structured_reset_clean_slate(portfolio_id: str = "default") -> PortfolioStat
     with lock:
         # 0. Backup current master and sidecars
         port_filepath = _get_portfolio_filepath(portfolio_id)
+        holdings_dir = _get_holdings_dir(portfolio_id)
         try:
             import shutil
             backup_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -880,10 +904,10 @@ def structured_reset_clean_slate(portfolio_id: str = "default") -> PortfolioStat
             backup_dir.mkdir(parents=True, exist_ok=True)
             if port_filepath.exists():
                 shutil.copy2(port_filepath, backup_dir / port_filepath.name)
-            if HOLDINGS_DIR.exists():
+            if holdings_dir.exists():
                 holdings_backup_dir = backup_dir / "Holdings"
                 holdings_backup_dir.mkdir(parents=True, exist_ok=True)
-                for f in HOLDINGS_DIR.glob("*.md"):
+                for f in holdings_dir.glob("*.md"):
                     shutil.copy2(f, holdings_backup_dir / f.name)
             log.info("Backed up portfolio before clean slate to %s", backup_dir)
         except Exception as e:
@@ -904,8 +928,8 @@ def structured_reset_clean_slate(portfolio_id: str = "default") -> PortfolioStat
         _save(post, new_state, portfolio_id=portfolio_id)
 
         # 2. Clean sidecar directory Holdings/ (เฉพาะสินทรัพย์ในพอร์ต)
-        if HOLDINGS_DIR.exists():
-            for f in HOLDINGS_DIR.glob("*.md"):
+        if holdings_dir.exists():
+            for f in holdings_dir.glob("*.md"):
                 f.unlink(missing_ok=True)
 
         return new_state
@@ -927,11 +951,13 @@ def _holding_currency(h: Holding) -> str:
 @tool
 def compute_allocation_breakdown(
     group_by: Literal["asset_type", "currency"] = "asset_type",
+    portfolio_id: str = "default",
 ) -> str:
     """Calculate portfolio Asset Allocation breakdown.
 
     Args:
         group_by: Dimension to group by ('asset_type' or 'currency'). Defaults to 'asset_type'.
+        portfolio_id (str): พอร์ตการลงทุนที่ต้องการคำนวณ (ค่าเริ่มต้น 'default')
 
     Returns:
         JSON string: {group_by, total_nav_thb, breakdown: [{group, value_thb, pct, count}], generated_at}
@@ -939,9 +965,10 @@ def compute_allocation_breakdown(
     if group_by not in ("asset_type", "currency"):
         return validation_error("group_by ต้องเป็น 'asset_type' หรือ 'currency'")
 
+    lock = _get_portfolio_lock(portfolio_id)
     try:
-        with _portfolio_lock:
-            post, state = _load_or_init()
+        with lock:
+            post, state = _load_or_init(portfolio_id=portfolio_id)
             _recalc_all(state)
             total_nav = state.summary.total_value_thb
 

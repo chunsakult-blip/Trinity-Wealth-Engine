@@ -3,31 +3,18 @@ from pathlib import Path
 
 VAULT_PATH = Path(os.getenv("OBSIDIAN_VAULT_PATH", "./memories"))
 
-PORTFOLIO_REL = os.getenv("PORTFOLIO_FILE", "20_Portfolio_Management/Current_Holdings/Portfolio_Holdings.md")
-PORTFOLIO_PATH = VAULT_PATH / PORTFOLIO_REL
+# ทุกพอร์ต (รวมถึง 'default') เก็บที่ Portfolios/{id}/ เหมือนกันหมด ไม่มี special-case
+# — ดู _get_portfolio_filepath / _get_holdings_dir / _get_watchlist_filepath /
+# _get_watchlist_items_dir / _get_journal_filepath / _get_performance_filepath /
+# _get_trades_log_filepath ในแต่ละโมดูลของ tools/portfolio/
 PORTFOLIOS_DIR = VAULT_PATH / "20_Portfolio_Management/Current_Holdings/Portfolios"
-
-TRADING_JOURNAL_REL = os.getenv("TRADING_JOURNAL_FILE", "20_Portfolio_Management/Journals_and_Reports/Trading_Journal.md")
-TRADING_JOURNAL_PATH = VAULT_PATH / TRADING_JOURNAL_REL
-
-TRADES_LOG_REL = os.getenv("TRADES_LOG_FILE", "20_Portfolio_Management/Journals_and_Reports/Trades_Log.csv")
-TRADES_LOG_PATH = VAULT_PATH / TRADES_LOG_REL
-
-WATCHLIST_REL = os.getenv("WATCHLIST_FILE", "20_Portfolio_Management/Current_Holdings/Watchlist.md")
-WATCHLIST_PATH = VAULT_PATH / WATCHLIST_REL
-
-PERFORMANCE_LOG_REL = os.getenv("PERFORMANCE_LOG_FILE", "20_Portfolio_Management/Journals_and_Reports/Performance_Log.csv")
-PERFORMANCE_LOG_PATH = VAULT_PATH / PERFORMANCE_LOG_REL
-
-HOLDINGS_DIR = VAULT_PATH / "20_Portfolio_Management/Current_Holdings/Holdings"
-WATCHLIST_ITEMS_DIR = VAULT_PATH / "20_Portfolio_Management/Current_Holdings/WatchlistItems"
 
 GOALS_REL = os.getenv("GOALS_FILE", "20_Portfolio_Management/Goals/Goals.md")
 GOALS_PATH = VAULT_PATH / GOALS_REL
 GOALS_ITEMS_DIR = VAULT_PATH / "20_Portfolio_Management/Goals/Items"
 
 _PERFORMANCE_LOG_HEADER = ["Date", "Total_NAV", "Total_Cost", "Unrealized_PnL", "Cash_Balance", "Realized_PnL_YTD", "Passive_Income_YTD"]
-_TRADES_LOG_HEADER = ["Timestamp", "Symbol", "Action", "Units", "Price", "Currency", "FX_Rate", "Cost_THB", "Realized_PnL_THB", "Notes"]
+_TRADES_LOG_HEADER = ["Transaction_ID", "Timestamp", "Symbol", "Action", "Units", "Price", "Currency", "FX_Rate", "Cost_THB", "Realized_PnL_THB", "Notes"]
 
 FUNDAMENTALS_TTL_SECONDS = 86400  # 24 hours
 MARKET_CAP_MEGA_USD = 200_000_000_000

@@ -4,12 +4,12 @@ import { api } from '../../../api/client'
 import { DEFAULT_ALLOCATION_TARGETS, type ActualPortfolioStateDTO } from '../../../api/types'
 
 interface Props {
-  selectedPortfolioId?: string
+  selectedPortfolioId: string
   onClose: () => void
   onSuccess: (state: ActualPortfolioStateDTO) => void
 }
 
-export default function ResetConfirmModal({ selectedPortfolioId = 'default', onClose, onSuccess }: Props) {
+export default function ResetConfirmModal({ selectedPortfolioId, onClose, onSuccess }: Props) {
   const [confirmText, setConfirmText] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)

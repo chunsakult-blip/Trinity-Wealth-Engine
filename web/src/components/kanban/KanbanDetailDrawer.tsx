@@ -238,7 +238,8 @@ export default function KanbanDetailDrawer({ card, onClose, onCardTransition, on
                     className="mt-3.5"
                   />
                 )}
-                {(card.title.includes('วิเคราะห์หุ้น') || (card.prompt && card.prompt.includes('วิเคราะห์หุ้น'))) && (
+                {(card.flow === 'manager' || card.flow === 'equity_narrative' || card.flow === 'equity_quant') &&
+                  (card.title.includes('วิเคราะห์หุ้น') || (card.prompt && card.prompt.startsWith('วิเคราะห์หุ้น'))) && (
                   <EquityStockControls
                     prompt={card.prompt || ''}
                     title={card.title}

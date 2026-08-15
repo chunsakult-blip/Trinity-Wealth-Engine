@@ -212,19 +212,16 @@ export default function PortfolioAnalyticsTab({
                     textAnchor="end"
                     className="text-[10px] font-mono fill-zinc-400"
                   >
-                    {(gl.val / 1000).toFixed(0)}k
+                    {gl.val >= 1000 ? `${(gl.val / 1000).toFixed(0)}k` : gl.val.toFixed(0)}
                   </text>
                 </g>
               ))}
 
               {/* Date Ticks on Bottom */}
-              {[
-                { idx: 0, anchor: 'start' as const },
-                { idx: Math.floor((points.length - 1) / 2), anchor: 'middle' as const },
-                { idx: points.length - 1, anchor: 'end' as const },
-              ].map(({ idx, anchor }) => {
+              {Array.from(new Set([0, Math.floor((points.length - 1) / 2), points.length - 1])).map((idx) => {
                 const pt = points[idx]
                 if (!pt) return null
+                const anchor = idx === 0 ? 'start' : idx === points.length - 1 ? 'end' : 'middle'
                 return (
                   <text
                     key={idx}

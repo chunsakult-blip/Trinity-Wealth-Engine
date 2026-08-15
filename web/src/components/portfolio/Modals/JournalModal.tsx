@@ -5,13 +5,14 @@ import { api } from '../../../api/client'
 import type { JournalEntryDTO } from '../../../api/types'
 
 interface Props {
+  portfolioId: string
   initialSymbol?: string
   onClose: () => void
   onSuccess: (entries: JournalEntryDTO[]) => void
   zIndexClassName?: string
 }
 
-export default function JournalModal({ initialSymbol, onClose, onSuccess, zIndexClassName = 'z-[60]' }: Props) {
+export default function JournalModal({ portfolioId, initialSymbol, onClose, onSuccess, zIndexClassName = 'z-[60]' }: Props) {
   const [entry, setEntry] = useState(initialSymbol ? `**[NOTE] ${initialSymbol}**\n` : '')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -25,7 +26,7 @@ export default function JournalModal({ initialSymbol, onClose, onSuccess, zIndex
     setLoading(true)
     setError(null)
     try {
-      const rows = await api.appendJournal({ entry: entry.trim() })
+      const rows = await api.appendJournal({ entry: entry.trim() }, portfolioId)
       onSuccess(rows)
       onClose()
     } catch (err: any) {

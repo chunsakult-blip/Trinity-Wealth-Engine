@@ -63,10 +63,11 @@ class TestAddToWatchlist:
 
     def test_add_lock_timeout(self, isolated_portfolio, monkeypatch):
         pt = isolated_portfolio
+        import tools.portfolio.watchlist as wl
         def mock_lock(*args, **kwargs):
             from filelock import Timeout
             raise Timeout("mock")
-        monkeypatch.setattr("tools.portfolio.watchlist._watchlist_lock.acquire", mock_lock)
+        monkeypatch.setattr(wl._get_portfolio_lock("default"), "acquire", mock_lock)
         
         result = pt.add_to_watchlist.func(symbol="PTT", asset_type="Stock")
 
@@ -94,10 +95,11 @@ class TestRemoveFromWatchlist:
         assert "ไม่พบ PTT ใน Watchlist" in result
     def test_remove_lock_timeout(self, isolated_portfolio, monkeypatch):
         pt = isolated_portfolio
+        import tools.portfolio.watchlist as wl
         def mock_lock(*args, **kwargs):
             from filelock import Timeout
             raise Timeout("mock")
-        monkeypatch.setattr("tools.portfolio.watchlist._watchlist_lock.acquire", mock_lock)
+        monkeypatch.setattr(wl._get_portfolio_lock("default"), "acquire", mock_lock)
         
         result = pt.remove_from_watchlist.func(symbol="PTT")
 
@@ -106,10 +108,11 @@ class TestRemoveFromWatchlist:
 class TestReadWatchlistExceptions:
     def test_read_lock_timeout(self, isolated_portfolio, monkeypatch):
         pt = isolated_portfolio
+        import tools.portfolio.watchlist as wl
         def mock_lock(*args, **kwargs):
             from filelock import Timeout
             raise Timeout("mock")
-        monkeypatch.setattr("tools.portfolio.watchlist._watchlist_lock.acquire", mock_lock)
+        monkeypatch.setattr(wl._get_portfolio_lock("default"), "acquire", mock_lock)
         
         result = pt.read_watchlist.func()
         import json
@@ -123,8 +126,9 @@ class TestLoadOrInitWatchlist:
         # Use the patched path from the loaded module
         import tools.portfolio.watchlist as wl
         # Create a blank markdown file
-        wl.WATCHLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(wl.WATCHLIST_PATH, "w", encoding="utf-8") as f:
+        watchlist_path = wl._get_watchlist_filepath("default")
+        watchlist_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(watchlist_path, "w", encoding="utf-8") as f:
             f.write("Hello World")
         
         # It should log warning and init new state
@@ -150,17 +154,18 @@ class TestSyncWatchlistSidecars:
         
         import tools.portfolio.watchlist as wl
         import frontmatter
-        sidecars = list(wl.WATCHLIST_ITEMS_DIR.glob("*.md"))
+        items_dir = wl._get_watchlist_items_dir("default")
+        sidecars = list(items_dir.glob("*.md"))
         assert len(sidecars) == 2
-        
+
         pt.remove_from_watchlist.func(symbol="PTT")
-        sidecars_after = list(wl.WATCHLIST_ITEMS_DIR.glob("*.md"))
+        sidecars_after = list(items_dir.glob("*.md"))
         assert len(sidecars_after) == 1
 
-        ptt_file = wl.WATCHLIST_ITEMS_DIR / "PTT.md"
+        ptt_file = items_dir / "PTT.md"
         assert not ptt_file.exists()
 
-        aapl_file = wl.WATCHLIST_ITEMS_DIR / "AAPL.md"
+        aapl_file = items_dir / "AAPL.md"
         with aapl_file.open("r", encoding="utf-8") as f:
             post_aapl = frontmatter.load(f)
         assert post_aapl.metadata.get("status") is None

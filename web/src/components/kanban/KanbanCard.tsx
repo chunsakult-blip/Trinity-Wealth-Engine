@@ -6,7 +6,6 @@ import type { WorkspacePreview } from './types'
 
 interface Props {
   card: KanbanCardDTO
-  faded: boolean
   removing: boolean
   selected?: boolean
   workspacePreview?: WorkspacePreview
@@ -33,7 +32,6 @@ function handleCardKeyDown(e: KeyboardEvent<HTMLDivElement>, onClick: () => void
 
 export default function KanbanCard({
   card,
-  faded,
   removing,
   selected,
   workspacePreview,
@@ -54,7 +52,7 @@ export default function KanbanCard({
       style={style}
       className={`group relative cursor-pointer rounded-xl border bg-panel p-2.5 text-xs text-zinc-800 shadow-[0_5px_18px_rgba(14,165,233,0.05)] transition-all duration-150 hover:-translate-y-0.5 hover:border-cyan-300 hover:shadow-[0_8px_24px_rgba(14,165,233,0.12)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-flow-cyan ${
         selected || workspacePreview ? 'border-2 border-flow-sky' : 'border-sky-100'
-      } ${removing ? 'animate-card-out' : 'animate-card-in'} ${faded ? 'opacity-40' : ''}`}
+      } ${removing ? 'animate-card-out' : 'animate-card-in'}`}
     >
       {editable && onEdit && (
         <button

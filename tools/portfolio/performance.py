@@ -46,16 +46,14 @@ _PCT_DP = 2
 _LOCK_TIMEOUT = 15  # seconds — wait up to 15s for another process to release
 _PRICE_FETCH_TIMEOUT = 6  # seconds per symbol when refreshing
 
-from .core import _get_portfolio_lock, _load_or_init, _save
+from .core import _get_portfolio_lock, _load_or_init, _save, _normalize_portfolio_id
 
 
 def _get_performance_filepath(portfolio_id: str = "default") -> Path:
-    pid = portfolio_id.strip().lower() if portfolio_id else "default"
-    if pid == "default":
-        return PERFORMANCE_LOG_PATH
-    pdir = VAULT_PATH / "20_Portfolio_Management/Current_Holdings/Portfolios"
+    pid = _normalize_portfolio_id(portfolio_id)
+    pdir = PORTFOLIOS_DIR / pid
     pdir.mkdir(parents=True, exist_ok=True)
-    return pdir / f"{pid}_performance.csv"
+    return pdir / "Performance_Log.csv"
 
 
 @tool
@@ -184,7 +182,7 @@ def get_structured_performance_history(days: int | None = None, portfolio_id: st
 
 
 @tool
-def read_performance_history(days: int = 30) -> str:
+def read_performance_history(days: int = 30, portfolio_id: str = "default") -> str:
     """อ่านประวัติและวิเคราะห์ผลตอบแทนของพอร์ตโฟลิโอ (Performance Analytics)
 
     [Usage/When to use]
@@ -193,6 +191,7 @@ def read_performance_history(days: int = 30) -> str:
 
     Args:
         days (int): จำนวนวันย้อนหลังที่ต้องการวิเคราะห์ (default 30)
+        portfolio_id (str): พอร์ตการลงทุนที่ต้องการอ่าน (ค่าเริ่มต้น 'default')
 
     Returns:
         str: สรุปผลตอบแทนและ Metrics ในรูปแบบ Markdown
@@ -201,13 +200,14 @@ def read_performance_history(days: int = 30) -> str:
     if days <= 0:
         return validation_error("days ต้องมากกว่า 0")
 
-    if not PERFORMANCE_LOG_PATH.exists():
+    perf_path = _get_performance_filepath(portfolio_id)
+    if not perf_path.exists():
         return json.dumps(
             {"error": "ยังไม่มี Performance_Log.csv — ใช้ record_performance_snapshot ก่อน"},
             ensure_ascii=False,
         )
 
-    with PERFORMANCE_LOG_PATH.open("r", encoding="utf-8", newline="") as f:
+    with perf_path.open("r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
         all_rows = list(reader)
 

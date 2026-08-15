@@ -117,3 +117,48 @@ def test_value_error_mapping(authed_client, isolated_api_portfolio):
         r = authed_client.get("/api/portfolio/actual/allocations")
         assert r.status_code == 400
         assert "Invalid state" in r.json()["detail"]
+
+
+def test_actual_transactions_route_and_note_update(authed_client, isolated_api_portfolio):
+    import tools.portfolio.trading as trading
+    trading.execute_trade.invoke({
+        "symbol": "PTT",
+        "asset_type": "Stock",
+        "action": "buy",
+        "units": 100.0,
+        "price": 35.0,
+        "currency": "THB",
+        "notes": "Initial trade note",
+    })
+
+    # GET transactions
+    r = authed_client.get("/api/portfolio/actual/transactions")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["portfolio_id"] == "default"
+    assert len(data["transactions"]) == 1
+    tx = data["transactions"][0]
+    assert tx["symbol"] == "PTT"
+    assert tx["action"] == "BUY"
+    assert tx["units"] == 100.0
+    assert tx["price"] == 35.0
+    assert tx["notes"] == "Initial trade note"
+    assert data["summary"]["total_buy_count"] == 1
+    assert data["summary"]["total_buy_thb"] == 3500.0
+
+    tx_id = tx["transaction_id"]
+
+    # PATCH note
+    patch_r = authed_client.patch(
+        f"/api/portfolio/actual/transactions/{tx_id}/note",
+        json={"notes": "Updated note via API"}
+    )
+    assert patch_r.status_code == 200
+    updated_tx = patch_r.json()
+    assert updated_tx["transaction_id"] == tx_id
+    assert updated_tx["notes"] == "Updated note via API"
+
+    # GET again to verify persistence
+    r2 = authed_client.get("/api/portfolio/actual/transactions")
+    assert r2.status_code == 200
+    assert r2.json()["transactions"][0]["notes"] == "Updated note via API"

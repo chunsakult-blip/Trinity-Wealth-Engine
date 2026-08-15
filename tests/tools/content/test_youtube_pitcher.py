@@ -203,16 +203,18 @@ def test_fetch_news_for_pitching_with_youtube_summaries_always_include(mock_base
     mock_baselines.invoke.return_value = '{"macro": "ok"}'
     mock_load.return_value = {"pending_events": []}
 
+    from datetime import datetime, timedelta, timezone
+    recent_date = (datetime.now(timezone.utc) - timedelta(days=5)).strftime("%Y-%m-%d")
+
     yt_dir = tmp_path / "30_Knowledge_Base" / "YouTube_Summaries"
     yt_dir.mkdir(parents=True)
-    test_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-    md_file = yt_dir / f"{test_date}_youtube_summary.md"
+    md_file = yt_dir / f"{recent_date}_youtube_summary.md"
     md_file.write_text(
         "---\n"
-        f"title: YouTube Insight abc12345678 {test_date}\n"
+        f"title: YouTube Insight abc12345678 {recent_date}\n"
         "entity_type: youtube_insight\n"
         "channel: Pi Securities\n"
-        f"date: {test_date}\n"
+        f"date: {recent_date}\n"
         "source_url: https://www.youtube.com/watch?v=abc12345678\n"
         "---\n"
         "# Title\n"
@@ -866,4 +868,3 @@ def test_synthesize_notebooklm_source_unverified_draft_stale_macro_bypass(
     assert isinstance(result, UnverifiedBriefingDraftResult)
     assert result.quality_report.publishable is False
     assert "All macro observations are stale" in result.content
-

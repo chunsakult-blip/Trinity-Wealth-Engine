@@ -5,12 +5,13 @@ import { api } from '../../../api/client'
 import type { ActualWatchlistItemDTO, ActualWatchlistStateDTO } from '../../../api/types'
 
 interface Props {
+  portfolioId: string
   initialItem?: ActualWatchlistItemDTO | null
   onClose: () => void
   onSuccess: (state: ActualWatchlistStateDTO) => void
 }
 
-export default function WatchlistModal({ initialItem, onClose, onSuccess }: Props) {
+export default function WatchlistModal({ portfolioId, initialItem, onClose, onSuccess }: Props) {
   const isEdit = !!initialItem
   const [symbol, setSymbol] = useState(initialItem?.symbol || '')
   const [assetType, setAssetType] = useState(initialItem?.asset_type || 'Stock')
@@ -37,7 +38,7 @@ export default function WatchlistModal({ initialItem, onClose, onSuccess }: Prop
         asset_type: assetType,
         target_price: targetPrice !== '' ? parseFloat(targetPrice) : null,
         notes: notes.trim(),
-      })
+      }, portfolioId)
       onSuccess(state)
       onClose()
     } catch (err: any) {

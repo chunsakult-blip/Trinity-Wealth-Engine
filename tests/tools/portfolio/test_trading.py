@@ -312,7 +312,8 @@ class TestEditHolding:
             accumulated_dividend_thb=None, asset_type=None,
             reason="dividend stock split",
         )
-        journal_path = tmp_vault / "20_Portfolio_Management" / "Journals_and_Reports" / "Trading_Journal.md"
+        import tools.portfolio.journal as journal_mod
+        journal_path = journal_mod._get_journal_filepath("default")
         text = journal_path.read_text(encoding="utf-8")
         assert "[EDIT PTT]" in text
         assert "dividend stock split" in text
@@ -537,7 +538,7 @@ class TestBatchImportHoldings:
         def mock_lock(*args, **kwargs):
             from filelock import Timeout
             raise Timeout("mock")
-        monkeypatch.setattr(tools.portfolio.trading._portfolio_lock, "acquire", mock_lock)
+        monkeypatch.setattr(tools.portfolio.trading._get_portfolio_lock("default"), "acquire", mock_lock)
         
         result = pt.batch_import_holdings.func(assets_list=[
             {"symbol": "PTT", "asset_type": "Stock", "units": 100, "avg_cost": 30.0, "currency": "THB", "current_price": 35.0}
@@ -586,7 +587,7 @@ class TestUpdateFxRate:
         def mock_lock(*args, **kwargs):
             from filelock import Timeout
             raise Timeout("mock")
-        monkeypatch.setattr(tools.portfolio.trading._portfolio_lock, "acquire", mock_lock)
+        monkeypatch.setattr(tools.portfolio.trading._get_portfolio_lock("default"), "acquire", mock_lock)
         
         result = pt.update_fx_rate.func(rate=35.0)
 
@@ -599,7 +600,7 @@ class TestTradingExceptions:
         def mock_lock(*args, **kwargs):
             from filelock import Timeout
             raise Timeout("mock")
-        monkeypatch.setattr(tools.portfolio.trading._portfolio_lock, "acquire", mock_lock)
+        monkeypatch.setattr(tools.portfolio.trading._get_portfolio_lock("default"), "acquire", mock_lock)
         
         result = pt.execute_trade.func(symbol="PTT", asset_type="Stock", action="buy", units=100, price=30.0, currency="THB")
             
@@ -680,7 +681,7 @@ class TestTradingExceptions:
         def mock_lock(*args, **kwargs):
             from filelock import Timeout
             raise Timeout("mock")
-        monkeypatch.setattr(tools.portfolio.trading._portfolio_lock, "acquire", mock_lock)
+        monkeypatch.setattr(tools.portfolio.trading._get_portfolio_lock("default"), "acquire", mock_lock)
         
         result = pt.record_income.func(income_type="Dividend", amount_thb=1000.0)
             
@@ -696,7 +697,7 @@ class TestTradingExceptions:
         def mock_lock(*args, **kwargs):
             from filelock import Timeout
             raise Timeout("mock")
-        monkeypatch.setattr(tools.portfolio.trading._portfolio_lock, "acquire", mock_lock)
+        monkeypatch.setattr(tools.portfolio.trading._get_portfolio_lock("default"), "acquire", mock_lock)
         
         result = pt.manage_cash_flow.func(amount=1000.0, action="deposit", currency="THB")
 
@@ -722,12 +723,13 @@ class TestTradingExceptions:
         def mock_lock(*args, **kwargs):
             from filelock import Timeout
             raise Timeout("mock")
-        monkeypatch.setattr(tools.portfolio.trading._portfolio_lock, "acquire", mock_lock)
-        
+        monkeypatch.setattr(tools.portfolio.trading._get_portfolio_lock("default"), "acquire", mock_lock)
+
         result = pt.edit_holding.func(symbol="PTT", units=100, reason="test")
 
         assert isinstance(result, str) and result.startswith("Error:")
         assert "portfolio lock" in result
+
     def test_edit_holding_negative_units(self, isolated_portfolio):
         pt = isolated_portfolio
         result = pt.edit_holding.func(symbol="PTT", units=-100, reason="test")
@@ -799,3 +801,32 @@ class TestComputeTotalCostEdgeCases:
         _, state = pt._load_or_init()
         total = pt._compute_total_cost(state, 36.5)
         assert total > 0
+
+
+class TestSanitizeCsvField:
+    """Phase C: กัน CSV/Formula injection ใน Trades_Log.csv"""
+
+    def test_formula_prefixes_get_quoted(self):
+        assert tools.portfolio.trading._sanitize_csv_field("=cmd|'/c calc'!A1") == "'=cmd|'/c calc'!A1"
+        assert tools.portfolio.trading._sanitize_csv_field("+1+1") == "'+1+1"
+        assert tools.portfolio.trading._sanitize_csv_field("-1+1") == "'-1+1"
+        assert tools.portfolio.trading._sanitize_csv_field("@SUM(A1)") == "'@SUM(A1)"
+        assert tools.portfolio.trading._sanitize_csv_field("\tevil") == "'\tevil"
+        assert tools.portfolio.trading._sanitize_csv_field("\revil") == "'\revil"
+
+    def test_normal_text_untouched(self):
+        assert tools.portfolio.trading._sanitize_csv_field("ปันผล Q2/2569") == "ปันผล Q2/2569"
+        assert tools.portfolio.trading._sanitize_csv_field("") == ""
+
+    def test_execute_trade_sanitizes_formula_notes_in_csv(self, isolated_portfolio):
+        pt = isolated_portfolio
+        pt._record_income_locked("Other", 500_000.0, None)
+        pt.execute_trade.func(
+            symbol="PTT", asset_type="Stock", action="buy",
+            units=100, price=30.0, currency="THB",
+            notes="=cmd|'/c calc'!A1",
+        )
+        log_path = tools.portfolio.trading._get_trades_log_filepath("default")
+        content = log_path.read_text(encoding="utf-8")
+        assert "'=cmd|" in content
+        assert "\n=cmd|" not in content

@@ -4,13 +4,14 @@ import { api } from '../../../api/client'
 import type { AllocationTargetDTO, ActualPortfolioStateDTO } from '../../../api/types'
 
 interface Props {
+  portfolioId: string
   symbols: string[]
   targets: AllocationTargetDTO[]
   onClose: () => void
   onSuccess: (state: ActualPortfolioStateDTO) => void
 }
 
-export default function BatchAssignBucketModal({ symbols, targets, onClose, onSuccess }: Props) {
+export default function BatchAssignBucketModal({ portfolioId, symbols, targets, onClose, onSuccess }: Props) {
   const [selectedBucketId, setSelectedBucketId] = useState<string>(targets[0]?.bucket_id || '')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -24,9 +25,9 @@ export default function BatchAssignBucketModal({ symbols, targets, onClose, onSu
       let state: ActualPortfolioStateDTO
       const firstSymbol = symbols[0]
       if (symbols.length === 1 && firstSymbol) {
-        state = await api.assignHoldingBucket(firstSymbol, { bucket_id: bucketPayload })
+        state = await api.assignHoldingBucket(firstSymbol, { bucket_id: bucketPayload }, portfolioId)
       } else {
-        state = await api.batchAssignHoldingBuckets({ symbols, bucket_id: bucketPayload })
+        state = await api.batchAssignHoldingBuckets({ symbols, bucket_id: bucketPayload }, portfolioId)
       }
       onSuccess(state)
       onClose()

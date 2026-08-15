@@ -30,7 +30,6 @@ function renderCard(props: Partial<Parameters<typeof KanbanCard>[0]> = {}) {
   render(
     <KanbanCard
       card={makeCard()}
-      faded={false}
       removing={false}
       onDelete={onDelete}
       onClick={onClick}
