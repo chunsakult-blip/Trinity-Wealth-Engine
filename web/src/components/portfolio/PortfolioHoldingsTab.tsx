@@ -228,10 +228,10 @@ export default function PortfolioHoldingsTab({
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs min-w-[1000px]">
+          <table className="w-full text-left text-sm min-w-[1050px]">
             <thead>
-              <tr className="border-b border-sky-100 bg-zinc-50/80 font-semibold uppercase tracking-wider text-zinc-600">
-                <th className="w-10 px-4 py-3 text-center">
+              <tr className="border-b border-sky-100 bg-zinc-50/90 font-bold uppercase tracking-wider text-xs sm:text-sm text-zinc-700">
+                <th className="w-10 px-4 py-3.5 text-center">
                   <input
                     type="checkbox"
                     aria-label="Select all holdings"
@@ -240,30 +240,30 @@ export default function PortfolioHoldingsTab({
                     className="h-4 w-4 rounded border-sky-300 text-flow-blue focus:ring-flow-cyan"
                   />
                 </th>
-                <th className="px-4 py-3 cursor-pointer select-none hover:text-flow-blue" onClick={() => handleSort('symbol')}>
+                <th className="px-4 py-3.5 cursor-pointer select-none hover:text-flow-blue" onClick={() => handleSort('symbol')}>
                   Symbol / Company {renderSortIndicator('symbol')}
                 </th>
-                <th className="px-4 py-3 cursor-pointer select-none hover:text-flow-blue" onClick={() => handleSort('asset_type')}>
+                <th className="px-4 py-3.5 cursor-pointer select-none hover:text-flow-blue" onClick={() => handleSort('asset_type')}>
                   Type / Bucket {renderSortIndicator('asset_type')}
                 </th>
-                <th className="px-4 py-3 text-right cursor-pointer select-none hover:text-flow-blue" onClick={() => handleSort('units')}>
+                <th className="px-4 py-3.5 text-right cursor-pointer select-none hover:text-flow-blue" onClick={() => handleSort('units')}>
                   Shares / Avg Cost {renderSortIndicator('units')}
                 </th>
-                <th className="px-4 py-3 text-right">Current Price</th>
-                <th className="px-4 py-3 text-right cursor-pointer select-none hover:text-flow-blue" onClick={() => handleSort('market_value_thb')}>
+                <th className="px-4 py-3.5 text-right">Current Price</th>
+                <th className="px-4 py-3.5 text-right cursor-pointer select-none hover:text-flow-blue" onClick={() => handleSort('market_value_thb')}>
                   Market Value (THB) {renderSortIndicator('market_value_thb')}
                 </th>
-                <th className="px-4 py-3 text-right cursor-pointer select-none hover:text-flow-blue" onClick={() => handleSort('unrealized_pnl_percent')}>
+                <th className="px-4 py-3.5 text-right cursor-pointer select-none hover:text-flow-blue" onClick={() => handleSort('unrealized_pnl_percent')}>
                   Unrealized PnL {renderSortIndicator('unrealized_pnl_percent')}
                 </th>
-                <th className="px-4 py-3 text-right cursor-pointer select-none hover:text-flow-blue" onClick={() => handleSort('pe_ratio')}>
+                <th className="px-4 py-3.5 text-right cursor-pointer select-none hover:text-flow-blue" onClick={() => handleSort('pe_ratio')}>
                   P/E & EPS {renderSortIndicator('pe_ratio')}
                 </th>
-                <th className="px-4 py-3 text-right cursor-pointer select-none hover:text-flow-blue" onClick={() => handleSort('yield_on_cost')}>
+                <th className="px-4 py-3.5 text-right cursor-pointer select-none hover:text-flow-blue" onClick={() => handleSort('yield_on_cost')}>
                   Yield on Cost & Div {renderSortIndicator('yield_on_cost')}
                 </th>
-                <th className="px-4 py-3 text-center">Tier & Updated</th>
-                <th className="px-3 py-3 text-center">Actions</th>
+                <th className="px-4 py-3.5 text-center">Tier & Updated</th>
+                <th className="px-3 py-3.5 text-center">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-sky-50">
@@ -293,22 +293,22 @@ export default function PortfolioHoldingsTab({
 
                       {/* Col 1: Symbol (Line 1) + Company Name (Line 2) */}
                       <td className="px-4 py-4 align-top">
-                        <div className="font-bold text-zinc-900 text-sm tracking-tight">{h.symbol}</div>
-                        <div className="mt-0.5 text-[11px] text-zinc-500 line-clamp-1">
+                        <div className="font-extrabold text-zinc-900 text-base tracking-tight font-mono">{h.symbol}</div>
+                        <div className="mt-0.5 text-xs text-zinc-500 line-clamp-1 font-medium">
                           {h.company_name || 'N/A'}
                         </div>
                       </td>
 
                       {/* Col 2: Asset Type (Line 1) + Bucket Name / ID (Line 2) */}
                       <td className="px-4 py-4 align-top">
-                        <span className="inline-block rounded-md bg-sky-50 px-2 py-0.5 text-xs font-semibold text-sky-800">
+                        <span className="inline-block rounded-md bg-sky-50 border border-sky-100 px-2.5 py-0.5 text-xs font-bold text-sky-800">
                           {h.asset_type}
                         </span>
-                        <div className="mt-1 text-[11px] font-medium text-zinc-600 line-clamp-1">
+                        <div className="mt-1 text-xs font-medium text-zinc-600 line-clamp-1">
                           {bucketDisplayName ? (
                             <span>
                               {bucketDisplayName}{' '}
-                              <span className="font-mono text-zinc-400 text-[10px]">({h.bucket_id})</span>
+                              <span className="font-mono text-zinc-400 text-xs">({h.bucket_id})</span>
                             </span>
                           ) : (
                             <span className="font-mono text-zinc-400">{h.bucket_id || 'unassigned'}</span>
@@ -317,33 +317,33 @@ export default function PortfolioHoldingsTab({
                       </td>
 
                       {/* Col 3: Shares/Units (Line 1) + Avg Cost (Line 2) */}
-                      <td className="px-4 py-3.5 text-right align-top tabular-nums">
-                        <div className="font-bold text-zinc-900 text-sm">
+                      <td className="px-4 py-4 text-right align-top tabular-nums">
+                        <div className="font-extrabold text-zinc-900 text-base font-mono">
                           {h.units.toLocaleString('en-US', { maximumFractionDigits: 4 })}
                         </div>
                         <div className="mt-0.5 text-xs text-zinc-500 font-medium">
-                          Avg: <span className="font-semibold text-zinc-700">{formatPrice(h.avg_cost_usd, h.avg_cost_thb)}</span>
+                          Avg: <span className="font-bold text-zinc-800 font-mono">{formatPrice(h.avg_cost_usd, h.avg_cost_thb)}</span>
                         </div>
                       </td>
 
                       {/* Col 4: Current Price (Line 1) + Currency tag (Line 2) */}
-                      <td className="px-4 py-3.5 text-right align-top tabular-nums">
-                        <div className="font-bold text-zinc-900 text-sm">
+                      <td className="px-4 py-4 text-right align-top tabular-nums">
+                        <div className="font-extrabold text-zinc-900 text-base font-mono">
                           {formatPrice(h.current_price_usd, h.current_price_thb)}
                         </div>
-                        <div className="mt-0.5 text-xs text-zinc-400 font-medium">
+                        <div className="mt-0.5 text-xs text-zinc-400 font-semibold uppercase">
                           {h.current_price_usd !== null && h.current_price_usd !== undefined ? 'USD' : 'THB'}
                         </div>
                       </td>
 
                       {/* Col 5: Market Value THB (Line 1) + Market Cap (Line 2) */}
-                      <td className="px-4 py-3.5 text-right align-top tabular-nums">
-                        <div className="font-bold text-zinc-950 text-sm">
+                      <td className="px-4 py-4 text-right align-top tabular-nums">
+                        <div className="font-extrabold text-zinc-950 text-base font-mono">
                           {formatTHB(h.market_value_thb)}
                         </div>
                         <div className="mt-0.5 text-xs text-zinc-500 font-medium">
                           Cap:{' '}
-                          <span className="text-zinc-600">
+                          <span className="text-zinc-600 font-mono">
                             {h.market_cap_value
                               ? (h.current_price_usd !== null && h.current_price_usd !== undefined
                                 ? formatPrice(h.market_cap_value / 1e9, null) + 'B'
@@ -354,14 +354,14 @@ export default function PortfolioHoldingsTab({
                       </td>
 
                       {/* Col 6: Unrealized PnL % (Line 1) + Unrealized PnL Value (Line 2) */}
-                      <td className="px-4 py-3.5 text-right align-top tabular-nums">
+                      <td className="px-4 py-4 text-right align-top tabular-nums">
                         {h.unrealized_pnl_percent !== null ? (
                           <>
-                            <div className={`font-bold text-sm ${isPos ? 'text-emerald-600' : 'text-rose-600'}`}>
+                            <div className={`font-extrabold text-base font-mono ${isPos ? 'text-emerald-600' : 'text-rose-600'}`}>
                               {isPos ? '+' : ''}
                               {h.unrealized_pnl_percent.toFixed(2)}%
                             </div>
-                            <div className={`mt-0.5 text-xs font-semibold ${isPos ? 'text-emerald-700' : 'text-rose-700'}`}>
+                            <div className={`mt-0.5 text-xs font-bold font-mono ${isPos ? 'text-emerald-700' : 'text-rose-700'}`}>
                               {isPos ? '+' : ''}
                               {formatTHB(h.unrealized_pnl_value ?? 0)}
                             </div>
@@ -372,37 +372,37 @@ export default function PortfolioHoldingsTab({
                       </td>
 
                       {/* Col 7: P/E Ratio (Line 1) + EPS & Payout Ratio (Line 2) */}
-                      <td className="px-4 py-3.5 text-right align-top tabular-nums">
-                        <div className="font-semibold text-zinc-800 text-xs sm:text-sm">
+                      <td className="px-4 py-4 text-right align-top tabular-nums">
+                        <div className="font-bold text-zinc-800 text-sm font-mono">
                           <span className="text-zinc-400 font-normal text-xs">PE: </span>
                           {h.pe_ratio ? `${h.pe_ratio.toFixed(1)}x` : 'N/A'}
                         </div>
                         <div className="mt-0.5 text-xs text-zinc-500 font-medium">
                           <span className="text-zinc-400">EPS: </span>
-                          {h.eps ? `$${h.eps.toFixed(2)}` : 'N/A'}{' '}
-                          {h.payout_ratio ? <span className="text-zinc-400">({h.payout_ratio.toFixed(0)}% PO)</span> : ''}
+                          <span className="font-mono text-zinc-700">{h.eps ? `$${h.eps.toFixed(2)}` : 'N/A'}</span>{' '}
+                          {h.payout_ratio ? <span className="text-zinc-400 font-mono">({h.payout_ratio.toFixed(0)}% PO)</span> : ''}
                         </div>
                       </td>
 
                       {/* Col 8: Yield on Cost (Line 1) + Div Yield & DPS (Line 2) */}
-                      <td className="px-4 py-3.5 text-right align-top tabular-nums">
-                        <div className="font-bold text-amber-700 text-xs sm:text-sm">
+                      <td className="px-4 py-4 text-right align-top tabular-nums">
+                        <div className="font-extrabold text-amber-700 text-sm font-mono">
                           <span className="text-amber-800/60 font-medium text-xs">YoC: </span>
                           {h.yield_on_cost ? `${h.yield_on_cost.toFixed(2)}%` : 'N/A'}
                         </div>
                         <div className="mt-0.5 text-xs text-zinc-600 font-medium">
                           <span className="text-zinc-400">Div: </span>
-                          {h.dividend_yield ? `${h.dividend_yield.toFixed(2)}%` : 'N/A'}{' '}
-                          {h.dividend_per_share ? <span className="text-zinc-400">(${h.dividend_per_share.toFixed(2)})</span> : ''}
+                          <span className="font-mono text-zinc-700">{h.dividend_yield ? `${h.dividend_yield.toFixed(2)}%` : 'N/A'}</span>{' '}
+                          {h.dividend_per_share ? <span className="text-zinc-400 font-mono">(${h.dividend_per_share.toFixed(2)})</span> : ''}
                         </div>
                       </td>
 
                       {/* Col 9: Market Cap Tier (Line 1) + Fundamentals Updated At (Line 2) */}
-                      <td className="px-4 py-3.5 text-center align-top">
-                        <span className="inline-block rounded-full border border-sky-200 bg-white px-2.5 py-0.5 text-xs font-semibold text-zinc-700 shadow-2xs">
+                      <td className="px-4 py-4 text-center align-top">
+                        <span className="inline-block rounded-full border border-sky-200 bg-white px-2.5 py-0.5 text-xs font-bold text-zinc-700 shadow-2xs">
                           {h.market_cap_tier || 'N/A'}
                         </span>
-                        <div className="mt-1 text-[11px] text-zinc-400 font-medium">
+                        <div className="mt-1 text-xs text-zinc-400 font-medium">
                           {h.fundamentals_updated_at
                             ? new Date(h.fundamentals_updated_at * 1000).toLocaleDateString('th-TH', { month: 'short', day: 'numeric' })
                             : 'Not cached'}
@@ -410,20 +410,20 @@ export default function PortfolioHoldingsTab({
                       </td>
 
                       {/* Col 10: Actions */}
-                      <td className="px-3 py-3 text-center align-middle whitespace-nowrap">
+                      <td className="px-3 py-3.5 text-center align-middle whitespace-nowrap">
                         <div className="flex items-center justify-center gap-1.5">
                           {/* Journal Button */}
                           <button
                             type="button"
                             onClick={() => setExpandedSymbol(expandedSymbol === h.symbol ? null : h.symbol)}
-                            className={`h-7 px-2 rounded-lg border text-[11px] font-bold transition-all flex items-center justify-center gap-1 shadow-2xs ${
+                            className={`h-8 px-2.5 rounded-lg border text-xs font-bold transition-all flex items-center justify-center gap-1 shadow-2xs ${
                               expandedSymbol === h.symbol
                                 ? 'border-flow-blue bg-flow-blue text-white shadow-xs'
                                 : 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-600 hover:text-white'
                             }`}
                             title="ดู/เขียน Trading Journal สำหรับหุ้นนี้"
                           >
-                            <JournalIcon className="h-3.5 w-3.5" />
+                            <JournalIcon className="h-4 w-4" />
                             <span>{symbolEntries.length}</span>
                           </button>
 
@@ -432,10 +432,10 @@ export default function PortfolioHoldingsTab({
                             <button
                               type="button"
                               onClick={() => onViewTransactions(h.symbol)}
-                              className="h-7 px-2 rounded-lg border border-emerald-200 bg-emerald-50 text-[11px] font-bold text-emerald-700 hover:bg-emerald-600 hover:text-white transition-all flex items-center justify-center gap-1 shadow-2xs"
+                              className="h-8 px-2.5 rounded-lg border border-emerald-200 bg-emerald-50 text-xs font-bold text-emerald-700 hover:bg-emerald-600 hover:text-white transition-all flex items-center justify-center gap-1 shadow-2xs"
                               title={`ดูประวัติ Transactions ของ ${h.symbol}`}
                             >
-                              <TradeIcon className="h-3.5 w-3.5" />
+                              <TradeIcon className="h-4 w-4" />
                               <span>เทรด</span>
                             </button>
                           )}
@@ -444,10 +444,10 @@ export default function PortfolioHoldingsTab({
                           <button
                             type="button"
                             onClick={() => setEditingHolding(h)}
-                            className="h-7 w-7 rounded-lg border border-sky-200 bg-sky-50 text-flow-blue hover:bg-flow-blue hover:text-white transition-all flex items-center justify-center shadow-2xs"
+                            className="h-8 w-8 rounded-lg border border-sky-200 bg-sky-50 text-flow-blue hover:bg-flow-blue hover:text-white transition-all flex items-center justify-center shadow-2xs"
                             title="แก้ไข / ปรับปรุงข้อมูล"
                           >
-                            <EditIcon className="h-3.5 w-3.5" />
+                            <EditIcon className="h-4 w-4" />
                           </button>
 
                           {/* Delete Button */}

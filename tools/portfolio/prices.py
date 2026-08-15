@@ -70,12 +70,78 @@ def _fetch_last_price(symbol: str) -> float | None:
     return None
 
 
+from core.retry import with_retry
+
 def _fetch_fx_rate() -> float | None:
     """ดึง USD/THB exchange rate ล่าสุดจาก yfinance (ticker USDTHB=X)
     Pattern เดียวกับ _fetch_last_price: fast_info ก่อน → history fallback
     คืน None ถ้าดึงไม่ได้ (log warning อัตโนมัติ)
     """
     return _fetch_last_price(_USDTHB_TICKER)
+
+
+def fetch_fx_rate(
+    date_str: str | None = None,
+    fallback_rate: float | None = None,
+) -> tuple[float, Literal["historical", "live", "fallback"]]:
+    """ดึง USD/THB exchange rate จาก yfinance
+    - ถ้า date_str เป็นวันที่ในอดีต (YYYY-MM-DD):
+        ยิง historical close สำหรับ USDTHB=X ผ่าน with_retry
+        -> สำเร็จ: คืน (close_rate, "historical")
+        -> ล้มเหลว/วันหยุด: คืน (fallback_rate or 36.5, "fallback")
+    - ถ้า date_str เป็น None หรือ วันนี้:
+        ยิง live quote ผ่าน _fetch_fx_rate
+        -> สำเร็จ: คืน (live_rate, "live")
+        -> ล้มเหลว: คืน (fallback_rate or 36.5, "fallback")
+    """
+    default_fallback = fallback_rate if fallback_rate is not None and fallback_rate > 0 else 36.5
+    today_str = _now_iso()[:10]
+
+    if date_str and date_str.strip() and date_str.strip() < today_str:
+        clean_date = date_str.strip()
+
+        def _get_historical():
+            try:
+                target_dt = datetime.strptime(clean_date, "%Y-%m-%d")
+            except Exception:
+                return None
+            start_dt = target_dt - timedelta(days=5)
+            end_dt = target_dt + timedelta(days=1)
+            df = yf.download(
+                _USDTHB_TICKER,
+                start=start_dt.strftime("%Y-%m-%d"),
+                end=end_dt.strftime("%Y-%m-%d"),
+                progress=False,
+            )
+            if df is not None and not df.empty:
+                close = df["Close"]
+                if hasattr(close, "columns"):
+                    close = close.iloc[:, 0]
+                if hasattr(close.index, "tz") and close.index.tz is not None:
+                    close.index = close.index.tz_localize(None)
+                val = close.asof(target_dt)
+                if val is not None:
+                    val_float = float(val)
+                    if val_float > 0 and val_float == val_float:
+                        return round(val_float, 4)
+            return None
+
+        try:
+            rate = with_retry(_get_historical)
+            if rate is not None:
+                return rate, "historical"
+        except Exception as e:
+            log.warning("fetch historical fx failed for %s: %s", clean_date, e)
+        return default_fallback, "fallback"
+
+    try:
+        live = _fetch_fx_rate()
+        if live is not None and live > 0:
+            return round(live, 4), "live"
+    except Exception as e:
+        log.warning("fetch live fx failed: %s", e)
+
+    return default_fallback, "fallback"
 
 
 def fetch_latest_price(symbol: str, currency: Literal["THB", "USD"]) -> float | None:

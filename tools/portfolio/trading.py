@@ -28,7 +28,7 @@ from tools._atomic_io import _atomic_write_to
 from tools.tool_errors import CASH_VIA_MANAGE, LOCK_TIMEOUT, validation_error
 from .models import _now_iso, _coerce_iso_string, Holding, Summary, PortfolioState, WatchlistItem, WatchlistState, GoalItem, GoalsState
 from .core import _load_or_init, _save, _recalc_all, _recalc_holding, _recalc_summary, _compute_total_cost, _find_holding, _require_cash, _require_fx, get_portfolio_state, _holding_currency, compute_allocation_breakdown, _get_portfolio_lock, _normalize_portfolio_id
-from .prices import fetch_latest_price, _fetch_last_price, _fetch_fx_rate, _refresh_prices, sync_market_prices, _USDTHB_TICKER
+from .prices import fetch_latest_price, _fetch_last_price, _fetch_fx_rate, fetch_fx_rate, _refresh_prices, sync_market_prices, _USDTHB_TICKER
 from .journal import append_trading_journal, _inject_journal_wikilinks, _write_journal_entry
 
 
@@ -200,6 +200,7 @@ def _append_trade_ledger_row(
     cost_thb: float,
     realized_pnl_thb: float | None = None,
     notes: str = "",
+    timestamp: str | None = None,
     portfolio_id: str = "default",
 ) -> None:
     """Append 1 แถวลงใน Trades_Log.csv ของพอร์ตนั้นๆ — เรียก migration ก่อนเสมอ"""
@@ -209,13 +210,19 @@ def _append_trade_ledger_row(
         trades_log_path.parent.mkdir(parents=True, exist_ok=True)
         file_exists = trades_log_path.exists() and trades_log_path.stat().st_size > 0
         tx_id = _generate_tx_id()
+        if timestamp and timestamp.strip():
+            ts = timestamp.strip()
+            if len(ts) == 10:
+                ts = f"{ts}T12:00:00"
+        else:
+            ts = _now_iso()
         with trades_log_path.open("a", encoding="utf-8", newline="") as f:
             writer = csv.writer(f, lineterminator="\n")
             if not file_exists:
                 writer.writerow(_TRADES_LOG_HEADER)
             writer.writerow([
                 tx_id,
-                _now_iso(),
+                ts,
                 symbol,
                 action.upper(),
                 f"{units:g}",
@@ -238,13 +245,19 @@ def _execute_trade_locked(
     price: float,
     currency: Literal["THB", "USD"],
     notes: str = "",
+    fx_rate_override: float | None = None,
+    date: str | None = None,
     portfolio_id: str = "default",
 ) -> str:
     post, state = _load_or_init(portfolio_id=portfolio_id)
     cash = _require_cash(state, currency)
     target = _find_holding(state, symbol)
 
-    fx_rate = _require_fx(state) if currency == "USD" else None
+    fx_rate = (
+        fx_rate_override
+        if fx_rate_override is not None
+        else (_require_fx(state) if currency == "USD" else None)
+    )
     # ทุก trade เคลื่อนเงินสดในสกุลเงินของตัวเอง (USD trade → CASH_USD, THB trade → CASH_THB)
     amount_native = units * price
 
@@ -350,6 +363,7 @@ def _execute_trade_locked(
         cost_thb=cost_thb,
         realized_pnl_thb=realized if action == "sell" else None,
         notes=notes,
+        timestamp=date,
         portfolio_id=portfolio_id,
     )
 
@@ -430,6 +444,7 @@ def _record_income_locked(
     if target is not None:
         current = target.accumulated_dividend_thb or 0.0
         target.accumulated_dividend_thb = round(current + amount_thb, _MONEY_DP)
+        target.dividend_source = "manual"
 
     _save(post, state, portfolio_id=portfolio_id)
 
@@ -835,6 +850,7 @@ def _edit_holding_locked(
                 f"accumulated_dividend_thb: {current:,.2f} → {accumulated_dividend_thb:,.2f}"
             )
             target.accumulated_dividend_thb = round(accumulated_dividend_thb, _MONEY_DP)
+            target.dividend_source = "manual"
 
     if asset_type is not None:
         new_type = asset_type.strip()
@@ -888,12 +904,31 @@ def structured_execute_trade(
 
     lock = _get_portfolio_lock(portfolio_id)
     with lock:
-        if exchange_rate is not None and exchange_rate > 0 and currency == "USD":
-            post, state = _load_or_init(portfolio_id=portfolio_id)
-            state.fx_rates["USDTHB"] = exchange_rate
-            _save(post, state, portfolio_id=portfolio_id)
+        post, state = _load_or_init(portfolio_id=portfolio_id)
+        resolved_fx: float | None = None
+        if currency == "USD":
+            if exchange_rate is not None and exchange_rate > 0:
+                resolved_fx = exchange_rate
+                today_str = _now_iso()[:10]
+                if not date or date.strip() == today_str:
+                    state.fx_rates["USDTHB"] = exchange_rate
+                    _save(post, state, portfolio_id=portfolio_id)
+            elif date and date.strip():
+                portfolio_fallback = state.fx_rates.get("USDTHB", 36.5)
+                resolved_fx, _ = fetch_fx_rate(date_str=date.strip(), fallback_rate=portfolio_fallback)
 
-        _execute_trade_locked(sym, asset_type, action, units, price, currency, notes=notes, portfolio_id=portfolio_id)
+        _execute_trade_locked(
+            sym,
+            asset_type,
+            action,
+            units,
+            price,
+            currency,
+            notes=notes,
+            fx_rate_override=resolved_fx,
+            date=date,
+            portfolio_id=portfolio_id,
+        )
 
         post, state = _load_or_init(portfolio_id=portfolio_id)
         target = _find_holding(state, sym)
@@ -931,9 +966,11 @@ def structured_manage_cash_flow(
     lock = _get_portfolio_lock(portfolio_id)
     with lock:
         if exchange_rate is not None and exchange_rate > 0 and currency == "USD":
-            post, state = _load_or_init(portfolio_id=portfolio_id)
-            state.fx_rates["USDTHB"] = exchange_rate
-            _save(post, state, portfolio_id=portfolio_id)
+            today_str = _now_iso()[:10]
+            if not date or date.strip() == today_str:
+                post, state = _load_or_init(portfolio_id=portfolio_id)
+                state.fx_rates["USDTHB"] = exchange_rate
+                _save(post, state, portfolio_id=portfolio_id)
 
         _manage_cash_flow_locked(amount, action, currency, portfolio_id=portfolio_id)
         post, state = _load_or_init(portfolio_id=portfolio_id)

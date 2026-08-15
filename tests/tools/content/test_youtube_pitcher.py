@@ -203,15 +203,18 @@ def test_fetch_news_for_pitching_with_youtube_summaries_always_include(mock_base
     mock_baselines.invoke.return_value = '{"macro": "ok"}'
     mock_load.return_value = {"pending_events": []}
 
+    from datetime import datetime, timedelta, timezone
+    recent_date = (datetime.now(timezone.utc) - timedelta(days=5)).strftime("%Y-%m-%d")
+
     yt_dir = tmp_path / "30_Knowledge_Base" / "YouTube_Summaries"
     yt_dir.mkdir(parents=True)
-    md_file = yt_dir / "2026-07-15_youtube_summary.md"
+    md_file = yt_dir / f"{recent_date}_youtube_summary.md"
     md_file.write_text(
         "---\n"
-        "title: YouTube Insight abc12345678 2026-07-15\n"
+        f"title: YouTube Insight abc12345678 {recent_date}\n"
         "entity_type: youtube_insight\n"
         "channel: Pi Securities\n"
-        "date: 2026-07-15\n"
+        f"date: {recent_date}\n"
         "source_url: https://www.youtube.com/watch?v=abc12345678\n"
         "---\n"
         "# Title\n"

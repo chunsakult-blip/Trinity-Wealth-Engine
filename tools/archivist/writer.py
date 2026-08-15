@@ -446,8 +446,14 @@ def _ensure_stock_entity_stub(target_dir: Path, ticker: str) -> None:
         "## Notes\n\n"
         "*(เพิ่มบันทึกส่วนตัวที่นี่ — Obsidian จะแสดง backlinks ด้านล่างอัตโนมัติ)*\n"
     )
-    _atomic_write_text(stub_path, content)
-    _index_upsert(stub_path)
+    try:
+        _atomic_write_text(stub_path, content)
+        _index_upsert(stub_path)
+    except Exception:
+        # If stub was created concurrently by another agent, don't fail the pipeline
+        if stub_path.exists():
+            return
+        raise
 
 
 

@@ -14,6 +14,8 @@ export interface StockOption {
 export interface RunEquityAnalysisModalProps {
   initialTicker?: string
   initialMarket?: 'US' | 'TH'
+  portfolioOptions?: StockOption[]
+  watchlistOptions?: StockOption[]
   onClose: () => void
   onDispatched?: (jobId: string, cardId: string, ticker: string) => void
 }
@@ -21,6 +23,8 @@ export interface RunEquityAnalysisModalProps {
 export const RunEquityAnalysisModal: React.FC<RunEquityAnalysisModalProps> = ({
   initialTicker = '',
   initialMarket,
+  portfolioOptions: propPortfolioOptions,
+  watchlistOptions: propWatchlistOptions,
   onClose,
   onDispatched,
 }) => {
@@ -30,12 +34,18 @@ export const RunEquityAnalysisModal: React.FC<RunEquityAnalysisModalProps> = ({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const [portfolioOptions, setPortfolioOptions] = useState<StockOption[]>([])
-  const [watchlistOptions, setWatchlistOptions] = useState<StockOption[]>([])
+  const [portfolioOptions, setPortfolioOptions] = useState<StockOption[]>(propPortfolioOptions || [])
+  const [watchlistOptions, setWatchlistOptions] = useState<StockOption[]>(propWatchlistOptions || [])
   const [loadingStocks, setLoadingStocks] = useState(false)
 
-  // Fetch portfolio & watchlist stocks on mount (fail-soft)
+  // Fetch portfolio & watchlist stocks on mount if not provided via props (fail-soft)
   useEffect(() => {
+    if (propPortfolioOptions !== undefined && propWatchlistOptions !== undefined) {
+      setPortfolioOptions(propPortfolioOptions)
+      setWatchlistOptions(propWatchlistOptions)
+      return
+    }
+
     let isMounted = true
     setLoadingStocks(true)
 
@@ -49,10 +59,10 @@ export const RunEquityAnalysisModal: React.FC<RunEquityAnalysisModalProps> = ({
         const stocks = pResult.value.holdings
           .filter((h) => h.asset_type === 'Stock' || h.asset_type?.toLowerCase() === 'stock')
           .map((h) => {
-            const isTH = h.avg_cost_thb != null
+            const isUSD = (h.avg_cost_usd !== null && h.avg_cost_usd !== undefined) || (h.current_price_usd !== null && h.current_price_usd !== undefined)
             return {
               symbol: h.symbol,
-              market: (isTH ? 'TH' : 'US') as 'US' | 'TH',
+              market: (isUSD ? 'US' : 'TH') as 'US' | 'TH',
               label: h.company_name || h.symbol,
               source: 'portfolio' as const,
             }
@@ -82,7 +92,7 @@ export const RunEquityAnalysisModal: React.FC<RunEquityAnalysisModalProps> = ({
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [propPortfolioOptions, propWatchlistOptions])
 
   // Auto-detect market based on ticker format if user hasn't explicitly set it
   useEffect(() => {

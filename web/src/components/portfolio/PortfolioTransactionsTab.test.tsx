@@ -7,6 +7,9 @@ vi.mock('../../api/client', () => ({
   api: {
     getTransactions: vi.fn(),
     updateTransactionNote: vi.fn(),
+    editTransaction: vi.fn(),
+    deleteTransaction: vi.fn(),
+    getFxRate: vi.fn(),
   },
 }))
 
@@ -154,6 +157,77 @@ describe('PortfolioTransactionsTab', () => {
     await waitFor(() => {
       expect(api.updateTransactionNote).toHaveBeenCalledWith('tx_1', 'Updated UNH note via UI', 'default')
       expect(screen.getByText('Updated UNH note via UI')).toBeInTheDocument()
+    })
+  })
+
+  it('opens EditTransactionModal and submits transaction edit', async () => {
+    const mockState = {
+      holdings: [],
+      summary: { total_nav_thb: 100000, total_cost_thb: 90000, total_unrealized_pnl_thb: 10000, total_realized_profit_ytd: 200, passive_income_ytd: 0, cash_balance_thb: 50000, total_accumulated_dividend: 0 },
+      allocation_targets: [],
+      fx_rates: {},
+    } as any
+    vi.mocked(api.editTransaction).mockResolvedValue(mockState)
+    const onSuccess = vi.fn()
+
+    render(<PortfolioTransactionsTab portfolioId="default" onSuccess={onSuccess} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Take profit PTT')).toBeInTheDocument()
+    })
+
+    // Click edit icon for PTT transaction (1st row in descending order)
+    const editButtons = screen.getAllByTitle('แก้ไขข้อมูล Transaction (วัน, จำนวนหุ้น, ราคา, Note)')
+    fireEvent.click(editButtons[0])
+
+    // Edit modal should open
+    expect(screen.getByText('แก้ไขรายการ: PTT (SELL)')).toBeInTheDocument()
+
+    // Submit edit
+    const submitBtn = screen.getByRole('button', { name: 'บันทึกการแก้ไข' })
+    fireEvent.click(submitBtn)
+
+    await waitFor(() => {
+      expect(api.editTransaction).toHaveBeenCalledWith('tx_3', expect.objectContaining({
+        units: 40,
+        price: 40,
+        adjust_cash: true,
+      }), 'default')
+      expect(onSuccess).toHaveBeenCalledWith(mockState)
+    })
+  })
+
+  it('opens delete confirmation modal and confirms deletion', async () => {
+    const mockState = {
+      holdings: [],
+      summary: { total_nav_thb: 100000, total_cost_thb: 90000, total_unrealized_pnl_thb: 10000, total_realized_profit_ytd: 0, passive_income_ytd: 0, cash_balance_thb: 50000, total_accumulated_dividend: 0 },
+      allocation_targets: [],
+      fx_rates: {},
+    } as any
+    vi.mocked(api.deleteTransaction).mockResolvedValue(mockState)
+    const onSuccess = vi.fn()
+
+    render(<PortfolioTransactionsTab portfolioId="default" onSuccess={onSuccess} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Take profit PTT')).toBeInTheDocument()
+    })
+
+    // Click delete icon for PTT transaction (1st row in descending order)
+    const deleteButtons = screen.getAllByTitle('ลบรายการ Transaction')
+    fireEvent.click(deleteButtons[0])
+
+    // Delete confirmation modal should open
+    expect(screen.getByText('ยืนยันการลบรายการ')).toBeInTheDocument()
+    expect(screen.getByText('PTT (SELL)')).toBeInTheDocument()
+
+    // Confirm deletion
+    const confirmBtn = screen.getByRole('button', { name: 'ยืนยันการลบ' })
+    fireEvent.click(confirmBtn)
+
+    await waitFor(() => {
+      expect(api.deleteTransaction).toHaveBeenCalledWith('tx_3', { adjust_cash: true }, 'default')
+      expect(onSuccess).toHaveBeenCalledWith(mockState)
     })
   })
 })

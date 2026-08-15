@@ -11,6 +11,7 @@ import json
 import os
 import re
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -28,17 +29,34 @@ def _history_dir(ticker: str) -> Path:
     return Path(vault_path) / "30_Knowledge_Base" / "Equities" / "QuantHistory" / ticker.upper()
 
 
-def _atomic_write_text(path: Path, content: str) -> None:
+def _atomic_write_text(path: Path, content: str, max_retries: int = 8, backoff: float = 0.05) -> None:
     """เขียนไฟล์แบบ atomic (temp file ไดเรกทอรีเดียวกัน + os.replace) ตามกฎ 5.1"""
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    fd, tmp_path_str = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    tmp_path = Path(tmp_path_str)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(content)
-        os.replace(tmp_path, path)
+            f.flush()
+        
+        last_err: Exception | None = None
+        for attempt in range(max_retries):
+            try:
+                os.replace(tmp_path, path)
+                last_err = None
+                break
+            except (PermissionError, OSError) as e:
+                last_err = e
+                winerror = getattr(e, "winerror", None)
+                if winerror in (5, 32) or isinstance(e, PermissionError):
+                    time.sleep(backoff * (1.5 ** attempt))
+                else:
+                    break
+        if last_err is not None:
+            raise last_err
     except Exception:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
         raise
 
 

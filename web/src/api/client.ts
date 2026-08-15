@@ -24,6 +24,8 @@ import type {
   NotebookLMAvailableSourceDTO,
   NotebookLMGenerateResponse,
   NotebookLMStatusDTO,
+  FXRateResponseDTO,
+  SyncDividendsResponseDTO,
 } from './types'
 
 export class ApiError extends Error {
@@ -329,6 +331,31 @@ export const api = {
     request<import('./types').TransactionItemDTO>(`/api/portfolio/actual/transactions/${encodeURIComponent(txId)}/note?portfolio_id=${encodeURIComponent(portfolioId)}`, {
       method: 'PATCH',
       body: JSON.stringify({ notes }),
+    }),
+
+  editTransaction: (txId: string, payload: import('./types').EditTransactionPayload, portfolioId: string = 'default') =>
+    request<import('./types').ActualPortfolioStateDTO>(`/api/portfolio/actual/transactions/${encodeURIComponent(txId)}?portfolio_id=${encodeURIComponent(portfolioId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+  deleteTransaction: (txId: string, payload?: import('./types').DeleteTransactionPayload, portfolioId: string = 'default') => {
+    const adjustCash = payload?.adjust_cash ?? true
+    return request<import('./types').ActualPortfolioStateDTO>(`/api/portfolio/actual/transactions/${encodeURIComponent(txId)}?adjust_cash=${adjustCash}&portfolio_id=${encodeURIComponent(portfolioId)}`, {
+      method: 'DELETE',
+    })
+  },
+
+  getFxRate: (date?: string, portfolioId: string = 'default') => {
+    const params = new URLSearchParams()
+    if (date) params.set('date', date)
+    params.set('portfolio_id', portfolioId)
+    return request<FXRateResponseDTO>(`/api/portfolio/actual/fx-rate?${params.toString()}`)
+  },
+
+  syncDividends: (portfolioId: string = 'default') =>
+    request<SyncDividendsResponseDTO>(`/api/portfolio/actual/sync-dividends?portfolio_id=${encodeURIComponent(portfolioId)}`, {
+      method: 'POST',
     }),
 
   // ---------------------------------------------------------

@@ -406,6 +406,22 @@ class KanbanCardDTO(BaseModel):
 # Actual Portfolio Hub DTOs (Phase 1 & Phase 2)
 # ---------------------------------------------------------
 
+class DividendRoundDTO(BaseModel):
+    symbol: str
+    ex_date: str
+    pay_date: Optional[str] = None
+    dps: float
+    currency: str
+    units_held: float
+    status: Literal["received", "upcoming"] = "received"
+    gross_native: float = 0.0
+    net_native: float = 0.0
+    gross_thb: float = 0.0
+    tax_rate: float = 0.0
+    net_thb: float = 0.0
+    fx_rate: float = 1.0
+
+
 class ActualHoldingDTO(BaseModel):
     """12-Column Holding schema matching Frontend Holdings Table & Backend Holding Model"""
     symbol: str
@@ -432,6 +448,11 @@ class ActualHoldingDTO(BaseModel):
     dividend_per_share: Optional[float] = None
     dividend_yield: Optional[float] = None
     accumulated_dividend_thb: Optional[float] = None
+    accumulated_dividend_native: Optional[float] = None
+    upcoming_dividend_thb: Optional[float] = None
+    upcoming_dividend_native: Optional[float] = None
+    dividend_rounds: list[DividendRoundDTO] = Field(default_factory=list)
+    dividend_source: Optional[Literal["synced", "manual"]] = None
     fundamentals_updated_at: Optional[float] = None
 
 
@@ -599,6 +620,37 @@ class TransactionListResponseDTO(BaseModel):
 
 class UpdateTransactionNoteRequestDTO(BaseModel):
     notes: str = ""
+
+
+class EditTransactionRequestDTO(BaseModel):
+    timestamp: Optional[str] = None
+    units: Optional[float] = None
+    price: Optional[float] = None
+    fx_rate: Optional[float] = None
+    notes: Optional[str] = None
+    adjust_cash: bool = True
+
+
+class DeleteTransactionRequestDTO(BaseModel):
+    adjust_cash: bool = True
+
+
+class FXRateResponseDTO(BaseModel):
+    date: str
+    currency_pair: str = "USDTHB"
+    rate: float
+    source: Literal["historical", "live", "fallback"]
+
+
+class SyncDividendsResponseDTO(BaseModel):
+    synced_symbols: int
+    total_rounds: int
+    total_received_rounds: int = 0
+    total_upcoming_rounds: int = 0
+    total_dividend_thb: float
+    total_upcoming_thb: float = 0.0
+    skipped_manual: list[str] = Field(default_factory=list)
+    details: dict[str, list[DividendRoundDTO]]
 
 
 class CashFlowRequestDTO(BaseModel):

@@ -198,28 +198,28 @@ export default function PortfolioOverviewTab({ portfolioId, targets, summaries, 
                 {activeSummary ? (
                   <div className="space-y-1 animate-fade-in flex flex-col items-center">
                     <span
-                      className="inline-block rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-white shadow-2xs truncate max-w-[140px]"
+                      className="inline-block rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-wider text-white shadow-2xs truncate max-w-[150px]"
                       style={{ backgroundColor: activeSummary.color || '#0ea5e9' }}
                     >
                       {activeSummary.name}
                     </span>
-                    <div className="text-2xl font-black font-sans tabular-nums text-zinc-900 tracking-tight leading-none pt-0.5">
+                    <div className="text-3xl sm:text-4xl font-black font-sans tabular-nums text-zinc-900 tracking-tight leading-none pt-1">
                       {activeSummary.actual_percent.toFixed(1)}%
                     </div>
-                    <div className="text-[11px] font-sans tabular-nums text-zinc-500">
+                    <div className="text-xs sm:text-sm font-bold font-sans tabular-nums text-zinc-600">
                       Target: {activeTarget ? `${activeTarget.target_percent.toFixed(1)}%` : 'N/A'}
                     </div>
-                    <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-sans tabular-nums font-bold ${activeSummary.variance > 0 ? 'bg-amber-50 text-amber-700 border border-amber-200' : activeSummary.variance < 0 ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
+                    <div className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-sans tabular-nums font-bold ${activeSummary.variance > 0 ? 'bg-amber-50 text-amber-700 border border-amber-200' : activeSummary.variance < 0 ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
                       <span>Diff: {activeSummary.variance > 0 ? '+' : ''}{activeSummary.variance.toFixed(1)}%</span>
                     </div>
                   </div>
                 ) : (
                   <div className="space-y-1 animate-fade-in flex flex-col items-center justify-center">
-                    <span className="text-[11px] font-extrabold text-zinc-400 uppercase tracking-wider">Total Variance</span>
-                    <div className={`text-3xl font-black font-sans tabular-nums tracking-tight leading-none my-1 ${totalVariance <= 10 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                    <span className="text-xs font-extrabold text-zinc-400 uppercase tracking-wider">Total Variance</span>
+                    <div className={`text-3xl sm:text-4xl font-black font-sans tabular-nums tracking-tight leading-none my-1 ${totalVariance <= 10 ? 'text-emerald-600' : 'text-amber-600'}`}>
                       {totalVariance.toFixed(1)}%
                     </div>
-                    <div className="text-[10px] font-medium text-zinc-400 max-w-[130px] leading-tight">
+                    <div className="text-xs font-semibold text-zinc-400 max-w-[140px] leading-tight text-center">
                       {summaries.length} Buckets <br /> (ชี้เพื่อดูรายละเอียด)
                     </div>
                   </div>
@@ -229,7 +229,7 @@ export default function PortfolioOverviewTab({ portfolioId, targets, summaries, 
           </div>
 
           <div className="border-t border-sky-100 pt-3 text-center">
-            <span className="text-xs text-flow-blue font-medium">
+            <span className="text-xs sm:text-sm text-flow-blue font-bold">
               💡 คลิกที่วงหรือแถวตารางเพื่อกรองรายการ Holding ตาม Strategy Bucket
             </span>
           </div>
@@ -239,20 +239,20 @@ export default function PortfolioOverviewTab({ portfolioId, targets, summaries, 
         <div className="rounded-2xl border border-sky-100 bg-panel shadow-sm lg:col-span-7 flex flex-col overflow-hidden">
           <div className="border-b border-sky-100 bg-sky-50/40 px-6 py-4 flex items-center justify-between">
             <div>
-              <h3 className="text-base font-bold text-zinc-900">Strategy Buckets Breakdown</h3>
-              <p className="text-xs text-zinc-500">
+              <h3 className="text-base sm:text-lg font-bold text-zinc-900">Strategy Buckets Breakdown</h3>
+              <p className="text-xs text-zinc-500 font-medium">
                 เปรียบเทียบมูลค่าจริงกับเป้าหมายแต่ละกลุ่ม พร้อมค่าความเบี่ยงเบน (Variance)
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <span className="rounded-xl border border-sky-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 shadow-sm">
+              <span className="rounded-xl border border-sky-200 bg-white px-3 py-1.5 text-xs font-bold text-zinc-700 shadow-sm">
                 {summaries.length} Buckets
               </span>
               {onSuccess && (
                 <button
                   type="button"
                   onClick={() => setTargetModalOpen(true)}
-                  className="rounded-xl bg-flow-blue px-3 py-1 text-xs font-bold text-white shadow-sm hover:bg-sky-600 transition-colors"
+                  className="rounded-xl bg-flow-blue px-3.5 py-1.5 text-xs sm:text-sm font-bold text-white shadow-sm hover:bg-sky-600 transition-colors"
                 >
                   ⚙️ ตั้งค่าเป้าหมาย
                 </button>
@@ -263,12 +263,12 @@ export default function PortfolioOverviewTab({ portfolioId, targets, summaries, 
           <div className="flex-1 overflow-x-auto p-2">
             <table className="w-full text-left text-sm">
               <thead>
-                <tr className="border-b border-sky-100 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                  <th className="px-4 py-3">Bucket Name</th>
-                  <th className="px-4 py-3 text-right">Target %</th>
-                  <th className="px-4 py-3 text-right">Actual Value</th>
-                  <th className="px-4 py-3 text-right">Actual %</th>
-                  <th className="px-4 py-3 text-right">Variance</th>
+                <tr className="border-b border-sky-100 bg-sky-50/60 text-xs sm:text-sm font-bold uppercase tracking-wider text-zinc-700">
+                  <th className="px-4 py-3.5">Bucket Name</th>
+                  <th className="px-4 py-3.5 text-right">Target %</th>
+                  <th className="px-4 py-3.5 text-right">Actual Value</th>
+                  <th className="px-4 py-3.5 text-right">Actual %</th>
+                  <th className="px-4 py-3.5 text-right">Variance</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-sky-50">
@@ -295,35 +295,35 @@ export default function PortfolioOverviewTab({ portfolioId, targets, summaries, 
                         isHovered ? 'bg-flow-cyan/15 scale-[1.005]' : 'hover:bg-sky-50/60'
                       }`}
                     >
-                      <td className="px-4 py-3.5 font-medium text-zinc-900 flex items-center gap-2.5" aria-label="Bucket Details">
+                      <td className="px-4 py-4 font-medium text-zinc-900 flex items-center gap-3" aria-label="Bucket Details">
                         <span
-                          className="h-3 w-3 shrink-0 rounded-full shadow-sm"
+                          className="h-3.5 w-3.5 shrink-0 rounded-full shadow-sm"
                           style={{ backgroundColor: color }}
                         />
                         <div>
-                          <div className="font-bold text-zinc-800 group-hover:text-flow-blue">{s.name}</div>
-                          <div className="text-[11px] font-mono tabular-nums text-zinc-400">{s.bucket_id}</div>
+                          <div className="font-extrabold text-zinc-900 text-base group-hover:text-flow-blue">{s.name}</div>
+                          <div className="text-xs font-mono tabular-nums text-zinc-400 font-semibold">{s.bucket_id}</div>
                         </div>
                       </td>
-                      <td className="px-4 py-3.5 text-right font-sans tabular-nums text-zinc-700">
+                      <td className="px-4 py-4 text-right font-sans tabular-nums font-bold text-zinc-800 text-sm sm:text-base">
                         {s.target_percent.toFixed(1)}%
                       </td>
-                      <td className="px-4 py-3.5 text-right font-sans tabular-nums font-semibold text-zinc-900">
+                      <td className="px-4 py-4 text-right font-sans tabular-nums font-extrabold text-zinc-900 text-sm sm:text-base">
                         {formatTHB(s.actual_value_thb)}
                       </td>
-                      <td className="px-4 py-3.5 text-right font-sans tabular-nums font-bold text-zinc-900">
+                      <td className="px-4 py-4 text-right font-sans tabular-nums font-extrabold text-zinc-900 text-sm sm:text-base">
                         {s.actual_percent.toFixed(1)}%
                       </td>
-                      <td className="px-4 py-3.5 text-right align-middle">
+                      <td className="px-4 py-4 text-right align-middle">
                         <div className="flex flex-col items-end gap-1">
                           <span
-                            className={`inline-block rounded-lg border px-2 py-0.5 text-xs font-sans tabular-nums font-bold ${varColorClass}`}
+                            className={`inline-block rounded-lg border px-2.5 py-0.5 text-xs font-sans tabular-nums font-bold ${varColorClass}`}
                           >
                             {s.variance > 0 ? '+' : ''}
                             {s.variance.toFixed(1)}%
                           </span>
                           {/* Mini Variance Divergence Bar */}
-                          <div className="w-24 h-1.5 bg-zinc-100 rounded-full overflow-hidden relative flex items-center">
+                          <div className="w-24 h-2 bg-zinc-100 rounded-full overflow-hidden relative flex items-center">
                             <div className="absolute left-1/2 top-0 bottom-0 w-[1px] bg-zinc-300 z-10" />
                             {s.variance > 0 ? (
                               <div

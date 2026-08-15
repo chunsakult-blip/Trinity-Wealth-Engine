@@ -48,6 +48,11 @@ from api.schemas import (
     TransactionSummaryDTO,
     TransactionListResponseDTO,
     UpdateTransactionNoteRequestDTO,
+    EditTransactionRequestDTO,
+    DeleteTransactionRequestDTO,
+    FXRateResponseDTO,
+    DividendRoundDTO,
+    SyncDividendsResponseDTO,
 )
 from tools.archivist.core import VAULT_PATH
 from tools.macro.dashboard import load_indicator_series
@@ -174,6 +179,9 @@ from tools.portfolio import (
     goals as portfolio_goals,
     performance as portfolio_perf,
     journal as portfolio_journal,
+    prices as portfolio_prices,
+    dividends as portfolio_dividends,
+    ledger_replay as portfolio_ledger_replay,
 )
 
 # ---------------------------------------------------------
@@ -498,6 +506,72 @@ def update_transaction_note_endpoint(
             tx_id=tx_id, notes=payload.notes, portfolio_id=portfolio_id
         )
         return TransactionItemDTO.model_validate(updated)
+
+
+@router.put(
+    "/api/portfolio/actual/transactions/{tx_id}",
+    response_model=ActualPortfolioStateDTO,
+)
+def edit_transaction_endpoint(
+    tx_id: str,
+    payload: EditTransactionRequestDTO,
+    portfolio_id: str = "default",
+) -> ActualPortfolioStateDTO:
+    with handle_portfolio_exceptions("Transactions lock timeout"):
+        state = portfolio_ledger_replay.edit_transaction(
+            tx_id=tx_id,
+            timestamp=payload.timestamp,
+            units=payload.units,
+            price=payload.price,
+            fx_rate=payload.fx_rate,
+            notes=payload.notes,
+            adjust_cash=payload.adjust_cash,
+            portfolio_id=portfolio_id,
+        )
+        return ActualPortfolioStateDTO.model_validate(
+            state.model_dump(exclude_none=True)
+        )
+
+
+@router.delete(
+    "/api/portfolio/actual/transactions/{tx_id}",
+    response_model=ActualPortfolioStateDTO,
+)
+def delete_transaction_endpoint(
+    tx_id: str,
+    adjust_cash: bool = True,
+    portfolio_id: str = "default",
+) -> ActualPortfolioStateDTO:
+    with handle_portfolio_exceptions("Transactions lock timeout"):
+        state = portfolio_ledger_replay.delete_transaction(
+            tx_id=tx_id,
+            adjust_cash=adjust_cash,
+            portfolio_id=portfolio_id,
+        )
+        return ActualPortfolioStateDTO.model_validate(
+            state.model_dump(exclude_none=True)
+        )
+
+
+@router.get("/api/portfolio/actual/fx-rate", response_model=FXRateResponseDTO)
+def get_fx_rate_endpoint(date: str | None = None, portfolio_id: str = "default") -> FXRateResponseDTO:
+    with handle_portfolio_exceptions(f"Get FX rate for date '{date}'"):
+        post, state = portfolio_core._load_or_init(portfolio_id=portfolio_id)
+        portfolio_fallback = state.fx_rates.get("USDTHB", 36.5)
+        rate, source = portfolio_prices.fetch_fx_rate(date_str=date, fallback_rate=portfolio_fallback)
+        return FXRateResponseDTO(
+            date=date or _now_iso()[:10],
+            currency_pair="USDTHB",
+            rate=rate,
+            source=source,
+        )
+
+
+@router.post("/api/portfolio/actual/sync-dividends", response_model=SyncDividendsResponseDTO)
+def sync_dividends_endpoint(portfolio_id: str = "default") -> SyncDividendsResponseDTO:
+    with handle_portfolio_exceptions(f"Sync dividends for portfolio '{portfolio_id}'"):
+        raw_data = portfolio_dividends.sync_dividends_from_history(portfolio_id=portfolio_id)
+        return SyncDividendsResponseDTO.model_validate(raw_data)
 
 
 # ---------------------------------------------------------

@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import tempfile
+import time
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
@@ -49,9 +50,11 @@ INDEX_LOCK = VAULT_PATH / ".master_index.lock"
 from typing import Any
 from core.utils import normalize_content
 
-def _atomic_write_text(path: Path, content: Any) -> None:
+def _atomic_write_text(path: Path, content: Any, max_retries: int = 8, backoff: float = 0.05) -> None:
     """เขียนไฟล์แบบ atomic: temp file ใน folder เดียวกัน → os.replace()
     os.replace() เป็น atomic บนทั้ง Windows และ POSIX เมื่ออยู่ filesystem เดียวกัน
+    บน Windows เพิ่ม retry loop เพื่อจัดการ transient file lock (WinError 5 / WinError 32)
+    จาก file indexing, antivirus หรือ concurrent readers
     """
     if not isinstance(content, str):
         content = normalize_content(content) if isinstance(content, list) else str(content)
@@ -62,7 +65,23 @@ def _atomic_write_text(path: Path, content: Any) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(content)
-        os.replace(tmp_path, path)
+            f.flush()
+        
+        last_err: Exception | None = None
+        for attempt in range(max_retries):
+            try:
+                os.replace(tmp_path, path)
+                last_err = None
+                break
+            except (PermissionError, OSError) as e:
+                last_err = e
+                winerror = getattr(e, "winerror", None)
+                if winerror in (5, 32) or isinstance(e, PermissionError):
+                    time.sleep(backoff * (1.5 ** attempt))
+                else:
+                    break
+        if last_err is not None:
+            raise last_err
     except Exception:
         tmp_path.unlink(missing_ok=True)
         raise

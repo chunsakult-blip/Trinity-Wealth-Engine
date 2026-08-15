@@ -69,6 +69,24 @@ def default_allocation_targets() -> list[AllocationTarget]:
     ]
 
 
+class DividendRound(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    symbol: str
+    ex_date: str
+    pay_date: str | None = None
+    dps: float
+    currency: str
+    units_held: float
+    status: Literal["received", "upcoming"] = "received"
+    gross_native: float = 0.0
+    net_native: float = 0.0
+    gross_thb: float = 0.0
+    tax_rate: float = 0.0
+    net_thb: float = 0.0
+    fx_rate: float = 1.0
+
+
 class Holding(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -88,6 +106,11 @@ class Holding(BaseModel):
     market_value_thb: float = 0.0
     unrealized_pnl_percent: float | None = None
     accumulated_dividend_thb: float | None = None
+    accumulated_dividend_native: float | None = None
+    upcoming_dividend_thb: float | None = None
+    upcoming_dividend_native: float | None = None
+    dividend_rounds: list[DividendRound] = Field(default_factory=list)
+    dividend_source: Literal["synced", "manual"] | None = None
     bucket_id: str | None = None
     fundamentals_updated_at: float | None = None
 
