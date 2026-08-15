@@ -20,7 +20,8 @@ export default function PortfolioGoalsTab({ goals, generatedAt, portfolios = [],
     if (!onSuccess) return
     if (!window.confirm(`คุณต้องการลบเป้าหมาย "${name}" หรือไม่?`)) return
     try {
-      const res = await api.removeGoal(name, selectedPortfolioId)
+      // ไม่กรองตามพอร์ต — ให้ response ที่คืนมายังคงมีเป้าหมายของทุกพอร์ตครบ ไม่ใช่แค่พอร์ตที่เลือกอยู่
+      const res = await api.removeGoal(name)
       onSuccess(res)
     } catch (err: any) {
       alert(err?.message || 'ลบเป้าหมายไม่สำเร็จ')
@@ -195,6 +196,7 @@ export default function PortfolioGoalsTab({ goals, generatedAt, portfolios = [],
       {(modalOpen || editingGoal) && onSuccess && (
         <GoalModal
           initialGoal={editingGoal}
+          existingNames={goals.map((g) => g.name)}
           portfolios={portfolios}
           selectedPortfolioId={selectedPortfolioId}
           onClose={() => {

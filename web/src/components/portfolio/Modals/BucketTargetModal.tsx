@@ -9,12 +9,13 @@ import {
 } from '../../../lib/bucketColors'
 
 interface Props {
+  portfolioId: string
   initialTargets: AllocationTargetDTO[]
   onClose: () => void
   onSuccess: (state: ActualPortfolioStateDTO) => void
 }
 
-export default function BucketTargetModal({ initialTargets, onClose, onSuccess }: Props) {
+export default function BucketTargetModal({ portfolioId, initialTargets, onClose, onSuccess }: Props) {
   const [targets, setTargets] = useState<AllocationTargetDTO[]>(() =>
     initialTargets.length > 0
       ? initialTargets.map((t) => ({ ...t }))
@@ -74,7 +75,7 @@ export default function BucketTargetModal({ initialTargets, onClose, onSuccess }
         target_percent: Number(t.target_percent) || 0,
         color: t.color ?? null,
       }))
-      const state = await api.upsertAllocationTargets({ targets: formatted })
+      const state = await api.upsertAllocationTargets({ targets: formatted }, portfolioId)
       onSuccess(state)
       onClose()
     } catch (err: any) {

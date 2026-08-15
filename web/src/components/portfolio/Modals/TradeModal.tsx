@@ -2,17 +2,18 @@ import { useState } from 'react'
 import FormModal, { FormField, FormInput, FormSelect } from './FormModal'
 import { TradeIcon } from '../icons/PortfolioIcons'
 import { api } from '../../../api/client'
+import { todayLocalDateString } from '../../../utils/formatters'
 import type { AllocationTargetDTO, ActualPortfolioStateDTO, ActualHoldingDTO } from '../../../api/types'
 
 interface Props {
   targets: AllocationTargetDTO[]
   holdings?: ActualHoldingDTO[]
-  selectedPortfolioId?: string
+  selectedPortfolioId: string
   onClose: () => void
   onSuccess: (state: ActualPortfolioStateDTO) => void
 }
 
-export default function TradeModal({ targets, holdings, selectedPortfolioId = 'default', onClose, onSuccess }: Props) {
+export default function TradeModal({ targets, holdings, selectedPortfolioId, onClose, onSuccess }: Props) {
   const [symbol, setSymbol] = useState('')
   const [assetType, setAssetType] = useState('Stock')
   const [action, setAction] = useState<'buy' | 'sell'>('buy')
@@ -20,7 +21,7 @@ export default function TradeModal({ targets, holdings, selectedPortfolioId = 'd
   const [price, setPrice] = useState<string>('')
   const [currency, setCurrency] = useState<'THB' | 'USD'>('THB')
   const [exchangeRate, setExchangeRate] = useState<string>('')
-  const [date, setDate] = useState<string>(() => new Date().toISOString().split('T')[0] || '')
+  const [date, setDate] = useState<string>(() => todayLocalDateString())
   const [notes, setNotes] = useState<string>('')
   const [bucketId, setBucketId] = useState<string>('')
 
@@ -47,7 +48,7 @@ export default function TradeModal({ targets, holdings, selectedPortfolioId = 'd
         exchange_rate: exchangeRate ? parseFloat(exchangeRate) : null,
         date: date || null,
         notes: `Auto top-up for ${symbol.trim().toUpperCase()} buy trade`,
-      })
+      }, selectedPortfolioId)
 
       // 2. Auto retry buy trade
       const state = await api.executeTrade({
@@ -61,7 +62,7 @@ export default function TradeModal({ targets, holdings, selectedPortfolioId = 'd
         date: date || null,
         notes: notes.trim(),
         bucket_id: bucketId || null,
-      })
+      }, selectedPortfolioId)
 
       onSuccess(state)
       onClose()

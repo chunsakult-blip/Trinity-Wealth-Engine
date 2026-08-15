@@ -49,4 +49,28 @@ describe('PortfolioSummaryCards', () => {
     const btn = screen.getByRole('button', { name: /กำลังอัปเดตราคา\.\.\./i })
     expect(btn).toBeDisabled()
   })
+
+  it('renders summary badge for priceRefreshInfo and toggles details on click', () => {
+    const summary = {
+      total_value_thb: 100,
+      total_cost_basis_thb: 90,
+      total_unrealized_profit: 10,
+      passive_income_ytd: 5,
+    }
+    const priceRefreshInfo = { PG: 'ok', AAPL: 'ok', TSLA: 'ok' }
+    render(<PortfolioSummaryCards summary={summary} lastUpdated={null} priceRefreshInfo={priceRefreshInfo} />)
+
+    expect(screen.getByText(/อัปเดตราคาสำเร็จ \(3 รายการ\)/i)).toBeInTheDocument()
+
+    // Details should be hidden by default
+    expect(screen.queryByText(/PG:/i)).not.toBeInTheDocument()
+
+    // Click toggle button to show details
+    const toggleBtn = screen.getByRole('button', { name: /รายละเอียด/i })
+    fireEvent.click(toggleBtn)
+
+    expect(screen.getByText(/PG:/i)).toBeInTheDocument()
+    expect(screen.getByText(/AAPL:/i)).toBeInTheDocument()
+    expect(screen.getByText(/TSLA:/i)).toBeInTheDocument()
+  })
 })

@@ -295,11 +295,14 @@ export interface ActualHoldingDTO {
   symbol: string
   asset_type: string
   units: number
+  status?: string
+  archived_at?: string | null
   bucket_id: string | null
   avg_cost_usd: number | null
   avg_cost_thb: number | null
   current_price_usd: number | null
   current_price_thb: number | null
+  fx_rate?: number | null
   market_value_thb: number
   unrealized_pnl_percent: number | null
   unrealized_pnl_value: number | null
@@ -320,7 +323,9 @@ export interface ActualSummaryDTO {
   total_value_thb: number
   total_cost_basis_thb: number
   total_unrealized_profit: number
+  total_realized_profit_ytd?: number
   passive_income_ytd: number
+  total_accumulated_dividend?: number
 }
 
 export interface AllocationTargetDTO {
@@ -676,5 +681,37 @@ export interface PortfolioCalendarDTO {
   events: CalendarEventDTO[]
   tickers_fetched: number
   tickers_failed: string[]
+}
+
+export interface TransactionItemDTO {
+  transaction_id: string
+  timestamp: string
+  symbol: string
+  action: 'BUY' | 'SELL' | string
+  units: number
+  price: number
+  currency: string
+  fx_rate?: number | null
+  cost_thb: number
+  realized_pnl_thb?: number | null
+  notes: string
+}
+
+export interface TransactionSummaryDTO {
+  total_buy_count: number
+  total_sell_count: number
+  total_buy_thb: number
+  total_sell_thb: number
+  total_realized_pnl_thb: number
+}
+
+export interface TransactionListResponseDTO {
+  portfolio_id: string
+  transactions: TransactionItemDTO[]
+  summary: TransactionSummaryDTO
+}
+
+export interface UpdateTransactionNoteRequestDTO {
+  notes: string
 }
 

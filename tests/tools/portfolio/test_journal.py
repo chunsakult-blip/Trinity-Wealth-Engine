@@ -61,9 +61,10 @@ class TestReadTradingJournal:
 
     def test_days_filter_excludes_old(self, isolated_portfolio, tmp_vault):
         from datetime import datetime, timedelta
+        import tools.portfolio.journal as journal_mod
         pt = isolated_portfolio
         # เขียน journal entries ผสม — ใหม่และเก่า (เก่าเขียน timestamp ด้วยมือเลย)
-        journal_path = tmp_vault / "20_Portfolio_Management" / "Journals_and_Reports" / "Trading_Journal.md"
+        journal_path = journal_mod._get_journal_filepath("default")
         journal_path.parent.mkdir(parents=True, exist_ok=True)
         recent_date = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d %H:%M:%S")
         journal_path.write_text(
@@ -125,8 +126,9 @@ class TestAppendTradingJournalExceptions:
         assert "entry ต้องไม่ว่าง" in result
 class TestReadTradingJournalExceptions:
     def test_read_journal_bad_datetime(self, isolated_portfolio, tmp_vault):
+        import tools.portfolio.journal as journal_mod
         pt = isolated_portfolio
-        journal_path = tmp_vault / "20_Portfolio_Management" / "Journals_and_Reports" / "Trading_Journal.md"
+        journal_path = journal_mod._get_journal_filepath("default")
         journal_path.parent.mkdir(parents=True, exist_ok=True)
         # Write one good and one bad datetime block
         journal_path.write_text(

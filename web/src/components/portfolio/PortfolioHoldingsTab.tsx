@@ -9,6 +9,7 @@ import Modal from '../ui/Modal'
 import { TradeIcon, EditIcon, DeleteIcon, FolderIcon, JournalIcon } from './icons/PortfolioIcons'
 
 interface Props {
+  portfolioId: string
   holdings: ActualHoldingDTO[]
   selectedBucket: string | null
   onClearBucketFilter: () => void
@@ -19,11 +20,13 @@ interface Props {
   onChangeJournalKeyword?: (kw: string) => void
   onSuccessJournal?: (entries: JournalEntryDTO[]) => void
   onOpenTradeModal?: () => void
+  onViewTransactions?: (symbol: string) => void
 }
 
 type SortField = 'symbol' | 'asset_type' | 'units' | 'market_value_thb' | 'unrealized_pnl_percent' | 'pe_ratio' | 'yield_on_cost'
 
 export default function PortfolioHoldingsTab({
+  portfolioId,
   holdings,
   selectedBucket,
   onClearBucketFilter,
@@ -34,6 +37,7 @@ export default function PortfolioHoldingsTab({
   onChangeJournalKeyword,
   onSuccessJournal,
   onOpenTradeModal,
+  onViewTransactions,
 }: Props) {
   const [sortField, setSortField] = useState<SortField>('market_value_thb')
   const [sortAsc, setSortAsc] = useState<boolean>(false)
@@ -53,7 +57,7 @@ export default function PortfolioHoldingsTab({
     if (!window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบสินทรัพย์ที่เลือก ${selectedSymbols.size} รายการนี้ออกจากพอร์ต?`)) return
     setBatchDeleteLoading(true)
     try {
-      const state = await api.batchRemoveHoldings({ symbols: Array.from(selectedSymbols) })
+      const state = await api.batchRemoveHoldings({ symbols: Array.from(selectedSymbols) }, portfolioId)
       setSelectedSymbols(new Set())
       onSuccess(state)
     } catch (err: any) {
@@ -67,7 +71,7 @@ export default function PortfolioHoldingsTab({
     if (!onSuccess) return
     if (!window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบ ${symbol} ออกจากพอร์ต?`)) return
     try {
-      const state = await api.removeHolding(symbol)
+      const state = await api.removeHolding(symbol, portfolioId)
       onSuccess(state)
     } catch (err: any) {
       alert(err?.message || 'ลบรายการไม่สำเร็จ')
@@ -406,38 +410,55 @@ export default function PortfolioHoldingsTab({
                       </td>
 
                       {/* Col 10: Actions */}
-                      <td className="px-3 py-4 text-center align-top space-y-1">
-                        <div className="flex flex-col gap-1 items-center justify-center">
+                      <td className="px-3 py-3 text-center align-middle whitespace-nowrap">
+                        <div className="flex items-center justify-center gap-1.5">
+                          {/* Journal Button */}
                           <button
                             type="button"
                             onClick={() => setExpandedSymbol(expandedSymbol === h.symbol ? null : h.symbol)}
-                            className={`w-16 rounded-lg border px-2 py-1 text-[11px] font-bold transition-colors flex items-center justify-center gap-1 ${expandedSymbol === h.symbol
-                                ? 'border-flow-blue bg-flow-blue text-white'
+                            className={`h-7 px-2 rounded-lg border text-[11px] font-bold transition-all flex items-center justify-center gap-1 shadow-2xs ${
+                              expandedSymbol === h.symbol
+                                ? 'border-flow-blue bg-flow-blue text-white shadow-xs'
                                 : 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-600 hover:text-white'
-                              }`}
+                            }`}
                             title="ดู/เขียน Trading Journal สำหรับหุ้นนี้"
                           >
-                            <JournalIcon className="h-3 w-3" />
+                            <JournalIcon className="h-3.5 w-3.5" />
                             <span>{symbolEntries.length}</span>
                           </button>
+
+                          {/* Transactions Button */}
+                          {onViewTransactions && (
+                            <button
+                              type="button"
+                              onClick={() => onViewTransactions(h.symbol)}
+                              className="h-7 px-2 rounded-lg border border-emerald-200 bg-emerald-50 text-[11px] font-bold text-emerald-700 hover:bg-emerald-600 hover:text-white transition-all flex items-center justify-center gap-1 shadow-2xs"
+                              title={`ดูประวัติ Transactions ของ ${h.symbol}`}
+                            >
+                              <TradeIcon className="h-3.5 w-3.5" />
+                              <span>เทรด</span>
+                            </button>
+                          )}
+
+                          {/* Edit Button */}
                           <button
                             type="button"
                             onClick={() => setEditingHolding(h)}
-                            className="w-16 rounded-lg border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-bold text-flow-blue hover:bg-flow-blue hover:text-white transition-colors flex items-center justify-center gap-1"
-                            title="แก้ไข / ปรับปรุง"
+                            className="h-7 w-7 rounded-lg border border-sky-200 bg-sky-50 text-flow-blue hover:bg-flow-blue hover:text-white transition-all flex items-center justify-center shadow-2xs"
+                            title="แก้ไข / ปรับปรุงข้อมูล"
                           >
-                            <EditIcon className="h-3 w-3" />
-                            <span>แก้ไข</span>
+                            <EditIcon className="h-3.5 w-3.5" />
                           </button>
+
+                          {/* Delete Button */}
                           {onSuccess && (
                             <button
                               type="button"
                               onClick={() => handleRemoveSingle(h.symbol)}
-                              className="w-16 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] font-bold text-rose-600 hover:bg-rose-600 hover:text-white transition-colors flex items-center justify-center gap-1"
-                              title="ลบ Holding"
+                              className="h-7 w-7 rounded-lg border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-all flex items-center justify-center shadow-2xs"
+                              title="ลบ Holding ออกจากพอร์ต"
                             >
-                              <DeleteIcon className="h-3 w-3" />
-                              <span>ลบ</span>
+                              <DeleteIcon className="h-3.5 w-3.5" />
                             </button>
                           )}
                         </div>
@@ -552,6 +573,7 @@ export default function PortfolioHoldingsTab({
 
       {batchAssignModalOpen && onSuccess && (
         <BatchAssignBucketModal
+          portfolioId={portfolioId}
           symbols={Array.from(selectedSymbols)}
           targets={targets}
           onClose={() => setBatchAssignModalOpen(false)}
@@ -564,6 +586,7 @@ export default function PortfolioHoldingsTab({
 
       {editingHolding && onSuccess && (
         <HoldingCorrectionModal
+          portfolioId={portfolioId}
           holding={editingHolding}
           targets={targets}
           onClose={() => setEditingHolding(null)}
@@ -662,6 +685,7 @@ export default function PortfolioHoldingsTab({
 
       {journalModalOpen && onSuccessJournal && (
         <JournalModal
+          portfolioId={portfolioId}
           initialSymbol={journalModalSymbol}
           onClose={() => {
             setJournalModalOpen(false)

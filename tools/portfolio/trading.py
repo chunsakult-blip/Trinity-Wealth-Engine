@@ -1,10 +1,12 @@
 from langsmith import traceable
 import concurrent.futures
 import csv
+import io
 import json
 import os
 import re
 import tempfile
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Literal
@@ -25,7 +27,7 @@ _EDITABLE_HOLDING_FIELDS = ("units", "avg_cost", "accumulated_dividend_thb", "as
 from tools._atomic_io import _atomic_write_to
 from tools.tool_errors import CASH_VIA_MANAGE, LOCK_TIMEOUT, validation_error
 from .models import _now_iso, _coerce_iso_string, Holding, Summary, PortfolioState, WatchlistItem, WatchlistState, GoalItem, GoalsState
-from .core import _load_or_init, _save, _recalc_all, _recalc_holding, _recalc_summary, _compute_total_cost, _find_holding, _require_cash, _require_fx, get_portfolio_state, _holding_currency, compute_allocation_breakdown, _get_portfolio_lock
+from .core import _load_or_init, _save, _recalc_all, _recalc_holding, _recalc_summary, _compute_total_cost, _find_holding, _require_cash, _require_fx, get_portfolio_state, _holding_currency, compute_allocation_breakdown, _get_portfolio_lock, _normalize_portfolio_id
 from .prices import fetch_latest_price, _fetch_last_price, _fetch_fx_rate, _refresh_prices, sync_market_prices, _USDTHB_TICKER
 from .journal import append_trading_journal, _inject_journal_wikilinks, _write_journal_entry
 
@@ -47,9 +49,21 @@ _PCT_DP = 2
 _LOCK_TIMEOUT = 15  # seconds — wait up to 15s for another process to release
 _PRICE_FETCH_TIMEOUT = 6  # seconds per symbol when refreshing
 
-_PORTFOLIO_LOCK_PATH = str(PORTFOLIO_PATH) + ".lock"
-_portfolio_lock = _get_portfolio_lock("default")
 
+def _get_trades_log_filepath(portfolio_id: str = "default") -> Path:
+    pid = _normalize_portfolio_id(portfolio_id)
+    pdir = PORTFOLIOS_DIR / pid
+    pdir.mkdir(parents=True, exist_ok=True)
+    return pdir / "Trades_Log.csv"
+
+
+def _sanitize_csv_field(value: str) -> str:
+    """กัน CSV/Formula injection — ถ้าค่าขึ้นต้นด้วยอักขระที่สเปรดชีตตีความเป็นสูตร
+    (=, +, -, @, tab, CR) ให้เติม ' นำหน้าเพื่อบังคับให้อ่านเป็น text เฉยๆ
+    """
+    if value and value[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
 
 
 @tool
@@ -104,6 +118,78 @@ def execute_trade(
         return f"Error: {e}"
 
 
+def _generate_tx_id() -> str:
+    return f"tx_{uuid.uuid4().hex[:12]}"
+
+
+def _migrate_trades_log_if_needed(portfolio_id: str = "default") -> None:
+    """ตรวจสอบและ migrate ไฟล์ Trades_Log.csv ให้เป็นไปตาม _TRADES_LOG_HEADER ใหม่
+    - ถ้าไฟล์ยังเป็น 10 คอลัมน์ (ไม่มี Transaction_ID) หรือมีบางแถวที่ Transaction_ID ว่าง
+      จะ backfill Transaction_ID ให้เฉพาะแถวที่ว่าง และเขียนกลับไฟล์แบบ atomic
+    - ปลอดภัยและ idempotent (ไม่ regenerate ซ้ำถ้ามีอยู่แล้ว)
+    """
+    trades_log_path = _get_trades_log_filepath(portfolio_id)
+    if not trades_log_path.exists() or trades_log_path.stat().st_size == 0:
+        return
+
+    try:
+        content = trades_log_path.read_text(encoding="utf-8")
+    except Exception as e:
+        log.warning("Failed to read trades log for migration: %s", e)
+        return
+
+    if not content.strip():
+        return
+
+    reader = csv.reader(io.StringIO(content))
+    rows = list(reader)
+    if not rows:
+        return
+
+    header = rows[0]
+    data_rows = rows[1:]
+
+    needs_migration = False
+    has_tx_id_in_header = (len(header) > 0 and header[0] == "Transaction_ID")
+
+    if not has_tx_id_in_header:
+        needs_migration = True
+    else:
+        for r in data_rows:
+            if not r:
+                continue
+            if len(r) < len(_TRADES_LOG_HEADER) or not r[0].strip():
+                needs_migration = True
+                break
+
+    if not needs_migration:
+        return
+
+    migrated_rows: list[list[str]] = []
+    for r in data_rows:
+        if not r:
+            continue
+        if not has_tx_id_in_header:
+            padded = r + [""] * max(0, 10 - len(r))
+            tx_id = _generate_tx_id()
+            new_row = [tx_id] + padded[:10]
+            migrated_rows.append(new_row)
+        else:
+            padded = r + [""] * max(0, len(_TRADES_LOG_HEADER) - len(r))
+            tx_id = padded[0].strip() if padded[0].strip() else _generate_tx_id()
+            padded[0] = tx_id
+            migrated_rows.append(padded[:len(_TRADES_LOG_HEADER)])
+
+    out = io.StringIO()
+    writer = csv.writer(out, lineterminator="\n")
+    writer.writerow(_TRADES_LOG_HEADER)
+    for r in migrated_rows:
+        writer.writerow(r)
+
+    _atomic_write_to(trades_log_path, out.getvalue())
+    log.info("Migrated Trades_Log.csv for portfolio %s to 11 columns with Transaction_ID", portfolio_id)
+
+
 def _append_trade_ledger_row(
     symbol: str,
     action: str,
@@ -114,16 +200,21 @@ def _append_trade_ledger_row(
     cost_thb: float,
     realized_pnl_thb: float | None = None,
     notes: str = "",
+    portfolio_id: str = "default",
 ) -> None:
-    """Append 1 แถวลงใน TRADES_LOG_PATH — สร้างไฟล์และ header ถ้ายังไม่มี"""
+    """Append 1 แถวลงใน Trades_Log.csv ของพอร์ตนั้นๆ — เรียก migration ก่อนเสมอ"""
     try:
-        TRADES_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        file_exists = TRADES_LOG_PATH.exists() and TRADES_LOG_PATH.stat().st_size > 0
-        with TRADES_LOG_PATH.open("a", encoding="utf-8", newline="") as f:
+        _migrate_trades_log_if_needed(portfolio_id)
+        trades_log_path = _get_trades_log_filepath(portfolio_id)
+        trades_log_path.parent.mkdir(parents=True, exist_ok=True)
+        file_exists = trades_log_path.exists() and trades_log_path.stat().st_size > 0
+        tx_id = _generate_tx_id()
+        with trades_log_path.open("a", encoding="utf-8", newline="") as f:
             writer = csv.writer(f, lineterminator="\n")
             if not file_exists:
                 writer.writerow(_TRADES_LOG_HEADER)
             writer.writerow([
+                tx_id,
                 _now_iso(),
                 symbol,
                 action.upper(),
@@ -133,7 +224,7 @@ def _append_trade_ledger_row(
                 f"{fx_rate:.4f}" if fx_rate is not None else "",
                 f"{cost_thb:.2f}",
                 f"{realized_pnl_thb:.2f}" if realized_pnl_thb is not None else "",
-                notes,
+                _sanitize_csv_field(notes),
             ])
     except Exception as e:
         log.warning("Failed to append trade ledger row for %s: %s", symbol, e)
@@ -259,6 +350,7 @@ def _execute_trade_locked(
         cost_thb=cost_thb,
         realized_pnl_thb=realized if action == "sell" else None,
         notes=notes,
+        portfolio_id=portfolio_id,
     )
 
     cash_sym = CASH_USD_SYMBOL if currency == "USD" else CASH_THB_SYMBOL
@@ -758,7 +850,8 @@ def _edit_holding_locked(
 
     reason_text = reason.strip() or "(no reason given)"
     _write_journal_entry(
-        f"**[EDIT {symbol}]** {' | '.join(changes)}\n\nReason: {reason_text}"
+        f"**[EDIT {symbol}]** {' | '.join(changes)}\n\nReason: {reason_text}",
+        portfolio_id=portfolio_id,
     )
 
     return (
@@ -812,7 +905,7 @@ def structured_execute_trade(
             content = f"**[TRADE NOTE - {sym}]** {action.upper()} {units:g} @ {price:,.4f} {currency}"
             if notes.strip():
                 content += f" — {notes.strip()}"
-            _write_journal_entry(content, date_str=date)
+            _write_journal_entry(content, date_str=date, portfolio_id=portfolio_id)
         if modified:
             _save(post, state, portfolio_id=portfolio_id)
         return state
@@ -848,7 +941,7 @@ def structured_manage_cash_flow(
             content = f"**[CASH FLOW NOTE]** {action.upper()} {amount:,.2f} {currency}"
             if notes.strip():
                 content += f" — {notes.strip()}"
-            _write_journal_entry(content, date_str=date)
+            _write_journal_entry(content, date_str=date, portfolio_id=portfolio_id)
         return state
 
 
@@ -873,7 +966,7 @@ def structured_record_income(
             content = f"**[INCOME NOTE - {income_type}{src_note}]** +{amount_thb:,.2f} THB"
             if notes.strip():
                 content += f" — {notes.strip()}"
-            _write_journal_entry(content, date_str=date)
+            _write_journal_entry(content, date_str=date, portfolio_id=portfolio_id)
         return state
 
 
@@ -931,7 +1024,154 @@ def structured_remove_holding(symbol: str, portfolio_id: str = "default") -> Por
             raise ValueError(f"ไม่พบสินทรัพย์ {sym} ในพอร์ต")
         state.holdings.remove(target)
         _save(post, state, portfolio_id=portfolio_id)
-        _write_journal_entry(f"**[REMOVE {sym}]** ลบสินทรัพย์ออกจากพอร์ตโดยตรง")
+        _write_journal_entry(f"**[REMOVE {sym}]** ลบสินทรัพย์ออกจากพอร์ตโดยตรง", portfolio_id=portfolio_id)
         return state
+
+
+def get_structured_trades_log(
+    portfolio_id: str = "default",
+    symbol: str | None = None,
+) -> list[dict]:
+    """อ่านรายการประวัติการซื้อขายทั้งหมดจาก Trades_Log.csv ผ่าน DictReader (ภายใต้ lock)"""
+    lock = _get_portfolio_lock(portfolio_id)
+    with lock:
+        _migrate_trades_log_if_needed(portfolio_id)
+        trades_log_path = _get_trades_log_filepath(portfolio_id)
+        if not trades_log_path.exists() or trades_log_path.stat().st_size == 0:
+            return []
+
+        target_symbol = symbol.strip().upper() if symbol else None
+        results: list[dict] = []
+
+        try:
+            with trades_log_path.open("r", encoding="utf-8", newline="") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    row_sym = str(row.get("Symbol") or "").strip().upper()
+                    if target_symbol and row_sym != target_symbol:
+                        continue
+
+                    # Parse numerical fields safely
+                    try:
+                        units_val = float(row.get("Units") or 0.0)
+                    except (ValueError, TypeError):
+                        units_val = 0.0
+
+                    try:
+                        price_val = float(row.get("Price") or 0.0)
+                    except (ValueError, TypeError):
+                        price_val = 0.0
+
+                    fx_raw = row.get("FX_Rate")
+                    fx_val = None
+                    if fx_raw is not None and str(fx_raw).strip() != "":
+                        try:
+                            fx_val = float(fx_raw)
+                        except (ValueError, TypeError):
+                            fx_val = None
+
+                    try:
+                        cost_val = float(row.get("Cost_THB") or 0.0)
+                    except (ValueError, TypeError):
+                        cost_val = 0.0
+
+                    pnl_raw = row.get("Realized_PnL_THB")
+                    pnl_val = None
+                    if pnl_raw is not None and str(pnl_raw).strip() != "":
+                        try:
+                            pnl_val = float(pnl_raw)
+                        except (ValueError, TypeError):
+                            pnl_val = None
+
+                    results.append({
+                        "transaction_id": str(row.get("Transaction_ID") or ""),
+                        "timestamp": str(row.get("Timestamp") or ""),
+                        "symbol": row_sym,
+                        "action": str(row.get("Action") or "BUY").strip().upper(),
+                        "units": units_val,
+                        "price": price_val,
+                        "currency": str(row.get("Currency") or "THB").strip().upper(),
+                        "fx_rate": fx_val,
+                        "cost_thb": cost_val,
+                        "realized_pnl_thb": pnl_val,
+                        "notes": str(row.get("Notes") or ""),
+                    })
+        except Exception as e:
+            log.warning("Failed to read trades log for %s: %s", portfolio_id, e)
+            return []
+
+        # Sort descending by timestamp / order
+        results.sort(key=lambda x: x["timestamp"], reverse=True)
+        return results
+
+
+def update_trade_note(
+    tx_id: str,
+    notes: str,
+    portfolio_id: str = "default",
+) -> dict:
+    """แก้ไข Notes ของรายการ Transaction ตาม ID พร้อม sanitize และ atomic write ภายใต้ lock"""
+    lock = _get_portfolio_lock(portfolio_id)
+    with lock:
+        _migrate_trades_log_if_needed(portfolio_id)
+        trades_log_path = _get_trades_log_filepath(portfolio_id)
+        if not trades_log_path.exists() or trades_log_path.stat().st_size == 0:
+            raise ValueError(f"Trades log not found for portfolio '{portfolio_id}'")
+
+        rows: list[dict] = []
+        found_target = False
+        target_item: dict | None = None
+
+        with trades_log_path.open("r", encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                current_id = str(row.get("Transaction_ID") or "").strip()
+                if current_id == tx_id:
+                    found_target = True
+                    row["Notes"] = _sanitize_csv_field(notes)
+                    # Prepare return item
+                    try:
+                        units_val = float(row.get("Units") or 0.0)
+                    except (ValueError, TypeError):
+                        units_val = 0.0
+                    try:
+                        price_val = float(row.get("Price") or 0.0)
+                    except (ValueError, TypeError):
+                        price_val = 0.0
+                    fx_raw = row.get("FX_Rate")
+                    fx_val = float(fx_raw) if fx_raw is not None and str(fx_raw).strip() != "" else None
+                    try:
+                        cost_val = float(row.get("Cost_THB") or 0.0)
+                    except (ValueError, TypeError):
+                        cost_val = 0.0
+                    pnl_raw = row.get("Realized_PnL_THB")
+                    pnl_val = float(pnl_raw) if pnl_raw is not None and str(pnl_raw).strip() != "" else None
+
+                    target_item = {
+                        "transaction_id": current_id,
+                        "timestamp": str(row.get("Timestamp") or ""),
+                        "symbol": str(row.get("Symbol") or "").strip().upper(),
+                        "action": str(row.get("Action") or "BUY").strip().upper(),
+                        "units": units_val,
+                        "price": price_val,
+                        "currency": str(row.get("Currency") or "THB").strip().upper(),
+                        "fx_rate": fx_val,
+                        "cost_thb": cost_val,
+                        "realized_pnl_thb": pnl_val,
+                        "notes": row["Notes"],
+                    }
+                rows.append(row)
+
+        if not found_target or target_item is None:
+            raise ValueError(f"Transaction with ID '{tx_id}' not found")
+
+        out = io.StringIO()
+        writer = csv.DictWriter(out, fieldnames=_TRADES_LOG_HEADER, lineterminator="\n")
+        writer.writeheader()
+        for r in rows:
+            writer.writerow(r)
+
+        _atomic_write_to(trades_log_path, out.getvalue())
+        return target_item
 
 

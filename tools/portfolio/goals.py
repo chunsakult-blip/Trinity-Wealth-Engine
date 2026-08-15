@@ -44,10 +44,6 @@ _PCT_DP = 2
 _LOCK_TIMEOUT = 15  # seconds — wait up to 15s for another process to release
 _PRICE_FETCH_TIMEOUT = 6  # seconds per symbol when refreshing
 
-_PORTFOLIO_LOCK_PATH = str(PORTFOLIO_PATH) + ".lock"
-_portfolio_lock = FileLock(_PORTFOLIO_LOCK_PATH, timeout=_LOCK_TIMEOUT)
-
-
 
 def _atomic_write_goals(serialized: str) -> None:
     parent = GOALS_PATH.parent
@@ -305,10 +301,14 @@ def get_structured_goals(portfolio_id: str | None = None) -> list[dict]:
             current = nav
         elif g.goal_type == "cash_target":
             current = total_cash_thb
-        elif g.goal_type == "bucket_target" and g.bucket_id:
-            current = round(
-                sum(h.market_value_thb for h in p_state.holdings if h.bucket_id == g.bucket_id),
-                _MONEY_DP,
+        elif g.goal_type == "bucket_target":
+            current = (
+                round(
+                    sum(h.market_value_thb for h in p_state.holdings if h.bucket_id == g.bucket_id),
+                    _MONEY_DP,
+                )
+                if g.bucket_id
+                else 0.0
             )
         else:  # passive_income_ytd
             current = passive_ytd
@@ -426,7 +426,9 @@ def structured_upsert_goal(
             state.goals.append(new_goal)
         _save_goals(post, state)
 
-    return get_structured_goals(portfolio_id=portfolio_id)
+    # คืนเป้าหมายทุกพอร์ตรวมกันเสมอ (ไม่ใช่กรองแค่ portfolio_id ของ goal ที่เพิ่งบันทึก)
+    # เพื่อให้ UI ที่โชว์ Goals ข้ามพอร์ตไม่หายไปจากจอหลังบันทึก
+    return get_structured_goals(portfolio_id=None)
 
 
 def structured_remove_goal(name: str, portfolio_id: str | None = None) -> list[dict]:

@@ -5,13 +5,14 @@ import { api } from '../../../api/client'
 import type { AllocationTargetDTO, ActualHoldingDTO, ActualPortfolioStateDTO } from '../../../api/types'
 
 interface Props {
+  portfolioId: string
   holding: ActualHoldingDTO
   targets: AllocationTargetDTO[]
   onClose: () => void
   onSuccess: (state: ActualPortfolioStateDTO) => void
 }
 
-export default function HoldingCorrectionModal({ holding, targets, onClose, onSuccess }: Props) {
+export default function HoldingCorrectionModal({ portfolioId, holding, targets, onClose, onSuccess }: Props) {
   const [units, setUnits] = useState<string>(holding.units.toString())
   const [avgCost, setAvgCost] = useState<string>((holding.avg_cost_thb ?? holding.avg_cost_usd ?? 0).toString())
   const [accumulatedDividendThb, setAccumulatedDividendThb] = useState<string>(
@@ -38,7 +39,7 @@ export default function HoldingCorrectionModal({ holding, targets, onClose, onSu
         asset_type: assetType || null,
         bucket_id: bucketId || null,
         reason: reason.trim(),
-      })
+      }, portfolioId)
       onSuccess(state)
       onClose()
     } catch (err: any) {

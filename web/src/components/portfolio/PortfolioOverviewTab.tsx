@@ -5,6 +5,7 @@ import BucketTargetModal from './Modals/BucketTargetModal'
 import { TradeIcon } from './icons/PortfolioIcons'
 
 interface Props {
+  portfolioId: string
   targets: AllocationTargetDTO[]
   summaries: BucketAllocationSummaryDTO[]
   warning: string | null
@@ -29,7 +30,7 @@ function getBucketColor(index: number, explicitColor?: string | null): string {
   return DEFAULT_COLORS[index % DEFAULT_COLORS.length] ?? '#0284c7'
 }
 
-export default function PortfolioOverviewTab({ targets, summaries, warning, onSelectBucket, onSuccess, onOpenTradeModal }: Props) {
+export default function PortfolioOverviewTab({ portfolioId, targets, summaries, warning, onSelectBucket, onSuccess, onOpenTradeModal }: Props) {
   const [hoveredBucket, setHoveredBucket] = useState<string | null>(null)
   const [targetModalOpen, setTargetModalOpen] = useState(false)
 
@@ -376,6 +377,7 @@ export default function PortfolioOverviewTab({ targets, summaries, warning, onSe
 
       {targetModalOpen && onSuccess && (
         <BucketTargetModal
+          portfolioId={portfolioId}
           initialTargets={targets}
           onClose={() => setTargetModalOpen(false)}
           onSuccess={onSuccess}

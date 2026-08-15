@@ -97,7 +97,13 @@ def empty_calendar_portfolio(tmp_path, monkeypatch):
 
 
 def test_get_portfolio_calendar_success_and_th_mapping(authed_client, isolated_calendar_portfolio, monkeypatch):
-    """Test calendar route correctly maps provider_symbol (e.g. PTT -> PTT.BK), populates company_name for holdings, and returns DTO events."""
+    """Test calendar route correctly maps provider_symbol (e.g. PTT -> PTT.BK), populates company_name for holdings, and returns DTO events.
+
+    FAILTICKER resolves with confidence='low' (ไม่ใช่ ticker จริง) จึงถูกกรองออกก่อนถึงขั้น fetch
+    calendar เลย ตาม Phase 1 ของ fix — ไม่ปรากฏใน tickers_fetched/tickers_failed อีกต่อไป
+    (เดิมทดสอบ path "fetch แล้ว fail" ผ่าน FAILTICKER, ย้ายไปทดสอบแยกใน
+    test_get_portfolio_calendar_tickers_failed_on_fetch_error แทน)
+    """
     mock_cal = {
         "AAPL": {
             "Earnings Date": ["2026-10-30"],
@@ -115,11 +121,7 @@ def test_get_portfolio_calendar_success_and_th_mapping(authed_client, isolated_c
     }
 
     def mock_get_asset_calendar(provider_symbol):
-        if provider_symbol in mock_cal:
-            return mock_cal[provider_symbol]
-        elif provider_symbol == "FAILTICKER":
-            raise RuntimeError("Network error fetching FAILTICKER")
-        return {}
+        return mock_cal.get(provider_symbol, {})
 
     monkeypatch.setattr("tools.market.calendar.get_asset_calendar", mock_get_asset_calendar)
 
@@ -129,13 +131,14 @@ def test_get_portfolio_calendar_success_and_th_mapping(authed_client, isolated_c
 
     assert "generated_at" in data
     assert data["tickers_fetched"] == 3
-    assert data["tickers_failed"] == ["FAILTICKER"]
+    assert data["tickers_failed"] == []
 
     events = data["events"]
     tickers = [e["ticker"] for e in events]
     assert "AAPL" in tickers
     assert "PTT" in tickers
     assert "NVDA" in tickers
+    assert "FAILTICKER" not in tickers
 
     # Verify company_name logic
     aapl_event = next(e for e in events if e["ticker"] == "AAPL")
@@ -149,6 +152,51 @@ def test_get_portfolio_calendar_success_and_th_mapping(authed_client, isolated_c
     nvda_event = next(e for e in events if e["ticker"] == "NVDA")
     assert nvda_event["company_name"] is None
     assert nvda_event["bucket"] == "watchlist"
+
+
+def test_get_portfolio_calendar_filters_low_confidence_tickers(authed_client, isolated_calendar_portfolio, monkeypatch):
+    """ticker ที่ resolve ไม่ผ่าน (confidence='low', เช่น FAILTICKER) ต้องถูกกรองออกก่อนถึง fetch
+    ไม่ให้ไปรบกวน shared yfinance session ของ ticker อื่นที่ resolve ผ่าน (root cause ของบั๊กจริง)"""
+    calls: list[str] = []
+
+    def mock_get_asset_calendar(provider_symbol):
+        calls.append(provider_symbol)
+        return {}
+
+    monkeypatch.setattr("tools.market.calendar.get_asset_calendar", mock_get_asset_calendar)
+
+    res = authed_client.get("/api/portfolio/calendar")
+    assert res.status_code == 200
+    assert "FAILTICKER" not in calls
+
+
+def test_get_portfolio_calendar_tickers_failed_on_fetch_error(authed_client, isolated_calendar_portfolio, monkeypatch):
+    """ticker ที่ resolve ผ่าน (confidence สูงพอ) แต่ fetch calendar จริงพัง ต้องยังโผล่ใน tickers_failed"""
+    from tools.market.asset_resolver import ResolvedAsset, AssetClass
+
+    def mock_resolve_asset(symbol):
+        clean = symbol.strip().upper()
+        return ResolvedAsset(
+            raw_symbol=clean,
+            provider_symbol=clean,
+            asset_class=AssetClass.STOCK_US,
+            market="US",
+            confidence="medium",
+            eligible_for_financial_autopsy=True,
+        )
+
+    def mock_get_asset_calendar(provider_symbol):
+        if provider_symbol == "FAILTICKER":
+            raise RuntimeError("Network error fetching FAILTICKER")
+        return {}
+
+    monkeypatch.setattr("tools.market.asset_resolver.resolve_asset", mock_resolve_asset)
+    monkeypatch.setattr("tools.market.calendar.get_asset_calendar", mock_get_asset_calendar)
+
+    res = authed_client.get("/api/portfolio/calendar")
+    assert res.status_code == 200
+    data = res.json()
+    assert "FAILTICKER" in data["tickers_failed"]
 
 
 def test_get_portfolio_calendar_empty_state(authed_client, empty_calendar_portfolio, monkeypatch):

@@ -29,7 +29,7 @@ const STATUS_COLUMN_MAP: Record<StatusFilter, string[]> = {
   done: ['done'],
 }
 
-const DONE_FADE_AFTER_DAYS = 7
+const DONE_HIDE_AFTER_DAYS = 3
 const NOTICE_DISMISS_MS = 2500
 const NOTICE_LEAVE_MS = 150
 const DELETE_ANIM_MS = 150
@@ -313,12 +313,17 @@ export default function Kanban() {
   const editingTemplate = editingTemplateIndex !== null ? quickTemplates[editingTemplateIndex] : undefined
 
   function cardsForColumn(colKey: string): KanbanCardDTO[] {
-    return cards.filter((c) => {
+    const filtered = cards.filter((c) => {
       if (c.column_name !== colKey) return false
       if (flowFilter !== 'all' && c.flow !== flowFilter) return false
       if (searchLower && !c.title.toLowerCase().includes(searchLower)) return false
+      if (colKey === 'done' && daysSince(c.updated_at) > DONE_HIDE_AFTER_DAYS) return false
       return true
     })
+    if (colKey === 'done') {
+      return [...filtered].sort((a, b) => b.updated_at - a.updated_at)
+    }
+    return filtered
   }
 
   return (
@@ -369,7 +374,6 @@ export default function Kanban() {
               column={col}
               cards={cardsForColumn(col.key)}
               isBacklogColumn={col.key === 'backlog'}
-              isCardFaded={(c) => col.key === 'done' && daysSince(c.updated_at) > DONE_FADE_AFTER_DAYS}
               removingIds={removingIds}
               selectedCardId={selectedCardId}
               workspacePreviewFor={workspacePreviewFor}

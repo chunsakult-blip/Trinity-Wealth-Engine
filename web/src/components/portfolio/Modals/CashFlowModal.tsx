@@ -2,20 +2,21 @@ import { useState } from 'react'
 import FormModal, { FormField, FormInput, FormSelect } from './FormModal'
 import { CashFlowIcon } from '../icons/PortfolioIcons'
 import { api } from '../../../api/client'
+import { todayLocalDateString } from '../../../utils/formatters'
 import type { ActualPortfolioStateDTO } from '../../../api/types'
 
 interface Props {
-  selectedPortfolioId?: string
+  selectedPortfolioId: string
   onClose: () => void
   onSuccess: (state: ActualPortfolioStateDTO) => void
 }
 
-export default function CashFlowModal({ selectedPortfolioId = 'default', onClose, onSuccess }: Props) {
+export default function CashFlowModal({ selectedPortfolioId, onClose, onSuccess }: Props) {
   const [action, setAction] = useState<'deposit' | 'withdraw'>('deposit')
   const [amount, setAmount] = useState<string>('')
   const [currency, setCurrency] = useState<'THB' | 'USD'>('THB')
   const [exchangeRate, setExchangeRate] = useState<string>('')
-  const [date, setDate] = useState<string>(() => new Date().toISOString().split('T')[0] || '')
+  const [date, setDate] = useState<string>(() => todayLocalDateString())
   const [notes, setNotes] = useState<string>('')
 
   const [loading, setLoading] = useState(false)

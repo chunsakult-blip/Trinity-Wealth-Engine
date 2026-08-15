@@ -25,7 +25,7 @@ _USDTHB_TICKER = "USDTHB=X"
 
 from tools._atomic_io import _atomic_write_to
 from tools.tool_errors import LOCK_TIMEOUT, validation_error
-from .core import _load_or_init, _save, _recalc_all, _recalc_holding, _recalc_summary, _find_holding, _require_cash, _require_fx, get_portfolio_state, _holding_currency, compute_allocation_breakdown
+from .core import _load_or_init, _save, _recalc_all, _recalc_holding, _recalc_summary, _find_holding, _require_cash, _require_fx, get_portfolio_state, _holding_currency, compute_allocation_breakdown, _get_portfolio_lock
 from .models import _now_iso, _coerce_iso_string, Holding, Summary, PortfolioState, WatchlistItem, WatchlistState, GoalItem, GoalsState
 
 
@@ -44,9 +44,6 @@ _PCT_DP = 2
 
 _LOCK_TIMEOUT = 15  # seconds — wait up to 15s for another process to release
 _PRICE_FETCH_TIMEOUT = 6  # seconds per symbol when refreshing
-
-_PORTFOLIO_LOCK_PATH = str(PORTFOLIO_PATH) + ".lock"
-_portfolio_lock = FileLock(_PORTFOLIO_LOCK_PATH, timeout=_LOCK_TIMEOUT)
 
 
 
@@ -241,7 +238,7 @@ def _fetch_fundamentals(state: PortfolioState, force: bool = False) -> dict[str,
 
 
 @tool
-def sync_market_prices() -> str:
+def sync_market_prices(portfolio_id: str = "default") -> str:
     """ดึงราคาตลาดล่าสุดของทุกสินทรัพย์ในพอร์ตโฟลิโอ
 
     [Usage/When to use]
@@ -251,15 +248,18 @@ def sync_market_prices() -> str:
     [Caution]
     - อาจใช้เวลาสักพักหากมีสินทรัพย์จำนวนมาก
 
+    Args:
+        portfolio_id (str): พอร์ตการลงทุนที่ต้องการ sync ราคา (ค่าเริ่มต้น 'default')
+
     Returns:
         str: สรุปผลการอัปเดตราคาตลาด
     """
     try:
-        with _portfolio_lock:
-            post, state = _load_or_init()
+        with _get_portfolio_lock(portfolio_id):
+            post, state = _load_or_init(portfolio_id=portfolio_id)
             nav_before = state.summary.total_value_thb
             refresh_info = _refresh_prices(state)
-            _save(post, state)
+            _save(post, state, portfolio_id=portfolio_id)
             nav_after = state.summary.total_value_thb
             unrealized_after = state.summary.total_unrealized_profit
     except Timeout:

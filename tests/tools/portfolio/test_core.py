@@ -173,16 +173,16 @@ import tools.portfolio.core as core
 class TestLoadOrInitCore:
     def test_load_no_metadata(self, isolated_portfolio, tmp_vault, monkeypatch):
         pt = isolated_portfolio
-        test_path = tmp_vault / "20_Portfolio_Management/Current_Holdings/Portfolio_Holdings.md"
-        monkeypatch.setattr(core, "PORTFOLIO_PATH", test_path)
-        
+        import tools.portfolio.core as core_fresh
+        test_path = core_fresh._get_portfolio_filepath("default")
+
         # Create a blank markdown file
         test_path.parent.mkdir(parents=True, exist_ok=True)
         with open(test_path, "w", encoding="utf-8") as f:
             f.write("Hello World")
-        
+
         # It should log warning and init new state
-        post, state = core._load_or_init()
+        post, state = core_fresh._load_or_init()
         assert len(state.holdings) == 2  # Default cash symbols
 
 class TestHoldingSidecars:
@@ -213,14 +213,15 @@ class TestHoldingSidecars:
         
         import tools.portfolio.core as cl
         import frontmatter
-        sidecars = list(cl.HOLDINGS_DIR.glob("*.md"))
+        holdings_dir = cl._get_holdings_dir("default")
+        sidecars = list(holdings_dir.glob("*.md"))
         assert len(sidecars) == 2
-        
+
         pt._execute_trade_locked("PTT", "Stock", "sell", 100, 35.0, "THB")
-        sidecars_after = list(cl.HOLDINGS_DIR.glob("*.md"))
+        sidecars_after = list(holdings_dir.glob("*.md"))
         assert len(sidecars_after) == 2  # Not deleted, archived instead!
 
-        ptt_file = cl.HOLDINGS_DIR / "PTT.md"
+        ptt_file = holdings_dir / "PTT.md"
         assert ptt_file.exists()
         with ptt_file.open("r", encoding="utf-8") as f:
             ptt_post = frontmatter.load(f)
@@ -229,7 +230,7 @@ class TestHoldingSidecars:
         assert ptt_post.metadata.get("schema_version") == 1
         assert ptt_post.metadata.get("derived") is True
 
-        aapl_file = cl.HOLDINGS_DIR / "AAPL.md"
+        aapl_file = holdings_dir / "AAPL.md"
         with aapl_file.open("r", encoding="utf-8") as f:
             aapl_post = frontmatter.load(f)
         assert aapl_post.metadata.get("status") == "active"
@@ -245,8 +246,10 @@ class TestHoldingSidecars:
         pt._execute_trade_locked("PTT", "Stock", "buy", 100, 35.0, "THB")
 
         import tools.portfolio.core as cl
-        assert (cl.HOLDINGS_DIR / "PTT.md").exists()
-        assert cl.PORTFOLIO_PATH.exists()
+        holdings_dir = cl._get_holdings_dir("default")
+        portfolio_path = cl._get_portfolio_filepath("default")
+        assert (holdings_dir / "PTT.md").exists()
+        assert portfolio_path.exists()
 
         post, state = cl._load_or_init()
         assert len(state.holdings) > 0
@@ -255,10 +258,10 @@ class TestHoldingSidecars:
         # Run reset clean slate
         new_state = cl.structured_reset_clean_slate()
         assert len(new_state.holdings) == 0
-        assert not (cl.HOLDINGS_DIR / "PTT.md").exists()
+        assert not (holdings_dir / "PTT.md").exists()
 
         # Check .backups directory created
-        backups_dir = cl.PORTFOLIO_PATH.parent / ".backups"
+        backups_dir = portfolio_path.parent / ".backups"
         assert backups_dir.exists()
         backup_subdirs = list(backups_dir.glob("*"))
         assert len(backup_subdirs) >= 1
@@ -317,11 +320,12 @@ class TestGetPortfolioStateRefresh:
 
     def test_get_portfolio_state_lock_timeout(self, isolated_portfolio, monkeypatch):
         pt = isolated_portfolio
+        import tools.portfolio.core as core_fresh
         def mock_lock(*args, **kwargs):
             from filelock import Timeout
             raise Timeout("mock")
-        monkeypatch.setattr("tools.portfolio.core._portfolio_lock.acquire", mock_lock)
-        
+        monkeypatch.setattr(core_fresh._get_portfolio_lock("default"), "acquire", mock_lock)
+
         result = pt.get_portfolio_state.func()
         import json
         data = json.loads(result)
@@ -350,11 +354,12 @@ class TestComputeAllocationExceptions:
         assert "group_by ต้องเป็น" in result
     def test_compute_allocation_lock_timeout(self, isolated_portfolio, monkeypatch):
         pt = isolated_portfolio
+        import tools.portfolio.core as core_fresh
         def mock_lock(*args, **kwargs):
             from filelock import Timeout
             raise Timeout("mock")
-        monkeypatch.setattr("tools.portfolio.core._portfolio_lock.acquire", mock_lock)
-        
+        monkeypatch.setattr(core_fresh._get_portfolio_lock("default"), "acquire", mock_lock)
+
         result = pt.compute_allocation_breakdown.func()
 
         assert isinstance(result, str) and result.startswith("Error:")

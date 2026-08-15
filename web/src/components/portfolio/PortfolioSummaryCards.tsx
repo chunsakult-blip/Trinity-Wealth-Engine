@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { ActualSummaryDTO, PerformanceSnapshotDTO } from '../../api/types'
 
 interface Props {
@@ -21,6 +22,7 @@ export default function PortfolioSummaryCards({
   onRefreshPrices,
   performanceRows = [],
 }: Props) {
+  const [showDetails, setShowDetails] = useState(false)
   if (loading || !summary) {
     return (
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -196,24 +198,69 @@ export default function PortfolioSummaryCards({
             {refreshingPrices ? 'กำลังอัปเดตราคา...' : 'อัปเดตราคาตลาด (Refresh)'}
           </button>
         </div>
-        {priceRefreshInfo && Object.keys(priceRefreshInfo).length > 0 && (
-          <div className="mt-2 max-h-16 overflow-y-auto rounded-lg bg-zinc-50 p-1.5 text-[10px] space-y-0.5 border border-zinc-200">
-            {Object.entries(priceRefreshInfo).map(([sym, status]) => (
-              <div key={sym} className="flex justify-between items-center font-mono tabular-nums">
-                <span className="font-bold text-zinc-700">{sym}:</span>
-                <span
-                  className={
-                    status.toLowerCase().includes('ok') || status.toLowerCase().includes('updated')
-                      ? 'text-emerald-600'
-                      : 'text-amber-600'
-                  }
+        {(() => {
+          if (!priceRefreshInfo) return null
+          const refreshEntries = Object.entries(priceRefreshInfo)
+          const totalRefreshCount = refreshEntries.length
+          if (totalRefreshCount === 0) return null
+
+          const failedRefreshEntries = refreshEntries.filter(
+            ([_, status]) => !status.toLowerCase().includes('ok') && !status.toLowerCase().includes('updated')
+          )
+          const isAllRefreshOk = failedRefreshEntries.length === 0
+
+          return (
+            <div className="mt-2.5 rounded-xl border border-zinc-200/80 bg-zinc-50/80 p-2 text-xs transition-all">
+              <div className="flex items-center justify-between">
+                {isAllRefreshOk ? (
+                  <span className="inline-flex items-center gap-1.5 font-medium text-emerald-700">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                    อัปเดตราคาสำเร็จ ({totalRefreshCount} รายการ)
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 font-medium text-amber-700">
+                    <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                    สำเร็จ {totalRefreshCount - failedRefreshEntries.length}/{totalRefreshCount} รายการ
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowDetails(!showDetails)}
+                  className="text-[11px] font-semibold text-zinc-500 hover:text-zinc-800 transition-colors"
                 >
-                  {status}
-                </span>
+                  {showDetails ? 'ซ่อน' : 'รายละเอียด'}
+                </button>
               </div>
-            ))}
-          </div>
-        )}
+
+              {!isAllRefreshOk && !showDetails && (
+                <div className="mt-1.5 space-y-0.5 border-t border-zinc-200/60 pt-1 text-[10px] font-mono text-amber-700">
+                  {failedRefreshEntries.map(([sym, status]) => (
+                    <div key={sym} className="flex justify-between items-center">
+                      <span className="font-bold">{sym}:</span>
+                      <span>{status}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {showDetails && (
+                <div className="mt-1.5 max-h-28 overflow-y-auto space-y-0.5 border-t border-zinc-200/60 pt-1.5 text-[10px] font-mono tabular-nums">
+                  {refreshEntries.map(([sym, status]) => {
+                    const isOk = status.toLowerCase().includes('ok') || status.toLowerCase().includes('updated')
+                    return (
+                      <div key={sym} className="flex justify-between items-center">
+                        <span className="font-bold text-zinc-700">{sym}:</span>
+                        <span className={isOk ? 'text-emerald-600 font-medium' : 'text-amber-600 font-semibold'}>
+                          {status}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )
+        })()}
       </div>
     </div>
   )

@@ -40,6 +40,7 @@ def detect_provider(model_name: str) -> str:
 
 
 def _build_primary(provider: str, model_name: str, temperature: float, max_output_tokens: Optional[int] = None) -> BaseChatModel:
+    model_name = model_name.strip()
     if provider == "google":
         return ChatGoogleGenerativeAI(model=model_name, temperature=temperature, max_output_tokens=max_output_tokens, api_key=os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"))
     if provider == "anthropic":

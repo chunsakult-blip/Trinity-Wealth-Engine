@@ -89,7 +89,8 @@ describe('TradeModal', () => {
         expect.objectContaining({
           action: 'deposit',
           currency: 'USD',
-        })
+        }),
+        'default'
       )
       expect(api.executeTrade).toHaveBeenCalledTimes(2)
       expect(onSuccess).toHaveBeenCalled()

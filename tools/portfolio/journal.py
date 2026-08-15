@@ -26,7 +26,7 @@ _JOURNAL_BLOCK_RE = re.compile(
 )
 
 from tools._atomic_io import _atomic_write_to
-from tools.tool_errors import validation_error
+from tools.tool_errors import LOCK_TIMEOUT, validation_error
 from .core import _load_or_init, _save, _recalc_all, _recalc_holding, _recalc_summary, _find_holding, _require_cash, _require_fx, get_portfolio_state, _holding_currency, compute_allocation_breakdown
 from .models import _now_iso, _coerce_iso_string, Holding, Summary, PortfolioState, WatchlistItem, WatchlistState, GoalItem, GoalsState
 
@@ -47,21 +47,14 @@ _PCT_DP = 2
 _LOCK_TIMEOUT = 15  # seconds — wait up to 15s for another process to release
 _PRICE_FETCH_TIMEOUT = 6  # seconds per symbol when refreshing
 
-_PORTFOLIO_LOCK_PATH = str(PORTFOLIO_PATH) + ".lock"
-_portfolio_lock = FileLock(_PORTFOLIO_LOCK_PATH, timeout=_LOCK_TIMEOUT)
-
-
-
-from .core import _get_portfolio_lock, _load_or_init, _save
+from .core import _get_portfolio_lock, _load_or_init, _save, _portfolio_exists, _normalize_portfolio_id
 
 
 def _get_journal_filepath(portfolio_id: str = "default") -> Path:
-    pid = portfolio_id.strip().lower() if portfolio_id else "default"
-    if pid == "default":
-        return TRADING_JOURNAL_PATH
-    pdir = VAULT_PATH / "20_Portfolio_Management/Current_Holdings/Portfolios"
+    pid = _normalize_portfolio_id(portfolio_id)
+    pdir = PORTFOLIOS_DIR / pid
     pdir.mkdir(parents=True, exist_ok=True)
-    return pdir / f"{pid}_journal.md"
+    return pdir / "Trading_Journal.md"
 
 
 def _inject_journal_wikilinks(content: str) -> str:
@@ -76,7 +69,10 @@ def _inject_journal_wikilinks(content: str) -> str:
 
 def _write_journal_entry(content: str, date_str: str | None = None, portfolio_id: str = "default") -> str:
     """Append timestamped block ลง Trading Journal — คืน timestamp ที่ใช้"""
-    jpath = _get_journal_filepath(portfolio_id)
+    pid = _normalize_portfolio_id(portfolio_id)
+    if pid != "default" and not _portfolio_exists(pid):
+        raise ValueError(f"ไม่พบพอร์ตไอดี '{pid}' ในระบบ — ใช้ tool_create_portfolio ก่อน")
+    jpath = _get_journal_filepath(pid)
     jpath.parent.mkdir(parents=True, exist_ok=True)
     if date_str and date_str.strip():
         val = date_str.strip()
@@ -88,8 +84,8 @@ def _write_journal_entry(content: str, date_str: str | None = None, portfolio_id
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     linked = _inject_journal_wikilinks(content)
     block = f"\n## [{timestamp}]\n\n{linked}\n"
-    with jpath.open("a", encoding="utf-8") as f:
-        f.write(block)
+    existing = jpath.read_text(encoding="utf-8") if jpath.exists() else ""
+    _atomic_write_to(jpath, existing + block)
     return timestamp
 
 
@@ -112,7 +108,15 @@ def append_trading_journal(entry: str, portfolio_id: str = "default") -> str:
     if not content:
         return validation_error("entry ต้องไม่ว่าง")
 
-    timestamp = _write_journal_entry(content, portfolio_id=portfolio_id)
+    lock = _get_portfolio_lock(portfolio_id)
+    try:
+        with lock:
+            timestamp = _write_journal_entry(content, portfolio_id=portfolio_id)
+    except Timeout:
+        return LOCK_TIMEOUT.format(detail=f"journal lock {_LOCK_TIMEOUT}s")
+    except ValueError as e:
+        return f"Error: {e}"
+
     return f"[JOURNAL] บันทึกสำเร็จ | [{timestamp}] | {len(content)} chars"
 
 
@@ -199,7 +203,9 @@ def structured_append_journal(entry: str, portfolio_id: str = "default") -> list
     content = (entry or "").strip()
     if not content:
         raise ValueError("entry ต้องไม่ว่าง")
-    _write_journal_entry(content, portfolio_id=portfolio_id)
+    lock = _get_portfolio_lock(portfolio_id)
+    with lock:
+        _write_journal_entry(content, portfolio_id=portfolio_id)
     return get_structured_journal(days=365, limit=100, portfolio_id=portfolio_id)
 
 

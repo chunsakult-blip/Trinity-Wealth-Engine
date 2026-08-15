@@ -6,13 +6,14 @@ import type { ActualGoalItemDTO, ActualGoalsResponseDTO, PortfolioMetaDTO } from
 
 interface Props {
   initialGoal?: ActualGoalItemDTO | null
+  existingNames?: string[]
   portfolios?: PortfolioMetaDTO[]
   selectedPortfolioId?: string
   onClose: () => void
   onSuccess: (response: ActualGoalsResponseDTO) => void
 }
 
-export default function GoalModal({ initialGoal, portfolios = [], selectedPortfolioId = 'default', onClose, onSuccess }: Props) {
+export default function GoalModal({ initialGoal, existingNames = [], portfolios = [], selectedPortfolioId = 'default', onClose, onSuccess }: Props) {
   const isEdit = !!initialGoal
   const [name, setName] = useState(initialGoal?.name || '')
   const [goalType, setGoalType] = useState<'nav_target' | 'cash_target' | 'passive_income_ytd' | 'bucket_target'>(
@@ -34,6 +35,10 @@ export default function GoalModal({ initialGoal, portfolios = [], selectedPortfo
     e.preventDefault()
     if (!name.trim() || !targetAmountThb || parseFloat(targetAmountThb) <= 0) {
       setError('กรุณาระบุชื่อเป้าหมาย และจำนวนเป้าหมาย THB ที่มากกว่า 0')
+      return
+    }
+    if (!isEdit && existingNames.includes(name.trim())) {
+      setError('ชื่อเป้าหมายนี้มีอยู่แล้ว — ใช้ปุ่มแก้ไขแทน หรือตั้งชื่ออื่นเพื่อไม่ให้ไปทับเป้าหมายเดิม')
       return
     }
     setLoading(true)

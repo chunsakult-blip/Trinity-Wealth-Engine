@@ -32,6 +32,7 @@ describe('PortfolioOverviewTab', () => {
   it('renders warning badge when warning is provided', () => {
     render(
       <PortfolioOverviewTab
+        portfolioId="default"
         targets={targets}
         summaries={summaries}
         warning="ผลรวมสัดส่วนเป้าหมายเท่ากับ 100% (ปกติ)"
@@ -43,7 +44,7 @@ describe('PortfolioOverviewTab', () => {
 
   it('renders concentric donut chart and strategy buckets table', () => {
     render(
-      <PortfolioOverviewTab targets={targets} summaries={summaries} warning={null} onSelectBucket={vi.fn()} />
+      <PortfolioOverviewTab portfolioId="default" targets={targets} summaries={summaries} warning={null} onSelectBucket={vi.fn()} />
     )
     expect(screen.getByText('Allocation Rings (Target vs Actual)')).toBeInTheDocument()
     expect(screen.getByText('Strategy Buckets Breakdown')).toBeInTheDocument()
@@ -54,7 +55,7 @@ describe('PortfolioOverviewTab', () => {
   it('triggers onSelectBucket callback when bucket row in table is clicked', () => {
     const onSelectMock = vi.fn()
     render(
-      <PortfolioOverviewTab targets={targets} summaries={summaries} warning={null} onSelectBucket={onSelectMock} />
+      <PortfolioOverviewTab portfolioId="default" targets={targets} summaries={summaries} warning={null} onSelectBucket={onSelectMock} />
     )
 
     const coreRowText = screen.getByText('Core Growth')

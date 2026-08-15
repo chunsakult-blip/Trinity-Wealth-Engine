@@ -25,7 +25,8 @@ class TestPerformanceSnapshotCashAggregation:
 
         # Verify CSV row directly
         import csv
-        csv_path = tmp_vault / "20_Portfolio_Management" / "Journals_and_Reports" / "Performance_Log.csv"
+        import tools.portfolio.performance as perf_mod
+        csv_path = perf_mod._get_performance_filepath("default")
         with csv_path.open("r", encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
         last = rows[-1]
@@ -51,7 +52,8 @@ class TestReadPerformanceHistory:
         pt = isolated_portfolio
         # เขียน CSV ตรงๆ ด้วย rows ที่ควบคุมได้ — เลี่ยง yfinance + simulate trend
         import csv
-        csv_path = tmp_vault / "20_Portfolio_Management" / "Journals_and_Reports" / "Performance_Log.csv"
+        import tools.portfolio.performance as perf_mod
+        csv_path = perf_mod._get_performance_filepath("default")
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         with csv_path.open("w", encoding="utf-8", newline="") as f:
             w = csv.writer(f)
@@ -81,7 +83,8 @@ class TestReadPerformanceHistory:
     def test_tail_days(self, isolated_portfolio, tmp_vault):
         pt = isolated_portfolio
         import csv
-        csv_path = tmp_vault / "20_Portfolio_Management" / "Journals_and_Reports" / "Performance_Log.csv"
+        import tools.portfolio.performance as perf_mod
+        csv_path = perf_mod._get_performance_filepath("default")
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         with csv_path.open("w", encoding="utf-8", newline="") as f:
             w = csv.writer(f)
@@ -143,7 +146,8 @@ class TestPerformanceSnapshotAddons:
 class TestReadPerformanceHistoryAddons:
     def test_empty_csv(self, isolated_portfolio, tmp_vault):
         pt = isolated_portfolio
-        csv_path = tmp_vault / "20_Portfolio_Management" / "Journals_and_Reports" / "Performance_Log.csv"
+        import tools.portfolio.performance as perf_mod
+        csv_path = perf_mod._get_performance_filepath("default")
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         with csv_path.open("w", encoding="utf-8", newline="") as f:
             w = csv.writer(f)
@@ -165,7 +169,8 @@ class TestReadPerformanceHistoryAddons:
         assert "[PERF]" in result
 
         import csv
-        csv_path = tmp_vault / "20_Portfolio_Management" / "Journals_and_Reports" / "Performance_Log.csv"
+        import tools.portfolio.performance as perf_mod
+        csv_path = perf_mod._get_performance_filepath("default")
         with csv_path.open("r", encoding="utf-8") as f:
             rows = list(csv.reader(f))
 
@@ -178,7 +183,8 @@ class TestReadPerformanceHistoryAddons:
     def test_snapshot_header_migration(self, isolated_portfolio, tmp_vault):
         pt = isolated_portfolio
         import csv
-        csv_path = tmp_vault / "20_Portfolio_Management" / "Journals_and_Reports" / "Performance_Log.csv"
+        import tools.portfolio.performance as perf_mod
+        csv_path = perf_mod._get_performance_filepath("default")
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         with csv_path.open("w", encoding="utf-8", newline="") as f:
             w = csv.writer(f)

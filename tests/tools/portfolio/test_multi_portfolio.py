@@ -1,3 +1,4 @@
+import json
 import pytest
 from pathlib import Path
 
@@ -84,3 +85,174 @@ def test_create_portfolio_thai_name_does_not_produce_garbage_id(isolated_portfol
     portfolios = core.list_portfolios()
     assert any(p.id == p1.id for p in portfolios)
     assert any(p.id == p2.id for p in portfolios)
+
+
+def test_read_tools_respect_portfolio_id(isolated_portfolio):
+    """get_portfolio_state / compute_allocation_breakdown / read_performance_history
+    ต้องอ่านค่าของพอร์ตที่ระบุ ไม่ใช่ default เสมอ (เดิมไม่มีพารามิเตอร์ portfolio_id เลย)
+    """
+    import tools.portfolio.core as core
+    import tools.portfolio.trading as trading
+    import tools.portfolio.performance as perf
+
+    core.create_portfolio(name="Retirement", portfolio_id="retirement")
+    trading.structured_manage_cash_flow(
+        amount=50000.0, action="deposit", currency="THB", portfolio_id="retirement"
+    )
+
+    state_data = json.loads(
+        core.get_portfolio_state.invoke({"refresh_prices": False, "portfolio_id": "retirement"})
+    )
+    cash_retirement = next(h["units"] for h in state_data["holdings"] if h["symbol"] == "CASH_THB")
+    assert cash_retirement == 50000.0
+
+    default_data = json.loads(
+        core.get_portfolio_state.invoke({"refresh_prices": False, "portfolio_id": "default"})
+    )
+    cash_default = next(h["units"] for h in default_data["holdings"] if h["symbol"] == "CASH_THB")
+    assert cash_default == 0.0
+
+    breakdown = json.loads(
+        core.compute_allocation_breakdown.invoke({"group_by": "asset_type", "portfolio_id": "retirement"})
+    )
+    assert breakdown["total_nav_thb"] == 50000.0
+
+    perf.record_performance_snapshot.invoke({"refresh_prices": False, "portfolio_id": "retirement"})
+    hist = json.loads(
+        perf.read_performance_history.invoke({"days": 30, "portfolio_id": "retirement"})
+    )
+    assert hist["latest_nav"] == 50000.0
+
+
+def test_trades_log_split_per_portfolio(isolated_portfolio):
+    """Trades_Log.csv ของพอร์ตรองต้องแยกไฟล์จาก default ไม่ปนกัน"""
+    import tools.portfolio.core as core
+    import tools.portfolio.trading as trading
+
+    core.create_portfolio(name="Retirement", portfolio_id="retirement")
+    trading.structured_manage_cash_flow(
+        amount=100000.0, action="deposit", currency="THB", portfolio_id="retirement"
+    )
+    trading.execute_trade.invoke({
+        "symbol": "PG", "asset_type": "Stock", "action": "buy",
+        "units": 10, "price": 100.0, "currency": "THB", "portfolio_id": "retirement",
+    })
+
+    default_log = trading._get_trades_log_filepath("default")
+    retirement_log = trading._get_trades_log_filepath("retirement")
+
+    assert retirement_log != default_log
+    assert retirement_log.exists()
+    assert "PG" in retirement_log.read_text(encoding="utf-8")
+    # default log ต้องไม่มีแถวจากพอร์ต retirement ปนอยู่
+    if default_log.exists():
+        assert "PG" not in default_log.read_text(encoding="utf-8")
+
+
+def test_sidecars_sync_for_non_default_portfolio_without_collision(isolated_portfolio):
+    """Holdings/Watchlist sidecar ของพอร์ตรองต้อง sync จริง และไม่ชนกับ symbol เดียวกันในพอร์ตอื่น"""
+    import tools.portfolio.core as core
+    import tools.portfolio.trading as trading
+    import tools.portfolio.watchlist as watchlist
+
+    core.create_portfolio(name="Retirement", portfolio_id="retirement")
+    for pid in ("default", "retirement"):
+        trading.structured_manage_cash_flow(amount=100000.0, action="deposit", currency="THB", portfolio_id=pid)
+        trade_result = trading.execute_trade.invoke({
+            "symbol": "AAPL", "asset_type": "Stock", "action": "buy",
+            "units": 1, "price": 100.0, "currency": "THB", "portfolio_id": pid,
+        })
+        assert not trade_result.startswith("Error:"), trade_result
+        watchlist.add_to_watchlist.invoke({"symbol": "TSLA", "asset_type": "Stock", "portfolio_id": pid})
+
+    default_holdings_dir = core._get_holdings_dir("default")
+    retirement_holdings_dir = core._get_holdings_dir("retirement")
+    assert default_holdings_dir != retirement_holdings_dir
+    assert (default_holdings_dir / "AAPL.md").exists()
+    assert (retirement_holdings_dir / "AAPL.md").exists()
+
+    default_wl_dir = watchlist._get_watchlist_items_dir("default")
+    retirement_wl_dir = watchlist._get_watchlist_items_dir("retirement")
+    assert default_wl_dir != retirement_wl_dir
+    assert (default_wl_dir / "TSLA.md").exists()
+    assert (retirement_wl_dir / "TSLA.md").exists()
+
+
+def test_watchlist_guards_against_nonexistent_portfolio(isolated_portfolio):
+    """เรียก watchlist tool ด้วย portfolio_id ที่ไม่เคยสร้างจริง ต้องได้ error ไม่ใช่สร้างไฟล์กำพร้า"""
+    import tools.portfolio.watchlist as watchlist
+
+    result = watchlist.add_to_watchlist.invoke({
+        "symbol": "AAPL", "asset_type": "Stock", "portfolio_id": "never_created",
+    })
+    assert result.startswith("Error:")
+
+    ghost_watchlist_path = watchlist._get_watchlist_filepath("never_created")
+    assert not ghost_watchlist_path.exists()
+
+
+def test_portfolio_id_rejects_path_traversal(isolated_portfolio):
+    """portfolio_id ต้องถูก sanitize ก่อนสร้าง filesystem path เสมอ — กัน path traversal
+    (เช่น '../../evil') ที่อาจหลุดออกนอกโฟลเดอร์ Portfolios/ ได้ ไม่งั้น delete_portfolio's
+    shutil.rmtree จะลบโฟลเดอร์นอกเป้าหมายได้
+    """
+    import tools.portfolio.core as core
+
+    malicious_ids = ["../../evil", "..\\..\\evil", "a/b", "a\\b", "..", "."]
+    for bad_id in malicious_ids:
+        with pytest.raises(ValueError):
+            core._get_portfolio_filepath(bad_id)
+        with pytest.raises(ValueError):
+            core._normalize_portfolio_id(bad_id)
+
+    # ค่าที่ถูกต้องต้องยังผ่านปกติ
+    assert core._normalize_portfolio_id("emergency_fund-2") == "emergency_fund-2"
+    assert core._normalize_portfolio_id("default") == "default"
+    assert core._normalize_portfolio_id(None) == "default"
+
+
+def test_load_or_init_rejects_nonexistent_non_default_portfolio(isolated_portfolio):
+    """เรียก _load_or_init กับ portfolio_id ที่ไม่เคยสร้างผ่าน create_portfolio() ต้อง error
+    ไม่ใช่สร้างพอร์ตผีขึ้นมาเงียบๆ (default ยังคง auto-bootstrap ได้ตามปกติ)
+    """
+    import tools.portfolio.core as core
+
+    with pytest.raises(ValueError, match="ไม่พบพอร์ตไอดี"):
+        core._load_or_init(portfolio_id="never_created_portfolio")
+
+    # default ต้องยัง auto-bootstrap ได้ตามเดิม (ไม่ error)
+    post, state = core._load_or_init(portfolio_id="default")
+    assert state is not None
+
+
+def test_journal_entries_land_in_correct_portfolio_not_default(isolated_portfolio):
+    """เทรด/ฝากเงิน/บันทึกรายได้/แก้ไข/ลบ holding ในพอร์ตที่ไม่ใช่ default ต้องเขียนบันทึก
+    อัตโนมัติลง Trading Journal ของพอร์ตนั้นเอง ไม่ใช่ของ default (บั๊กเดิม: trading.py
+    เรียก _write_journal_entry โดยไม่ส่ง portfolio_id เลยตกไปที่ default เสมอ)
+    """
+    import tools.portfolio.core as core
+    import tools.portfolio.journal as journal
+    import tools.portfolio.trading as trading
+
+    core.create_portfolio(name="Emergency Fund", portfolio_id="emergency_fund")
+    trading.structured_manage_cash_flow(
+        amount=100000.0, action="deposit", currency="THB",
+        date="2026-01-01", notes="เติมเงินก้อนแรก", portfolio_id="emergency_fund",
+    )
+    trading.structured_execute_trade(
+        symbol="PTT", asset_type="Stock", action="buy", units=100, price=30.0,
+        currency="THB", date="2026-01-02", notes="ซื้อ PTT", portfolio_id="emergency_fund",
+    )
+
+    emergency_journal_path = journal._get_journal_filepath("emergency_fund")
+    default_journal_path = journal._get_journal_filepath("default")
+
+    assert emergency_journal_path.exists()
+    emergency_content = emergency_journal_path.read_text(encoding="utf-8")
+    assert "CASH FLOW NOTE" in emergency_content
+    assert "TRADE NOTE" in emergency_content
+    assert "PTT" in emergency_content
+
+    # default journal ต้องไม่มีข้อมูลของ emergency_fund ปนอยู่ (ไฟล์ไม่มีอยู่เลยหรือไม่มีคำว่า PTT)
+    if default_journal_path.exists():
+        assert "PTT" not in default_journal_path.read_text(encoding="utf-8")

@@ -50,9 +50,6 @@ _PCT_DP = 2
 _LOCK_TIMEOUT = 15  # seconds — wait up to 15s for another process to release
 _PRICE_FETCH_TIMEOUT = 6  # seconds per symbol when refreshing
 
-_PORTFOLIO_LOCK_PATH = str(PORTFOLIO_PATH) + ".lock"
-_portfolio_lock = FileLock(_PORTFOLIO_LOCK_PATH, timeout=_LOCK_TIMEOUT)
-
 
 
 class AllocationTarget(BaseModel):
@@ -60,7 +57,7 @@ class AllocationTarget(BaseModel):
 
     bucket_id: str
     name: str
-    target_percent: float
+    target_percent: float = Field(ge=0, le=100)
     color: str | None = None
 
 

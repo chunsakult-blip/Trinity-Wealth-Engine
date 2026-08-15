@@ -2,20 +2,21 @@ import { useState } from 'react'
 import FormModal, { FormField, FormInput, FormSelect } from './FormModal'
 import { IncomeIcon } from '../icons/PortfolioIcons'
 import { api } from '../../../api/client'
+import { todayLocalDateString } from '../../../utils/formatters'
 import type { ActualPortfolioStateDTO } from '../../../api/types'
 
 interface Props {
   holdingsSymbols: string[]
-  selectedPortfolioId?: string
+  selectedPortfolioId: string
   onClose: () => void
   onSuccess: (state: ActualPortfolioStateDTO) => void
 }
 
-export default function IncomeModal({ holdingsSymbols, selectedPortfolioId = 'default', onClose, onSuccess }: Props) {
+export default function IncomeModal({ holdingsSymbols, selectedPortfolioId, onClose, onSuccess }: Props) {
   const [incomeType, setIncomeType] = useState<'Dividend' | 'Interest' | 'Rental' | 'Other'>('Dividend')
   const [amountThb, setAmountThb] = useState<string>('')
   const [sourceSymbol, setSourceSymbol] = useState<string>('')
-  const [date, setDate] = useState<string>(() => new Date().toISOString().split('T')[0] || '')
+  const [date, setDate] = useState<string>(() => todayLocalDateString())
   const [notes, setNotes] = useState<string>('')
 
   const [loading, setLoading] = useState(false)

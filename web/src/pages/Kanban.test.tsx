@@ -268,4 +268,70 @@ describe('Kanban Page Auto-Resume Guard & Flow Isolation', () => {
     expect(api.getJobStatus).not.toHaveBeenCalled()
     expect(api.resumeJob).not.toHaveBeenCalled()
   })
+
+  it('filters out done cards older than 3 days and sorts remaining done cards newest first', async () => {
+    const nowInSec = Math.floor(Date.now() / 1000)
+    const daySec = 86400
+
+    const freshDoneCard = {
+      card_id: 'c-done-fresh',
+      title: 'Fresh Done Card',
+      prompt: null,
+      flow: 'manager',
+      scope: 'both',
+      column_name: 'done',
+      display_seq: 1,
+      discord_notify: false,
+      is_verified: true,
+      created_at: nowInSec - daySec * 2,
+      updated_at: nowInSec - daySec * 1, // 1 day ago (<= 3 days)
+      job_id: null,
+    }
+
+    const newestDoneCard = {
+      card_id: 'c-done-newest',
+      title: 'Newest Done Card',
+      prompt: null,
+      flow: 'manager',
+      scope: 'both',
+      column_name: 'done',
+      display_seq: 2,
+      discord_notify: false,
+      is_verified: true,
+      created_at: nowInSec - daySec * 1,
+      updated_at: nowInSec - 300, // 5 minutes ago
+      job_id: null,
+    }
+
+    const oldDoneCard = {
+      card_id: 'c-done-old',
+      title: 'Old Done Card',
+      prompt: null,
+      flow: 'manager',
+      scope: 'both',
+      column_name: 'done',
+      display_seq: 3,
+      discord_notify: false,
+      is_verified: true,
+      created_at: nowInSec - daySec * 5,
+      updated_at: nowInSec - daySec * 4, // 4 days ago (> 3 days -> hidden)
+      job_id: null,
+    }
+
+    vi.mocked(api.listKanbanCards).mockResolvedValue([freshDoneCard, newestDoneCard, oldDoneCard])
+
+    render(<Kanban />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Newest Done Card')).toBeInTheDocument()
+      expect(screen.getByText('Fresh Done Card')).toBeInTheDocument()
+    })
+
+    // Old card (> 3 days) should be hidden
+    expect(screen.queryByText('Old Done Card')).not.toBeInTheDocument()
+
+    // Verify order: Newest Done Card should appear before Fresh Done Card
+    const cardTitles = screen.getAllByText(/(Newest|Fresh) Done Card/).map((el) => el.textContent)
+    expect(cardTitles).toEqual(['Newest Done Card', 'Fresh Done Card'])
+  })
 })

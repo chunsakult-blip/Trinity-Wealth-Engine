@@ -136,4 +136,36 @@ describe('KanbanDetailDrawer', () => {
     // ApprovalPanel header should NOT be rendered
     expect(screen.queryByText(/รอการอนุมัติ — เลือกรายการข่าว/)).not.toBeInTheDocument()
   })
+
+  it('does NOT render EquityStockControls on news_funnel card even if prompt contains "วิเคราะห์หุ้น"', async () => {
+    vi.mocked(api.getNewsFunnelPending).mockResolvedValue([])
+    vi.mocked(api.getNewsFunnelFiltered).mockResolvedValue([])
+
+    const card = {
+      card_id: 'card-nf-text',
+      title: '[EVENING] News Funnel High-Impact (41 items)',
+      prompt: '### 📰 รายการข่าว High-Impact\n- **สรุป:** นักวิเคราะห์หุ้นคาดการณ์ผลตอบแทน...',
+      flow: 'news_funnel',
+      scope: 'both',
+      column_name: 'backlog',
+      display_seq: 92,
+      discord_notify: false,
+      is_verified: false,
+      created_at: 1700000000,
+      updated_at: 1700000000,
+      job_id: null,
+    }
+
+    render(
+      <KanbanDetailDrawer
+        card={card}
+        onClose={vi.fn()}
+        onCardTransition={vi.fn()}
+        onDispatchCard={vi.fn()}
+      />
+    )
+
+    // Should NOT show EquityStockControls label
+    expect(screen.queryByText('เลือกรุ่นหุ้นสำหรับวิเคราะห์และดึงข่าว')).not.toBeInTheDocument()
+  })
 })
