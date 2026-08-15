@@ -1,0 +1,189 @@
+{
+  "facts": {
+    "us-gaap": {
+
+      "Revenues": {
+        "units": {
+          "USD": [
+            {
+              "fy": 2025,
+              "fp": "FY",
+              "form": "10-K",
+              "filed": "2026-01-15",
+              "accn": "0000000000-26-000001",
+              "start": "2025-01-01",
+              "end": "2025-12-31",
+              "val": 1000
+            }
+          ]
+        }
+      },
+
+      "GrossProfit": {
+        "units": {
+          "USD": [
+            {
+              "fy": 2025,
+              "fp": "FY",
+              "form": "10-K",
+              "filed": "2026-01-15",
+              "accn": "0000000000-26-000001",
+              "start": "2025-01-01",
+              "end": "2025-12-31",
+              "val": 500
+            }
+          ]
+        }
+      },
+
+      "OperatingIncomeLoss": {
+        "units": {
+          "USD": [
+            {
+              "fy": 2025,
+              "fp": "FY",
+              "form": "10-K",
+              "filed": "2026-01-15",
+              "accn": "0000000000-26-000001",
+              "start": "2025-01-01",
+              "end": "2025-12-31",
+              "val": 200
+            }
+          ]
+        }
+      },
+
+      "NetIncomeLoss": {
+        "units": {
+          "USD": [
+            {
+              "fy": 2025,
+              "fp": "FY",
+              "form": "10-K",
+              "filed": "2026-01-15",
+              "accn": "0000000000-26-000001",
+              "start": "2025-01-01",
+              "end": "2025-12-31",
+              "val": 100
+            }
+          ]
+        }
+      },
+
+      "NetCashProvidedByUsedInOperatingActivities": {
+        "units": {
+          "USD": [
+            {
+              "fy": 2025,
+              "fp": "FY",
+              "form": "10-K",
+              "filed": "2026-01-15",
+              "accn": "0000000000-26-000001",
+              "start": "2025-01-01",
+              "end": "2025-12-31",
+              "val": 150
+            }
+          ]
+        }
+      },
+
+      "PaymentsToAcquirePropertyPlantAndEquipment": {
+        "units": {
+          "USD": [
+            {
+              "fy": 2025,
+              "fp": "FY",
+              "form": "10-K",
+              "filed": "2026-01-15",
+              "accn": "0000000000-26-000001",
+              "start": "2025-01-01",
+              "end": "2025-12-31",
+              "val": -50
+            }
+          ]
+        }
+      },
+
+      "CashAndCashEquivalentsAtCarryingValue": {
+        "units": {
+          "USD": [
+            {
+              "fy": 2025,
+              "fp": "FY",
+              "form": "10-K",
+              "filed": "2026-01-15",
+              "accn": "0000000000-26-000001",
+              "end": "2025-12-31",
+              "val": 200
+            }
+          ]
+        }
+      },
+
+      "LongTermDebtNoncurrent": {
+        "units": {
+          "USD": [
+            {
+              "fy": 2025,
+              "fp": "FY",
+              "form": "10-K",
+              "filed": "2026-01-15",
+              "accn": "0000000000-26-000001",
+              "end": "2025-12-31",
+              "val": 300
+            }
+          ]
+        }
+      },
+
+      "Assets": {
+        "units": {
+          "USD": [
+            {
+              "fy": 2025,
+              "fp": "FY",
+              "form": "10-K",
+              "filed": "2026-01-15",
+              "accn": "0000000000-26-000001",
+              "end": "2025-12-31",
+              "val": 1200
+            }
+          ]
+        }
+      },
+
+      "StockholdersEquity": {
+        "units": {
+          "USD": [
+            {
+              "fy": 2025,
+              "fp": "FY",
+              "form": "10-K",
+              "filed": "2026-01-15",
+              "accn": "0000000000-26-000001",
+              "end": "2025-12-31",
+              "val": 600
+            }
+          ]
+        }
+      },
+
+      "EntityCommonStockSharesOutstanding": {
+        "units": {
+          "shares": [
+            {
+              "fy": 2025,
+              "fp": "FY",
+              "form": "10-K",
+              "filed": "2026-01-15",
+              "accn": "0000000000-26-000001",
+              "end": "2025-12-31",
+              "val": 100
+            }
+          ]
+        }
+      }
+
+    }
+  }
+}

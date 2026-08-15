@@ -71,3 +71,4 @@ Thumbs.db
 # =========================================
 node_modules/
 .superpowers/
+stock_intelligence/providers/*.bak_*
