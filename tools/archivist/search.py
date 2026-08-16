@@ -1,259 +1,1102 @@
-from langsmith import traceable
 import json
 import os
 import re
 import shutil
-import tempfile
-from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
+import frontmatter
 
-import frontmatter as fm
-from filelock import FileLock
 from langchain_chroma import Chroma
 from langchain_core.tools import tool
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from core.logger import get_logger
-from schemas.pkm_models import MemoryEntry
+
+from .core import (
+    VAULT_PATH,
+    INDEX_PATH,
+    INDEX_LOCK,
+    _atomic_write_text,
+    _VAULT_SYSTEM_FILES,
+    _INDEX_EXCLUDE,
+    _LINKED_CONTENT_LIMIT,
+)
+from .parser import _chunk_file
+
 
 log = get_logger(__name__)
-from .core import VAULT_PATH, INDEX_PATH, INDEX_LOCK, _atomic_write_text, _VAULT_SYSTEM_FILES, _INDEX_EXCLUDE, _LINKED_CONTENT_LIMIT
-from .parser import _chunk_file
+
+
+# ---------------------------------------------------------------------------
+# Runtime paths
+# ---------------------------------------------------------------------------
+#
+# master_index.json
+#     = canonical source-of-truth for Vault file registry
+#
+# .chroma_index
+#     = derived semantic/vector index
+#
+# .chroma_mtime
+#     = derived synchronization state for Chroma
+#
+
 CHROMA_PATH = VAULT_PATH / ".chroma_index"
 _CHROMA_MTIME_FILE = VAULT_PATH / ".chroma_mtime"
-_vs_cache: dict = {}  # {"cache_key": str, "vs": Chroma}
+
+_vs_cache: dict = {}
+# {
+#     "vs": Chroma,
+#     "cache_signature": (...),
+# }
 
 
-
-
-
-VAULT_PATH = Path(os.getenv("OBSIDIAN_VAULT_PATH", "./memories"))
-INDEX_PATH = VAULT_PATH / ".system" / "master_index.json"
-INDEX_LOCK = str(INDEX_PATH) + ".lock"
-
+# ---------------------------------------------------------------------------
+# Embeddings
+# ---------------------------------------------------------------------------
 
 @lru_cache(maxsize=1)
 def get_embeddings():
-    log.info("กำลังโหลด embedding model สำหรับ Semantic Search (ครั้งแรกอาจใช้เวลา)")
-    from langchain_huggingface import HuggingFaceEmbeddings
-    return HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+    log.info(
+        "กำลังโหลด embedding model สำหรับ SemanticSearch "
+        "(ครั้งแรกอาจใช้เวลา)"
+    )
 
+    from langchain_huggingface import HuggingFaceEmbeddings
+
+    return HuggingFaceEmbeddings(
+        model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Master Index
+# ---------------------------------------------------------------------------
+
+def _load_master_index() -> dict:
+    """
+    โหลด canonical Master Index
+
+    Source-of-truth:
+        memories/.system/master_index.json
+
+    IMPORTANT:
+        ไม่ fallback ไป rglob() เพราะจะทำให้ Master Index
+        ไม่ใช่ source-of-truth จริง
+    """
+
+    if not INDEX_PATH.exists():
+        raise FileNotFoundError(
+            f"Master Index ไม่พบ: {INDEX_PATH}"
+        )
+
+    try:
+        data = json.loads(
+            INDEX_PATH.read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            f"Master Index ไม่สามารถอ่านได้: {INDEX_PATH}"
+        ) from exc
+
+    if not isinstance(data, dict):
+        raise RuntimeError(
+            f"Master Index ต้องเป็น JSON object: {INDEX_PATH}"
+        )
+
+    files = data.get("files")
+
+    if not isinstance(files, list):
+        raise RuntimeError(
+            "Master Index ไม่มี 'files' list ที่ถูกต้อง"
+        )
+
+    return data
+
+
+def _validate_master_index_record(record: object) -> str | None:
+    """
+    ตรวจ record จาก master_index.json
+
+    Returns:
+        relative path ถ้า valid
+        None ถ้า invalid
+    """
+
+    if not isinstance(record, dict):
+        return None
+
+    relative_path = record.get("path")
+
+    if not isinstance(relative_path, str):
+        return None
+
+    relative_path = relative_path.strip()
+
+    if not relative_path:
+        return None
+
+    if not relative_path.lower().endswith(".md"):
+        return None
+
+    try:
+        candidate = Path(relative_path)
+
+        # ห้าม absolute path
+        if candidate.is_absolute():
+            return None
+
+        resolved = (VAULT_PATH / candidate).resolve()
+        vault_root = VAULT_PATH.resolve()
+
+        # ป้องกัน path traversal
+        resolved.relative_to(vault_root)
+
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+    return relative_path.replace("\\", "/")
+
+
+def _searchable_files() -> list[Path]:
+    """
+    คืนรายชื่อ Markdown files จาก Master Index เท่านั้น
+
+    IMPORTANT:
+        ห้ามใช้ VAULT_PATH.rglob() ที่นี่
+
+    Master Index = source-of-truth
+    Filesystem    = existence validation
+    Chroma        = derived semantic index
+    """
+
+    index = _load_master_index()
+
+    records = index.get("files", [])
+
+    files: list[Path] = []
+    seen: set[str] = set()
+
+    for record in records:
+        relative_path = _validate_master_index_record(record)
+
+        if relative_path is None:
+            log.warning(
+                "ข้าม Master Index record ที่ไม่ถูกต้อง: %r",
+                record,
+            )
+            continue
+
+        if relative_path in seen:
+            continue
+
+        file_path = VAULT_PATH / relative_path
+
+        # Master Index เป็น registry แต่ filesystem เป็น existence check
+        if not file_path.is_file():
+            log.warning(
+                "Master Index อ้างถึงไฟล์ที่ไม่มีอยู่จริง: %s",
+                relative_path,
+            )
+            continue
+
+        if file_path.name in _VAULT_SYSTEM_FILES:
+            continue
+
+        if any(
+            excluded in file_path.parts
+            for excluded in _INDEX_EXCLUDE
+        ):
+            continue
+
+        seen.add(relative_path)
+        files.append(file_path)
+
+    return sorted(
+        files,
+        key=lambda path: str(
+            path.relative_to(VAULT_PATH)
+        ).lower(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Chroma synchronization state
+# ---------------------------------------------------------------------------
 
 def _load_index_state() -> dict:
-    """โหลด per-file state: {rel: {mtime, chunks}}"""
+    """
+    โหลด derived per-file Chroma state
+
+    Structure:
+        {
+            "relative/path.md": {
+                "mtime": float,
+                "chunks": int
+            }
+        }
+
+    IMPORTANT:
+        นี่ไม่ใช่ Master Index
+        ใช้เฉพาะสำหรับ synchronization ของ Chroma
+    """
+
     if not _CHROMA_MTIME_FILE.exists():
         return {}
+
     try:
-        data = json.loads(_CHROMA_MTIME_FILE.read_text(encoding="utf-8"))
-        if isinstance(data, dict) and "files" in data:
+        data = json.loads(
+            _CHROMA_MTIME_FILE.read_text(
+                encoding="utf-8"
+            )
+        )
+
+        if (
+            isinstance(data, dict)
+            and isinstance(data.get("files"), dict)
+        ):
             return data["files"]
+
     except (OSError, json.JSONDecodeError):
-        pass
+        log.warning(
+            "ไม่สามารถอ่าน Chroma mtime state: %s",
+            _CHROMA_MTIME_FILE,
+        )
+
     return {}
 
 
 def _save_index_state(files: dict) -> None:
+    """
+    บันทึก derived Chroma synchronization state
+    """
+
     _atomic_write_text(
         _CHROMA_MTIME_FILE,
-        json.dumps({"version": 1, "files": files}, ensure_ascii=False),
+        json.dumps(
+            {
+                "version": 1,
+                "files": files,
+            },
+            ensure_ascii=False,
+        ),
     )
 
 
-def _searchable_files() -> list[Path]:
-    return [
-        f for f in VAULT_PATH.rglob("*.md")
-        if f.name not in _VAULT_SYSTEM_FILES
-        and not any(excl in f.parts for excl in _INDEX_EXCLUDE)
-    ]
-
+# ---------------------------------------------------------------------------
+# Semantic Search
+# ---------------------------------------------------------------------------
 
 @tool
 def search_all_memories(keyword: str) -> str:
-    """ค้นหาความจำทั้งหมดใน Vault ด้วย Semantic Search (Vector RAG) แบบ Local
+    """
+    ค้นหาความจำทั้งหมดใน Vault ด้วย Semantic Search (Vector RAG) แบบ Local
 
     [Usage/When to use]
     ใช้เมื่อต้องการค้นหาข้อมูลจากคลังความรู้แต่ไม่ทราบชื่อไฟล์ชัดเจน
-    - เหมาะสำหรับคำถามที่ต้องการความเข้าใจความหมายและบริบท ไม่ใช่แค่ Keyword ตรงๆ (เช่น 'กลยุทธ์เมื่อดอกเบี้ยขึ้น', 'หุ้นสื่อสารที่น่าสนใจ')
-    - เมื่อหาไฟล์จาก `read_file('index.md')` ไม่พบ
 
-    [Caution]
-    - ผลลัพธ์ที่ได้จะเป็นการสรุปและดึงเฉพาะส่วนที่เกี่ยวข้อง (Top-K snippets) ไม่ใช่เนื้อหาเต็มทั้งไฟล์
-    - หากต้องการข้อมูลแบบเจาะลึกทั้ง Entity พร้อมความสัมพันธ์ ให้ใช้ `search_graph_context` แทน
+    เหมาะสำหรับ:
+        - semantic / contextual search
+        - คำถามเกี่ยวกับกลยุทธ์
+        - การค้นหาความรู้จากหลายไฟล์
 
-    Args:
-        keyword (str): คำถาม ประโยค หรือวลีที่ต้องการค้นหาความหมายจากคลังข้อมูล
+    หากต้องการเจาะ Entity และความสัมพันธ์:
+        ใช้ search_graph_context()
 
-    Returns:
-        str: ผลลัพธ์การค้นหาที่ถูกจัดรูปแบบ (รวมรายชื่อไฟล์และเนื้อหาที่สกัดมา)
+    Master Index:
+        memories/.system/master_index.json
+
+    Chroma:
+        memories/.chroma_index
+
+    Chroma mtime state:
+        memories/.chroma_mtime
     """
-    md_files = _searchable_files()
-    if not md_files:
-        return "ยังไม่มีไฟล์ความจำใดใน Vault"
 
-    current: dict[str, dict] = {
-        str(f.relative_to(VAULT_PATH)): {"mtime": f.stat().st_mtime}
-        for f in md_files
-    }
+    try:
+        md_files = _searchable_files()
+
+    except (FileNotFoundError, RuntimeError) as exc:
+        log.error("Master Index unavailable: %s", exc)
+
+        return (
+            "ไม่สามารถค้นหาได้: Master Index ใช้งานไม่ได้\n"
+            f"รายละเอียด: {exc}"
+        )
+
+    if not md_files:
+        return (
+            "ไม่พบไฟล์ความจำที่สามารถค้นหาได้ "
+            "จาก Master Index"
+        )
+
+    # -----------------------------------------------------------------------
+    # Current filesystem state
+    # -----------------------------------------------------------------------
+
+    current: dict[str, dict] = {}
+
+    for file_path in md_files:
+        try:
+            relative = str(
+                file_path.relative_to(VAULT_PATH)
+            ).replace("\\", "/")
+
+            current[relative] = {
+                "mtime": file_path.stat().st_mtime
+            }
+
+        except OSError as exc:
+            log.warning(
+                "ไม่สามารถอ่าน metadata ของไฟล์ %s: %s",
+                file_path,
+                exc,
+            )
+
+    if not current:
+        return (
+            "ไม่พบไฟล์ความจำที่สามารถอ่าน metadata ได้"
+        )
+
+    # -----------------------------------------------------------------------
+    # Compare with derived Chroma state
+    # -----------------------------------------------------------------------
+
     stored = _load_index_state()
 
     added_or_changed = [
-        rel for rel, info in current.items()
-        if rel not in stored or abs(stored[rel].get("mtime", 0) - info["mtime"]) > 1e-3
+        rel
+        for rel, info in current.items()
+        if (
+            rel not in stored
+            or abs(
+                stored[rel].get("mtime", 0)
+                - info["mtime"]
+            ) > 1e-3
+        )
     ]
-    removed = [rel for rel in stored if rel not in current]
 
-    cache_valid = _vs_cache.get("cache_signature") == (len(current), tuple(sorted(current)))
-    needs_update = bool(added_or_changed or removed) or not cache_valid
+    removed = [
+        rel
+        for rel in stored
+        if rel not in current
+    ]
+
+    cache_valid = (
+        _vs_cache.get("cache_signature")
+        == (
+            len(current),
+            tuple(sorted(current)),
+        )
+    )
+
+    needs_update = (
+        bool(added_or_changed or removed)
+        or not cache_valid
+    )
+
+    # -----------------------------------------------------------------------
+    # Reuse cached vectorstore when possible
+    # -----------------------------------------------------------------------
 
     if "vs" in _vs_cache and not needs_update:
         vectorstore = _vs_cache["vs"]
+
     else:
         try:
-            vectorstore = _vs_cache.get("vs") or Chroma(
-                persist_directory=str(CHROMA_PATH),
-                embedding_function=get_embeddings(),
+            vectorstore = (
+                _vs_cache.get("vs")
+                or Chroma(
+                    persist_directory=str(CHROMA_PATH),
+                    embedding_function=get_embeddings(),
+                )
             )
-        except Exception:
-            # corrupted store → wipe and start fresh
+
+        except Exception as exc:
+            log.warning(
+                "Chroma store เปิดไม่ได้ อาจเสียหาย: %s",
+                exc,
+            )
+
+            # ---------------------------------------------------------------
+            # Corrupted Chroma → rebuild derived index
+            # ---------------------------------------------------------------
+
             if CHROMA_PATH.exists():
-                shutil.rmtree(CHROMA_PATH)
+                try:
+                    shutil.rmtree(CHROMA_PATH)
+                except OSError as remove_exc:
+                    return (
+                        "เกิดข้อผิดพลาดในการลบ Chroma "
+                        f"ที่เสียหาย: {remove_exc}"
+                    )
+
             stored = {}
             added_or_changed = list(current)
             removed = []
+
             try:
                 vectorstore = Chroma(
                     persist_directory=str(CHROMA_PATH),
                     embedding_function=get_embeddings(),
                 )
-            except Exception as e:
-                return f"เกิดข้อผิดพลาดในการเปิด vectorstore: {e}"
 
-        # Delete removed + changed (changed gets re-added below)
+            except Exception as rebuild_exc:
+                return (
+                    "เกิดข้อผิดพลาดในการสร้าง "
+                    f"vectorstore ใหม่: {rebuild_exc}"
+                )
+
+        # -------------------------------------------------------------------
+        # Delete removed / changed chunks
+        # -------------------------------------------------------------------
+
         ids_to_delete: list[str] = []
+
         for rel in removed:
-            n = stored.get(rel, {}).get("chunks", 0)
-            ids_to_delete.extend(f"{rel}::{i}" for i in range(n))
+            chunk_count = stored.get(
+                rel,
+                {},
+            ).get("chunks", 0)
+
+            ids_to_delete.extend(
+                f"{rel}::{i}"
+                for i in range(chunk_count)
+            )
+
         for rel in added_or_changed:
-            n = stored.get(rel, {}).get("chunks", 0)
-            if n:
-                ids_to_delete.extend(f"{rel}::{i}" for i in range(n))
+            chunk_count = stored.get(
+                rel,
+                {},
+            ).get("chunks", 0)
+
+            if chunk_count:
+                ids_to_delete.extend(
+                    f"{rel}::{i}"
+                    for i in range(chunk_count)
+                )
+
         if ids_to_delete:
             try:
-                vectorstore.delete(ids=ids_to_delete)
-            except Exception as e:
-                log.warning("Chroma delete failed (continuing): %s", e)
+                vectorstore.delete(
+                    ids=ids_to_delete
+                )
 
-        # Re-chunk and add changed
+            except Exception as exc:
+                log.warning(
+                    "Chroma delete failed "
+                    "(continuing): %s",
+                    exc,
+                )
+
+        # -------------------------------------------------------------------
+        # Re-chunk changed files
+        # -------------------------------------------------------------------
+
         if added_or_changed:
-            splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            splitter = RecursiveCharacterTextSplitter(
+                chunk_size=1000,
+                chunk_overlap=200,
+            )
+
             all_texts: list[str] = []
             all_metas: list[dict] = []
             all_ids: list[str] = []
+
             for rel in added_or_changed:
-                fp = VAULT_PATH / rel
-                if not fp.exists():
+                file_path = VAULT_PATH / rel
+
+                if not file_path.exists():
                     continue
-                texts, metas, ids = _chunk_file(fp, splitter)
+
+                try:
+                    texts, metas, ids = _chunk_file(
+                        file_path,
+                        splitter,
+                    )
+
+                except Exception as exc:
+                    log.warning(
+                        "ไม่สามารถ chunk %s: %s",
+                        rel,
+                        exc,
+                    )
+                    continue
+
                 all_texts.extend(texts)
                 all_metas.extend(metas)
                 all_ids.extend(ids)
+
                 current[rel]["chunks"] = len(texts)
+
             if all_texts:
                 try:
-                    vectorstore.add_texts(texts=all_texts, metadatas=all_metas, ids=all_ids)
-                except Exception as e:
-                    return f"เกิดข้อผิดพลาดในการเพิ่ม vectorstore: {e}"
+                    vectorstore.add_texts(
+                        texts=all_texts,
+                        metadatas=all_metas,
+                        ids=all_ids,
+                    )
 
-        # Preserve chunk count for unchanged files
+                except Exception as exc:
+                    return (
+                        "เกิดข้อผิดพลาดในการเพิ่ม "
+                        f"vectorstore: {exc}"
+                    )
+
+        # -------------------------------------------------------------------
+        # Preserve chunk counts for unchanged files
+        # -------------------------------------------------------------------
+
         for rel in current:
-            if "chunks" not in current[rel] and rel in stored:
-                current[rel]["chunks"] = stored[rel].get("chunks", 0)
+            if (
+                "chunks" not in current[rel]
+                and rel in stored
+            ):
+                current[rel]["chunks"] = (
+                    stored[rel].get("chunks", 0)
+                )
+
+        # -------------------------------------------------------------------
+        # Save derived state
+        # -------------------------------------------------------------------
 
         _save_index_state(current)
+
         _vs_cache["vs"] = vectorstore
-        _vs_cache["cache_signature"] = (len(current), tuple(sorted(current)))
+        _vs_cache["cache_signature"] = (
+            len(current),
+            tuple(sorted(current)),
+        )
+
+    # -----------------------------------------------------------------------
+    # Semantic query
+    # -----------------------------------------------------------------------
 
     try:
-        results = vectorstore.similarity_search(keyword, k=5)
-    except Exception as e:
-        return f"เกิดข้อผิดพลาดในการค้นหา: {e}"
+        results = vectorstore.similarity_search(
+            keyword,
+            k=5,
+        )
+
+    except Exception as exc:
+        return (
+            "เกิดข้อผิดพลาดในการค้นหา: "
+            f"{exc}"
+        )
 
     if not results:
-        return f"ไม่พบความจำที่เกี่ยวข้องกับ '{keyword}'"
+        return (
+            f"ไม่พบความจำที่เกี่ยวข้องกับ "
+            f"'{keyword}'"
+        )
 
-    parts = [f"ผลการค้นหาเชิงความหมายสำหรับ '{keyword}' ({len(results)} ผลลัพธ์):\n"]
+    parts = [
+        f"ผลการค้นหาเชิงความหมายสำหรับ "
+        f"'{keyword}' ({len(results)} ผลลัพธ์):\n"
+    ]
+
     for i, doc in enumerate(results, 1):
-        source = doc.metadata.get("source", "ไม่ทราบแหล่งที่มา")
-        parts.append(f"--- ผลลัพธ์ที่ {i} | แหล่งที่มา: [{source}] ---\n{doc.page_content}\n")
+        source = doc.metadata.get(
+            "source",
+            "ไม่ทราบแหล่งที่มา",
+        )
+
+        parts.append(
+            f"--- ผลลัพธ์ที่ {i} | "
+            f"แหล่งที่มา: [{source}] ---\n"
+            f"{doc.page_content}\n"
+        )
 
     return "\n".join(parts)
 
 
-def _find_file_by_name(name: str, all_files: list[Path]) -> Path | None:
-    """ค้นหาไฟล์โดย stem ตรงทั้งหมดก่อน แล้ว fallback ไป partial match"""
+# ---------------------------------------------------------------------------
+# File lookup
+# ---------------------------------------------------------------------------
+
+def _find_file_by_name(
+    name: str,
+    all_files: list[Path],
+) -> Path | None:
+    """
+    ค้นหาไฟล์จาก registry ของ Master Index
+
+    Priority:
+        1. exact stem match
+        2. partial stem match
+    """
+
     name_lower = name.lower()
-    exact = next((f for f in all_files if f.stem.lower() == name_lower), None)
+
+    exact = next(
+        (
+            file_path
+            for file_path in all_files
+            if file_path.stem.lower() == name_lower
+        ),
+        None,
+    )
+
     if exact:
         return exact
-    return next((f for f in all_files if name_lower in f.stem.lower()), None)
+
+    return next(
+        (
+            file_path
+            for file_path in all_files
+            if name_lower in file_path.stem.lower()
+        ),
+        None,
+    )
+
+
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# GraphRAG
+# ---------------------------------------------------------------------------
+
+def _load_graph_metadata(file_path: Path) -> dict:
+    """
+    Load frontmatter metadata for GraphRAG relationship resolution.
+
+    Graph relationship source:
+        Master Index -> determines candidate files
+        frontmatter -> determines entity relationship
+
+    This function intentionally does NOT scan the Vault.
+    """
+
+    try:
+        post = frontmatter.load(file_path)
+        metadata = dict(post.metadata)
+
+        if not isinstance(metadata, dict):
+            return {}
+
+        return metadata
+
+    except Exception as exc:
+        log.warning(
+            "ไม่สามารถอ่าน metadata สำหรับ GraphRAG: %s: %s",
+            file_path,
+            exc,
+        )
+        return {}
+
+
+def _graph_file_priority(file_path: Path, metadata: dict) -> tuple:
+    """
+    Deterministic ordering for GraphRAG context.
+
+    Priority:
+        0 = stock entity
+        1 = equity analysis
+        2 = latest/current news
+        3 = quant snapshot
+        4 = other related knowledge
+    """
+
+    entity_type = str(
+        metadata.get("entity_type", "")
+    ).strip().lower()
+
+    priority_map = {
+        "stock_entity": 0,
+        "equity_analysis": 1,
+        "company_news": 2,
+        "news": 2,
+        "equity_quant_snapshot": 3,
+    }
+
+    priority = priority_map.get(entity_type, 4)
+
+    date_value = metadata.get("date")
+
+    if date_value is None:
+        date_key = ""
+    else:
+        date_key = str(date_value)
+
+    return (
+        priority,
+        date_key,
+        file_path.name.lower(),
+    )
+
+
+def _resolve_graph_entity(
+    entity_name: str,
+    all_files: list[Path],
+) -> tuple[Path | None, str | None]:
+    """
+    Resolve an investment entity deterministically.
+
+    Resolution order:
+        1. Exact entity filename/stem
+        2. Exact ticker in frontmatter
+        3. Case-insensitive entity filename
+
+    Returns:
+        (entity_file, ticker)
+    """
+
+    normalized = entity_name.strip().lower()
+
+    if not normalized:
+        return None, None
+
+    # -----------------------------------------------------------------------
+    # 1. Exact entity file match
+    # -----------------------------------------------------------------------
+
+    exact_file = next(
+        (
+            file_path
+            for file_path in all_files
+            if file_path.stem.lower() == normalized
+        ),
+        None,
+    )
+
+    if exact_file is not None:
+        metadata = _load_graph_metadata(exact_file)
+
+        entity_type = str(
+            metadata.get("entity_type", "")
+        ).strip().lower()
+
+        ticker = str(
+            metadata.get("ticker", "")
+        ).strip().upper()
+
+        if entity_type == "stock_entity" and ticker:
+            return exact_file, ticker
+
+    # -----------------------------------------------------------------------
+    # 2. Exact ticker metadata match
+    # -----------------------------------------------------------------------
+
+    for file_path in all_files:
+        metadata = _load_graph_metadata(file_path)
+
+        entity_type = str(
+            metadata.get("entity_type", "")
+        ).strip().lower()
+
+        ticker = str(
+            metadata.get("ticker", "")
+        ).strip().upper()
+
+        if (
+            entity_type == "stock_entity"
+            and ticker
+            and ticker.lower() == normalized
+        ):
+            return file_path, ticker
+
+    return None, None
 
 
 @tool
 def search_graph_context(entity_name: str) -> str:
-    """ค้นหาข้อมูล Entity พร้อมดึงเนื้อหาจาก Linked Entities ที่เชื่อมโยงกัน (GraphRAG)
-
-    [Usage/When to use]
-    ใช้เมื่อต้องการวิเคราะห์บริษัท, บุคคล, กลยุทธ์, หรือเหตุการณ์แบบเจาะลึก 360 องศา
-    - เครื่องมือนี้จะดึงเนื้อหาจาก "ไฟล์เป้าหมาย" และ "ไฟล์ทั้งหมดที่เป้าหมายนั้นทำ Wikilink โยงไปหา" มาให้ในครั้งเดียว
-    - เหมาะสำหรับการดูภาพรวมเครือข่ายความสัมพันธ์ของ Entity ใด Entity หนึ่ง
-
-    [Caution]
-    - ไม่เหมาะสำหรับการค้นหากว้างๆ หรือ Semantic Search (ให้ใช้ `search_all_memories` แทน)
-    - ต้องระบุชื่อ Entity ที่มีแนวโน้มเป็นชื่อไฟล์จริงๆ ในระบบ
-
-    Args:
-        entity_name (str): ชื่อ Entity หรือชื่อไฟล์เป้าหมายที่ต้องการเจาะลึก เช่น 'PTT', 'Somchai', 'Interest_Rate_Hike'
-
-    Returns:
-        str: เนื้อหาของ Entity หลัก พร้อมกับเนื้อหาแบบตัดทอนของไฟล์ทั้งหมดที่เชื่อมโยงอยู่ (หรือแจ้งเตือนหากไม่พบไฟล์)
     """
-    all_files = _searchable_files()
+    Resolve an investment entity and construct deterministic GraphRAG context.
+
+    Architecture:
+
+        Master Index
+            |
+            +-- Entity Registry
+            |
+            +-- ticker relationship
+                    |
+                    +-- Equity Analysis
+                    +-- Company News
+                    +-- Quant Snapshot
+                    +-- Other related knowledge
+
+    IMPORTANT:
+        - Master Index is the file registry source-of-truth.
+        - Filesystem is used only for existence/read validation.
+        - Frontmatter ticker is the relationship key.
+        - Wikilinks are NOT required.
+        - No Vault-wide rglob() is used here.
+        - Chroma is NOT used for graph relationship resolution.
+    """
+
+    # -----------------------------------------------------------------------
+    # Step 1: Load searchable files from Master Index
+    # -----------------------------------------------------------------------
+
+    try:
+        all_files = _searchable_files()
+
+    except (FileNotFoundError, RuntimeError) as exc:
+        log.error(
+            "Master Index unavailable for GraphRAG: %s",
+            exc,
+        )
+
+        return (
+            "ไม่สามารถค้นหา Graph Context ได้: "
+            f"{exc}"
+        )
+
     if not all_files:
-        return "ยังไม่มีไฟล์ความจำใดใน Vault"
+        return (
+            "ไม่พบไฟล์ความจำที่สามารถค้นหาได้ "
+            "จาก Master Index"
+        )
 
-    # Step 1-2: หาและอ่านไฟล์หลัก
-    main_file = _find_file_by_name(entity_name, all_files)
-    if main_file is None:
-        return f"ไม่พบไฟล์สำหรับ entity '{entity_name}' ใน Vault"
+    # -----------------------------------------------------------------------
+    # Step 2: Resolve canonical entity
+    # -----------------------------------------------------------------------
 
-    main_content = main_file.read_text(encoding="utf-8")
+    main_file, ticker = _resolve_graph_entity(
+        entity_name,
+        all_files,
+    )
 
-    # Step 3: สกัด Wikilinks
-    wikilinks = re.findall(r'\[\[(.*?)\]\]', main_content)
+    if main_file is None or not ticker:
+        return (
+            f"ไม่พบ investment entity สำหรับ "
+            f"'{entity_name}' ใน Master Index"
+        )
 
-    output = f"--- Main Entity: {main_file.stem} ---\n{main_content}\n"
+    # -----------------------------------------------------------------------
+    # Step 3: Read main entity
+    # -----------------------------------------------------------------------
 
-    # Step 4-5: อ่าน linked files
-    if wikilinks:
-        output += "\n--- Linked Connections ---\n"
-        seen = set()
-        for link_name in wikilinks:
-            # Wikilink อาจมีรูป [[File|Alias]] — ดึงเฉพาะชื่อไฟล์
-            link_target = link_name.split("|")[0].strip()
-            if link_target in seen:
+    try:
+        main_content = main_file.read_text(
+            encoding="utf-8"
+        )
+
+    except OSError as exc:
+        return (
+            f"ไม่สามารถอ่านไฟล์ entity "
+            f"'{entity_name}': {exc}"
+        )
+
+    main_metadata = _load_graph_metadata(main_file)
+
+    # -----------------------------------------------------------------------
+    # Step 4: Resolve related files by ticker
+    #
+    # IMPORTANT:
+    # Do NOT depend on Wikilinks.
+    # Every knowledge file carrying the same ticker belongs to the graph.
+    # -----------------------------------------------------------------------
+
+    related_files: list[tuple[Path, dict]] = []
+
+    for file_path in all_files:
+        if file_path == main_file:
+            continue
+
+        metadata = _load_graph_metadata(file_path)
+
+        related_ticker = str(
+            metadata.get("ticker", "")
+        ).strip().upper()
+
+        if not related_ticker:
+            continue
+
+        if related_ticker != ticker:
+            continue
+
+        related_files.append(
+            (file_path, metadata)
+        )
+
+    # -----------------------------------------------------------------------
+    # Step 5: Deterministic ordering
+    # -----------------------------------------------------------------------
+
+    related_files.sort(
+        key=lambda item: _graph_file_priority(
+            item[0],
+            item[1],
+        )
+    )
+
+    # -----------------------------------------------------------------------
+    # Step 6: Build Graph Context
+    # -----------------------------------------------------------------------
+
+    output_parts: list[str] = []
+
+    output_parts.append(
+        "=" * 80
+    )
+
+    output_parts.append(
+        f"GRAPH CONTEXT: {ticker}"
+    )
+
+    output_parts.append(
+        "=" * 80
+    )
+
+    output_parts.append(
+        "\n[ENTITY]\n"
+        f"Name: {main_file.stem}\n"
+        f"Ticker: {ticker}\n"
+        f"Entity Type: "
+        f"{main_metadata.get('entity_type', 'unknown')}\n"
+        f"Source: {main_file.relative_to(VAULT_PATH)}\n"
+    )
+
+    output_parts.append(
+        "\n--- Entity Content ---\n"
+        f"{main_content}\n"
+    )
+
+    # -----------------------------------------------------------------------
+    # Step 7: Group related knowledge by type
+    # -----------------------------------------------------------------------
+
+    grouped: dict[str, list[tuple[Path, dict]]] = {
+        "equity_analysis": [],
+        "company_news": [],
+        "equity_quant_snapshot": [],
+        "other": [],
+    }
+
+    for file_path, metadata in related_files:
+        entity_type = str(
+            metadata.get("entity_type", "")
+        ).strip().lower()
+
+        if entity_type == "equity_analysis":
+            grouped["equity_analysis"].append(
+                (file_path, metadata)
+            )
+
+        elif entity_type in {
+            "company_news",
+            "news",
+        }:
+            grouped["company_news"].append(
+                (file_path, metadata)
+            )
+
+        elif entity_type == "equity_quant_snapshot":
+            grouped["equity_quant_snapshot"].append(
+                (file_path, metadata)
+            )
+
+        else:
+            grouped["other"].append(
+                (file_path, metadata)
+            )
+
+    # -----------------------------------------------------------------------
+    # Step 8: Render grouped context
+    # -----------------------------------------------------------------------
+
+    sections = [
+        (
+            "EQUITY ANALYSIS",
+            grouped["equity_analysis"],
+        ),
+        (
+            "NEWS",
+            grouped["company_news"],
+        ),
+        (
+            "QUANT SNAPSHOT",
+            grouped["equity_quant_snapshot"],
+        ),
+        (
+            "OTHER RELATED KNOWLEDGE",
+            grouped["other"],
+        ),
+    ]
+
+    total_related = 0
+
+    for section_name, files in sections:
+
+        if not files:
+            continue
+
+        output_parts.append(
+            f"\n{'-' * 80}\n"
+            f"[{section_name}]\n"
+            f"{'-' * 80}\n"
+        )
+
+        for file_path, metadata in files:
+            total_related += 1
+
+            try:
+                content = file_path.read_text(
+                    encoding="utf-8"
+                )
+
+            except OSError as exc:
+                output_parts.append(
+                    f"\n[{file_path.name}]\n"
+                    f"(ไม่สามารถอ่านไฟล์: {exc})\n"
+                )
                 continue
-            seen.add(link_target)
 
-            linked_file = _find_file_by_name(link_target, all_files)
-            if linked_file:
-                link_content = linked_file.read_text(encoding="utf-8")
-                if len(link_content) > _LINKED_CONTENT_LIMIT:
-                    link_content = link_content[:_LINKED_CONTENT_LIMIT] + "\n...[ตัดทอน]"
-                output += f"\n- [{link_target}]:\n{link_content}\n"
-            else:
-                output += f"\n- [{link_target}]: (ไม่พบไฟล์ใน Vault)\n"
+            # Prevent one enormous document from overwhelming
+            # the agent context.
+            if len(content) > _LINKED_CONTENT_LIMIT:
+                content = (
+                    content[
+                        :_LINKED_CONTENT_LIMIT
+                    ]
+                    + "\n...[ตัดทอน]"
+                )
 
-    return output
+            date_value = metadata.get(
+                "date",
+                "unknown",
+            )
 
+            output_parts.append(
+                f"\n### {file_path.stem}\n"
+                f"Entity Type: "
+                f"{metadata.get('entity_type', 'unknown')}\n"
+                f"Date: {date_value}\n"
+                f"Source: "
+                f"{file_path.relative_to(VAULT_PATH)}\n\n"
+                f"{content}\n"
+            )
 
+    # -----------------------------------------------------------------------
+    # Step 9: Graph summary
+    # -----------------------------------------------------------------------
+
+    output_parts.append(
+        "\n"
+        + "=" * 80
+    )
+
+    output_parts.append(
+        "GRAPH SUMMARY"
+    )
+
+    output_parts.append(
+        "=" * 80
+    )
+
+    output_parts.append(
+        f"Entity: {ticker}\n"
+        f"Related files: {total_related}\n"
+        f"Equity Analysis: "
+        f"{len(grouped['equity_analysis'])}\n"
+        f"News: "
+        f"{len(grouped['company_news'])}\n"
+        f"Quant Snapshots: "
+        f"{len(grouped['equity_quant_snapshot'])}\n"
+        f"Other: "
+        f"{len(grouped['other'])}"
+    )
+
+    return "\n".join(output_parts)
