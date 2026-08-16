@@ -1,221 +1,573 @@
-from langsmith import traceable
+from datetime import datetime
 import json
 import os
-import re
-import shutil
-import tempfile
-from datetime import datetime
-from functools import lru_cache
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional
 
-import frontmatter as fm
-from filelock import FileLock
-from langchain_chroma import Chroma
 from langchain_core.tools import tool
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from core.logger import get_logger
-from schemas.pkm_models import MemoryEntry
+
+from .core import (
+    _atomic_write_text,
+    VAULT_PATH,
+    INDEX_PATH,
+    INDEX_LOCK,
+    _VAULT_SYSTEM_FILES,
+    _INDEX_EXCLUDE,
+)
+from .parser import extract_yaml_frontmatter_value
 
 log = get_logger(__name__)
 
 
-
-from .core import _atomic_write_text, read_file, VAULT_PATH, INDEX_PATH, INDEX_LOCK, _VAULT_SYSTEM_FILES, _INDEX_EXCLUDE
-from .parser import _extract_asset_tickers, _strip_frontmatter, extract_yaml_frontmatter_value
-
-
-
-
-
-
-_index_cache: dict[str, list[tuple[str, str]]] = {}
-_index_cache_built = False
-_index_dirty = False
-_LAYER1_ENTITY_TYPES = {"stock_entity"}
-_LAYER1_ENTITY_TYPES = {"stock_entity"}
+# ---------------------------------------------------------------------------
+# Runtime configuration
+# ---------------------------------------------------------------------------
 
 VAULT_PATH = Path(os.getenv("OBSIDIAN_VAULT_PATH", "./memories"))
 INDEX_PATH = VAULT_PATH / ".system" / "master_index.json"
 INDEX_LOCK = str(INDEX_PATH) + ".lock"
 
 
+# ---------------------------------------------------------------------------
+# Runtime cache
+# ---------------------------------------------------------------------------
+
+_index_cache: dict[str, list[tuple[str, str]]] = {}
+_index_cache_built = False
+_index_dirty = False
+
+_LAYER1_ENTITY_TYPES = {"stock_entity"}
+
+
+# ---------------------------------------------------------------------------
+# File helpers
+# ---------------------------------------------------------------------------
+
 def _read_entity_type(file_path: Path) -> str:
-    """ดึง entity_type จาก YAML frontmatter ของไฟล์ .md"""
+    """ดึง entity_type จาก YAML frontmatter ของไฟล์ Markdown"""
     try:
         content = file_path.read_text(encoding="utf-8")
     except OSError:
         return "—"
-    val = extract_yaml_frontmatter_value(content, "entity_type")
-    return val if val else "—"
+
+    value = extract_yaml_frontmatter_value(content, "entity_type")
+    return value if value else "—"
 
 
-def _file_folder_label(file_path: Path, vault_root: Optional[Path | str] = None) -> str:
+def _file_folder_label(
+    file_path: Path,
+    vault_root: Optional[Path | str] = None,
+) -> str:
+    """คืนค่า folder path แบบ relative ต่อ Vault"""
     root = Path(vault_root) if vault_root else VAULT_PATH
+
     try:
         rel = file_path.resolve().relative_to(root.resolve())
-        return str(rel.parent).replace("\\", "/") if rel.parent != Path(".") else "Root"
+
+        if rel.parent == Path("."):
+            return "Root"
+
+        return str(rel.parent).replace("\\", "/")
+
     except (ValueError, RuntimeError):
         try:
             rel = file_path.resolve().relative_to(VAULT_PATH.resolve())
-            return str(rel.parent).replace("\\", "/") if rel.parent != Path(".") else "Root"
+
+            if rel.parent == Path("."):
+                return "Root"
+
+            return str(rel.parent).replace("\\", "/")
+
         except (ValueError, RuntimeError):
             parts = file_path.parts
-            for marker in ("30_Knowledge_Base", "10_Projects", "20_Areas", "40_Archive", "00_Inbox", "01_Daily_Logs", "50_Crypto", "60_Research"):
+
+            for marker in (
+                "30_Knowledge_Base",
+                "10_Projects",
+                "20_Areas",
+                "40_Archive",
+                "00_Inbox",
+                "01_Daily_Logs",
+                "50_Crypto",
+                "60_Research",
+            ):
                 if marker in parts:
                     idx = parts.index(marker)
                     rel_parts = parts[idx:-1]
-                    return "/".join(rel_parts) if rel_parts else marker
+
+                    if rel_parts:
+                        return "/".join(rel_parts)
+
+                    return marker
+
             return file_path.parent.name or "Root"
 
 
 def _is_indexable(file_path: Path) -> bool:
+    """ตรวจว่าไฟล์ Markdown นี้ควรเข้า Master Index หรือไม่"""
     return (
         file_path.name not in _VAULT_SYSTEM_FILES
-        and not any(excl in file_path.parts for excl in _INDEX_EXCLUDE)
+        and not any(
+            excluded in file_path.parts
+            for excluded in _INDEX_EXCLUDE
+        )
     )
 
 
-def _build_cache_from_disk(vault_root: Optional[Path | str] = None) -> None:
-    """Full scan: เรียกครั้งแรกหรือเมื่อ tool update_master_index ถูกเรียก"""
+# ---------------------------------------------------------------------------
+# Cache
+# ---------------------------------------------------------------------------
+
+def _build_cache_from_disk(
+    vault_root: Optional[Path | str] = None,
+) -> None:
+    """Full scan ของ Markdown files ใน Vault"""
     global _index_cache_built
+
     _index_cache.clear()
+
     root = Path(vault_root) if vault_root else VAULT_PATH
+
     if not root.exists():
         _index_cache_built = True
         return
-    all_files = [f for f in sorted(root.rglob("*.md")) if _is_indexable(f)]
-    for fp in all_files:
-        _index_cache.setdefault(_file_folder_label(fp, vault_root=root), []).append(
-            (fp.stem, _read_entity_type(fp))
+
+    all_files = [
+        file_path
+        for file_path in sorted(root.rglob("*.md"))
+        if _is_indexable(file_path)
+    ]
+
+    for file_path in all_files:
+        folder = _file_folder_label(
+            file_path,
+            vault_root=root,
         )
+
+        entity_type = _read_entity_type(file_path)
+
+        _index_cache.setdefault(folder, []).append(
+            (file_path.stem, entity_type)
+        )
+
     _index_cache_built = True
 
 
+# ---------------------------------------------------------------------------
+# Classification
+# ---------------------------------------------------------------------------
+
 def _entity_category(folder: str) -> str:
-    """แยก category จาก folder path: '30_Knowledge_Base\\Stocks\\AAPL' → 'Stocks'"""
+    """
+    แยก category จาก folder path
+
+    ตัวอย่าง:
+        30_Knowledge_Base/Stocks/AAPL
+        → Stocks
+    """
     parts = folder.replace("\\", "/").split("/")
-    for i, p in enumerate(parts):
-        if p == "30_Knowledge_Base" and i + 1 < len(parts):
-            return parts[i + 1]
+
+    for index, part in enumerate(parts):
+        if (
+            part == "30_Knowledge_Base"
+            and index + 1 < len(parts)
+        ):
+            return parts[index + 1]
+
     return "Other"
 
 
-def _write_index_from_cache(vault_root: Optional[Path | str] = None) -> str:
-    if not _index_cache:
-        return "ไม่มีไฟล์ที่จะ index ใน Vault"
+# ---------------------------------------------------------------------------
+# Structured master index
+# ---------------------------------------------------------------------------
 
-    # แยก Layer-1 entities ออกจาก Layer-2 knowledge snapshots
-    entities_by_category: dict[str, list[str]] = {}
-    knowledge_by_folder: dict[str, list[tuple[str, str]]] = {}
+def _build_master_index_payload(
+    vault_root: Optional[Path | str] = None,
+) -> dict:
+    """
+    สร้าง machine-readable Master Index
 
-    for folder, entries in _index_cache.items():
-        for stem, etype in entries:
-            if etype in _LAYER1_ENTITY_TYPES:
-                entities_by_category.setdefault(_entity_category(folder), []).append(stem)
+    master_index.json เป็น source-of-truth สำหรับระบบ
+    ส่วน index.md เป็น human-readable projection
+    """
+
+    root = Path(vault_root) if vault_root else VAULT_PATH
+
+    entities: list[dict] = []
+    knowledge: list[dict] = []
+    files: list[dict] = []
+
+    for folder in sorted(_index_cache):
+        entries = _index_cache[folder]
+
+        for stem, entity_type in sorted(entries):
+            relative_path = (
+                f"{folder}/{stem}.md"
+                if folder != "Root"
+                else f"{stem}.md"
+            )
+
+            category = _entity_category(folder)
+
+            record = {
+                "name": stem,
+                "path": relative_path.replace("\\", "/"),
+                "folder": folder,
+                "entity_type": entity_type,
+                "category": category,
+            }
+
+            files.append(record)
+
+            if entity_type in _LAYER1_ENTITY_TYPES:
+                entities.append(record.copy())
             else:
-                knowledge_by_folder.setdefault(folder, []).append((stem, etype))
+                knowledge.append(record.copy())
+
+    return {
+        "version": 1,
+        "title": "Master Index",
+        "generated_at": datetime.now().isoformat(),
+        "vault": str(root),
+        "totals": {
+            "files": len(files),
+            "entities": len(entities),
+            "knowledge": len(knowledge),
+        },
+        "entities": entities,
+        "knowledge": knowledge,
+        "files": files,
+    }
+
+
+def _write_master_index_json(
+    vault_root: Optional[Path | str] = None,
+    payload: Optional[dict] = None,
+) -> None:
+    """เขียน machine-readable master_index.json"""
+    root = Path(vault_root) if vault_root else VAULT_PATH
+    index_path = root / ".system" / "master_index.json"
+
+    index_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    if payload is None:
+        payload = _build_master_index_payload(
+            vault_root=root
+        )
+
+    serialized = json.dumps(
+        payload,
+        ensure_ascii=False,
+        indent=2,
+    )
+
+    _atomic_write_text(
+        index_path,
+        serialized,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Human-readable Markdown projection
+# ---------------------------------------------------------------------------
+
+def _write_index_markdown(
+    vault_root: Optional[Path | str] = None,
+    payload: Optional[dict] = None,
+) -> str:
+    """
+    สร้าง index.md สำหรับ Obsidian / human navigation
+
+    หมายเหตุ:
+        index.md ไม่ใช่ machine source-of-truth
+        master_index.json ต่างหากคือ source-of-truth
+    """
+
+    root = Path(vault_root) if vault_root else VAULT_PATH
+
+    if payload is None:
+        payload = _build_master_index_payload(
+            vault_root=root
+        )
+
+    entities = payload["entities"]
+    knowledge = payload["knowledge"]
 
     lines = [
         "---",
         "title: Master Index",
         f"date: {datetime.now().strftime('%Y-%m-%d')}",
+        "source_of_truth: .system/master_index.json",
         "---",
         "",
         "# Master Index",
         "",
-        "> ระบบ 3-Layer Graph View: **Entities** เป็น hub (Layer 1), **Knowledge** เป็น snapshot/news (Layer 2),",
-        "> Portfolio (Layer 3) ดูใน [[Portfolio_Dashboard]] และ [[Trading_Journal]]",
+        "> Machine source-of-truth: `.system/master_index.json`",
+        ">",
+        "> ระบบ 3-Layer Graph View:",
+        "> **Entities** = Layer 1 hubs",
+        "> **Knowledge** = Layer 2 snapshots/news",
+        "> **Portfolio** = Layer 3",
         "",
     ]
 
-    # Layer 1 — Entities (อยู่บนสุดเพื่อให้ scan หาเร็ว)
-    if entities_by_category:
-        lines += ["## 📍 Entities (Layer 1 Hubs)", ""]
-        for category in sorted(entities_by_category):
-            stems = sorted(entities_by_category[category])
-            wikilinks = " · ".join(f"[[{s}]]" for s in stems)
-            lines += [f"### {category} ({len(stems)})", "", wikilinks, ""]
+    # -----------------------------------------------------------------------
+    # Layer 1
+    # -----------------------------------------------------------------------
 
-    # Layer 2 — Knowledge snapshots (folder-grouped, newest first)
-    if knowledge_by_folder:
-        lines += ["## 📚 Knowledge (Layer 2 Snapshots)", ""]
+    if entities:
+        lines += [
+            "## 📍 Entities (Layer 1 Hubs)",
+            "",
+        ]
+
+        entities_by_category: dict[str, list[dict]] = {}
+
+        for entity in entities:
+            entities_by_category.setdefault(
+                entity["category"],
+                [],
+            ).append(entity)
+
+        for category in sorted(entities_by_category):
+            category_entities = sorted(
+                entities_by_category[category],
+                key=lambda item: item["name"],
+            )
+
+            lines += [
+                f"### {category} ({len(category_entities)})",
+                "",
+            ]
+
+            wikilinks = " · ".join(
+                f"[[{item['name']}]]"
+                for item in category_entities
+            )
+
+            lines += [
+                wikilinks,
+                "",
+            ]
+
+    # -----------------------------------------------------------------------
+    # Layer 2
+    # -----------------------------------------------------------------------
+
+    if knowledge:
+        lines += [
+            "## 📚 Knowledge (Layer 2 Snapshots)",
+            "",
+        ]
+
+        knowledge_by_folder: dict[str, list[dict]] = {}
+
+        for item in knowledge:
+            knowledge_by_folder.setdefault(
+                item["folder"],
+                [],
+            ).append(item)
+
         for folder in sorted(knowledge_by_folder):
-            lines += [f"### {folder}", "", "| File | Entity Type |", "|------|-------------|"]
-            # reverse sort: ถ้า filename ลงท้ายด้วยวันที่ จะได้ใหม่สุดบนสุด
-            for stem, etype in sorted(knowledge_by_folder[folder], reverse=True):
-                lines.append(f"| [[{stem}]] | {etype} |")
+            items = sorted(
+                knowledge_by_folder[folder],
+                key=lambda item: item["name"],
+                reverse=True,
+            )
+
+            lines += [
+                f"### {folder}",
+                "",
+                "| File | Entity Type |",
+                "|------|-------------|",
+            ]
+
+            for item in items:
+                lines.append(
+                    f"| [[{item['name']}]] | "
+                    f"{item['entity_type']} |"
+                )
+
             lines.append("")
 
-    target_root = Path(vault_root) if vault_root else VAULT_PATH
-    _atomic_write_text(target_root / "index.md", "\n".join(lines))
+    target = root / "index.md"
 
-    entity_count = sum(len(v) for v in entities_by_category.values())
-    knowledge_count = sum(len(v) for v in knowledge_by_folder.values())
-    total = entity_count + knowledge_count
+    _atomic_write_text(
+        target,
+        "\n".join(lines),
+    )
+
+    return str(target)
+
+
+# ---------------------------------------------------------------------------
+# Unified index writer
+# ---------------------------------------------------------------------------
+
+def _write_all_indexes(
+    vault_root: Optional[Path | str] = None,
+) -> str:
+    """
+    เขียนทั้ง machine index และ human-readable projection
+
+    master_index.json = source-of-truth
+    index.md           = projection
+    """
+
+    root = Path(vault_root) if vault_root else VAULT_PATH
+
+    payload = _build_master_index_payload(
+        vault_root=root
+    )
+
+    _write_master_index_json(
+        vault_root=root,
+        payload=payload,
+    )
+
+    _write_index_markdown(
+        vault_root=root,
+        payload=payload,
+    )
+
+    totals = payload["totals"]
+
     return (
-        f"อัปเดต index.md สำเร็จ: {total} ไฟล์ "
-        f"({entity_count} entities, {knowledge_count} snapshots)"
+        f"อัปเดต Master Index สำเร็จ: "
+        f"{totals['files']} ไฟล์ "
+        f"({totals['entities']} entities, "
+        f"{totals['knowledge']} snapshots)"
     )
 
 
-def _index_upsert(file_path: Path, vault_root: Optional[Path | str] = None) -> None:
-    """Incremental update cache (lazy flush) — mark dirty แทนการเขียน index.md ทุกครั้ง"""
+# ---------------------------------------------------------------------------
+# Incremental upsert
+# ---------------------------------------------------------------------------
+
+def _index_upsert(
+    file_path: Path,
+    vault_root: Optional[Path | str] = None,
+) -> None:
+    """
+    Incremental update cache
+
+    ไม่เขียน disk ทันที
+    จะ mark dirty แล้ว flush ภายหลัง
+    """
     global _index_dirty
+
     if not _is_indexable(file_path):
         return
 
     if not _index_cache_built:
-        _build_cache_from_disk(vault_root=vault_root)
+        _build_cache_from_disk(
+            vault_root=vault_root
+        )
 
-    folder = _file_folder_label(file_path, vault_root=vault_root)
+    folder = _file_folder_label(
+        file_path,
+        vault_root=vault_root,
+    )
+
     entity_type = _read_entity_type(file_path)
-    entries = _index_cache.setdefault(folder, [])
 
-    for i, (stem, _) in enumerate(entries):
+    entries = _index_cache.setdefault(
+        folder,
+        [],
+    )
+
+    for index, (stem, _) in enumerate(entries):
         if stem == file_path.stem:
-            entries[i] = (file_path.stem, entity_type)
+            entries[index] = (
+                file_path.stem,
+                entity_type,
+            )
             break
     else:
-        entries.append((file_path.stem, entity_type))
+        entries.append(
+            (
+                file_path.stem,
+                entity_type,
+            )
+        )
 
     _index_dirty = True
 
 
-def flush_index_if_dirty(vault_root: Optional[Path | str] = None) -> str | None:
-    """เขียน index.md ลงดิสก์เฉพาะเมื่อ cache เปลี่ยน — เรียกหลังจบ ReAct cycle"""
+def flush_index_if_dirty(
+    vault_root: Optional[Path | str] = None,
+) -> str | None:
+    """
+    Flush cache ถ้ามีการเปลี่ยนแปลง
+
+    จะเขียน:
+        .system/master_index.json
+        index.md
+    """
+
     global _index_dirty
+
     if not _index_dirty:
         return None
-    msg = _write_index_from_cache(vault_root=vault_root)
-    _index_dirty = False
-    return msg
 
+    message = _write_all_indexes(
+        vault_root=vault_root
+    )
+
+    _index_dirty = False
+
+    return message
+
+
+# ---------------------------------------------------------------------------
+# Full rebuild
+# ---------------------------------------------------------------------------
 
 def _rebuild_index() -> str:
-    """Full rebuild — เรียกจาก tool update_master_index หรือเมื่อต้อง resync จาก disk"""
+    """Full rebuild จาก disk"""
     global _index_dirty
-    _build_cache_from_disk()
-    msg = _write_index_from_cache()
-    _index_dirty = False
-    return msg
 
+    _build_cache_from_disk()
+
+    message = _write_all_indexes()
+
+    _index_dirty = False
+
+    return message
+
+
+# ---------------------------------------------------------------------------
+# Tool
+# ---------------------------------------------------------------------------
 
 @tool
 def update_master_index() -> str:
-    """สร้างหรืออัปเดตไฟล์ Master Index (index.md) อัตโนมัติ
+    """
+    สร้างหรืออัปเดต Master Index
+
+    Source of truth:
+        memories/.system/master_index.json
+
+    Human-readable projection:
+        memories/index.md
 
     [Usage/When to use]
-    ใช้เมื่อมีการเปลี่ยนแปลงโครงสร้างไฟล์อย่างมีนัยสำคัญ (เช่น เพิ่มไฟล์หลายไฟล์พร้อมกัน, ลบไฟล์, แก้ไขชื่อไฟล์)
-    - ระบบจะทำการสแกน Markdown ไฟล์ทั้งหมดใน Vault และสร้างสารบัญแยกตาม Folder Hierarchy
-    - ช่วยให้ `read_file('index.md')` มองเห็นโครงสร้างล่าสุดเสมอ
+    ใช้เมื่อมีการเปลี่ยนแปลงโครงสร้างไฟล์อย่างมีนัยสำคัญ
+    เช่น:
+        - เพิ่มไฟล์หลายไฟล์
+        - ลบไฟล์
+        - เปลี่ยนชื่อไฟล์
+        - ต้องการ resync Vault ทั้งหมด
 
-    [Caution]
-    - ไม่จำเป็นต้องเรียกใช้เมื่อบันทึกไฟล์แค่ไฟล์เดียวด้วย `save_memory` หรือ `write_raw_markdown` เพราะเครื่องมือเหล่านั้นมีกลไก update index ตัวเองอยู่แล้ว
-    - จะใช้เวลาทำงานสักพักเนื่องจากต้องสแกนไฟล์ทั้ง Vault
+    ไม่จำเป็นต้องเรียกเมื่อเขียนไฟล์เดียวผ่าน writer
+    เพราะ writer ใช้ _index_upsert() อยู่แล้ว
 
     Returns:
-        str: สถานะการอัปเดต Index และสถิติจำนวนไฟล์
+        str: สถานะการ rebuild พร้อมจำนวนไฟล์
     """
     return _rebuild_index()

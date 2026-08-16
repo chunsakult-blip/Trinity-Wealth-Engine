@@ -43,8 +43,8 @@ _DEFAULT_VAULT_FOLDERS = [
     "40_Archive",
 ]
 VAULT_PATH = Path(os.getenv("OBSIDIAN_VAULT_PATH", "./memories"))
-INDEX_PATH = VAULT_PATH / ".master_index.json"
-INDEX_LOCK = VAULT_PATH / ".master_index.lock"
+INDEX_PATH = VAULT_PATH / ".system" / "master_index.json"
+INDEX_LOCK = str(INDEX_PATH) + ".lock"
 
 
 from typing import Any
@@ -140,5 +140,3 @@ def read_file(filepath: str) -> str:
     if len(content) > _READ_FILE_LIMIT:
         content = content[:_READ_FILE_LIMIT] + f"\n\n...[ตัดทอน — ไฟล์ยาว {len(content)} ตัวอักษร]"
     return f"=== {filepath} ===\n\n{content}"
-
-
