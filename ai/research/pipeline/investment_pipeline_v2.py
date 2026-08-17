@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 
-from ai.research.universe.sec_market_loader import SECMarketLoader
+from ai.research.universe.sec_market_loader import (
+    SECMarketLoader
+)
 
 from ai.research.universe.growth_universe_v3 import (
     GrowthUniverseV3Builder
@@ -9,6 +11,10 @@ from ai.research.universe.growth_universe_v3 import (
 
 from ai.research.financial.financial_intelligence_v2 import (
     FinancialIntelligenceV2
+)
+
+from ai.research.financial.financial_quality_engine import (
+    FinancialQualityEngine
 )
 
 from ai.research.investor.investor_signal_engine import (
@@ -36,6 +42,8 @@ class InvestmentPipelineV2:
 
         self.finance = FinancialIntelligenceV2()
 
+        self.quality = FinancialQualityEngine()
+
         self.investor = InvestorSignalEngine()
 
         self.valuation = ValuationEngine()
@@ -50,7 +58,9 @@ class InvestmentPipelineV2:
     ):
 
 
-        universe = self.market.load()
+        universe = (
+            self.market.load()
+        )
 
 
         candidates = (
@@ -79,16 +89,16 @@ class InvestmentPipelineV2:
                 )
 
 
-                financial_score = (
-                    self.finance
-                    .quality_score(
+                quality = (
+                    self.quality
+                    .analyze(
                         financial
                     )
                 )
 
 
                 financial.quality_score = (
-                    financial_score
+                    quality.total_score
                 )
 
 
@@ -101,6 +111,7 @@ class InvestmentPipelineV2:
                 )
 
 
+
                 valuation = (
                     self.valuation
                     .calculate(
@@ -109,8 +120,10 @@ class InvestmentPipelineV2:
                 )
 
 
+
                 ranked = (
-                    self.rank.calculate(
+                    self.rank
+                    .calculate(
                         candidate,
                         financial,
                         investor,
@@ -127,6 +140,7 @@ class InvestmentPipelineV2:
 
             except Exception as e:
 
+
                 print(
                     candidate.ticker,
                     e
@@ -134,10 +148,19 @@ class InvestmentPipelineV2:
 
 
 
-        return (
+        ranked = (
             self.rank
             .rank(
                 results
             )
-        )[:limit]
+        )
+
+
+        print(
+            "Candidates:",
+            len(ranked)
+        )
+
+
+        return ranked[:limit]
 
