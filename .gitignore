@@ -68,3 +68,4 @@ _security_probe.ps1
 *.tmp
 *.temp
 *.trace
+.data/
