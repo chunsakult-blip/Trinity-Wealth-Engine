@@ -258,7 +258,7 @@ def evaluate_macro_matrix() -> str:
     today_str = os.environ.get("EVAL_DATE", datetime.now().strftime("%Y-%m-%d"))
 
     # Paths based on test_macro.py expectations
-    vault_path = Path(os.environ.get("OBSIDIAN_VAULT_PATH", "C:/ChinoDoc/Projects/Claude/invest-agents/memories")).resolve()
+    vault_path = Path(os.environ.get("OBSIDIAN_VAULT_PATH", str(Path(__file__).resolve().parents[2] / "memories"))).resolve()
     snapshots_dir = vault_path / "30_Knowledge_Base" / "Macroeconomics" / "Daily_Snapshots"
     print(f"DEBUG: vault_path = {vault_path}")
     print(f"DEBUG: snapshots_dir = {snapshots_dir}")
@@ -397,7 +397,7 @@ def load_latest_macro_observables(vault_path: Optional[Path] = None) -> dict[str
     หากไม่พบ ให้ fallback ไปรัน build_valuation_observables() พร้อมเตือนใน log
     """
     if vault_path is None:
-        vault_path = Path(os.environ.get("OBSIDIAN_VAULT_PATH", "./memories")).resolve()
+        vault_path = Path(os.environ.get("OBSIDIAN_VAULT_PATH", str(Path(__file__).resolve().parents[2] / "memories"))).resolve()
 
     snapshots_dir = vault_path / "30_Knowledge_Base" / "Macroeconomics" / "Daily_Snapshots"
 

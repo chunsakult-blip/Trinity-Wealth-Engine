@@ -2,8 +2,7 @@
 
 Single-provider / single-model architecture.
 
-ALL LLM requests are routed through OpenRouter using:
-    openai/gpt-oss-120b:free
+ALL LLM requests are routed through OpenRouter using:\r?\n    nvidia/nemotron-3-super-120b-a12b:free
 
 No Google or Anthropic runtime provider is supported.
 """
@@ -203,3 +202,4 @@ def list_available_models(
     return {
         "openrouter": models,
     }
+

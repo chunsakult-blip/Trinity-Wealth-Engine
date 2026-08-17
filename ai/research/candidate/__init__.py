@@ -1,0 +1,1 @@
+"""ATLAS candidate intelligence package."""

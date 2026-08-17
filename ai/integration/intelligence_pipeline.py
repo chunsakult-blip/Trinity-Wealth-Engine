@@ -1,30 +1,46 @@
 """
-Trinity v2 Intelligence Pipeline.
+ATLAS Intelligence Pipeline.
 
 Execution chain:
 
-Trinity
-  ↓
-Adapter
-  ↓
-Research
-  ↓
+ATLAS Request
+    |
+    v
+Trinity Runner
+    |
+    v
+Trinity Adapter
+    |
+    v
+Research / Discovery
+    |
+    v
+Financial Intelligence
+    |
+    v
+Investment Decision
+    |
+    v
 Evidence
-  ↓
+    |
+    v
 Verification
-  ↓
+    |
+    v
 Challenge
-  ↓
+    |
+    v
 Reflection
-  ↓
+    |
+    v
 Nick
 """
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
-from ai.agent_result import AgentResult
 from ai.challenge.challenge_agent import (
     ChallengeAgent,
     DEFAULT_CHALLENGE_AGENT,
@@ -34,8 +50,17 @@ from ai.evidence.evidence_collector import (
     DEFAULT_EVIDENCE_COLLECTOR,
 )
 from ai.integration.trinity_adapter import TrinityAdapter
+from ai.integration.trinity_runner import (
+    TrinityRunner,
+    DEFAULT_TRINITY_RUNNER,
+)
 from ai.nick.nnick import Nick
 from ai.orchestration.research_orchestrator import ResearchOrchestrator
+from ai.research.workers.us_stock_discovery_worker import (
+    USStockDiscoveryWorker,
+)
+from ai.research.financial.engine import FinancialIntelligenceEngine
+from ai.research.investment.engine import InvestmentDecisionEngine
 from ai.reflection.reflection_agent import (
     ReflectionAgent,
     DEFAULT_REFLECTION_AGENT,
@@ -48,14 +73,35 @@ from ai.verification.fact_verifier import (
 
 
 class IntelligencePipeline:
+    """
+    Main ATLAS intelligence execution pipeline.
 
-    name = "Trinity Intelligence Pipeline"
+    ATLAS owns the intelligence lifecycle while Trinity remains
+    the execution/research engine.
+
+    Core graph:
+
+        Trinity
+            -> Research / Discovery
+            -> Financial Intelligence
+            -> Investment Decision
+            -> Evidence
+            -> Verification
+            -> Challenge
+            -> Reflection
+            -> Nick
+    """
+
+    name = "ATLAS Intelligence Pipeline"
 
     def __init__(
         self,
         *,
         adapter: TrinityAdapter | None = None,
+        runner: TrinityRunner | None = None,
         research: ResearchOrchestrator | None = None,
+        financial: FinancialIntelligenceEngine | None = None,
+        investment: InvestmentDecisionEngine | None = None,
         evidence: EvidenceCollector | None = None,
         verifier: FactVerifier | None = None,
         challenger: ChallengeAgent | None = None,
@@ -63,12 +109,45 @@ class IntelligencePipeline:
         nick: Nick | None = None,
     ) -> None:
 
+        self.runner = runner or DEFAULT_TRINITY_RUNNER
         self.adapter = adapter or TrinityAdapter()
-        self.research = research or ResearchOrchestrator()
-        self.evidence = evidence or DEFAULT_EVIDENCE_COLLECTOR
-        self.verifier = verifier or DEFAULT_FACT_VERIFIER
-        self.challenger = challenger or DEFAULT_CHALLENGE_AGENT
-        self.reflection = reflection or DEFAULT_REFLECTION_AGENT
+
+        self.research = research or ResearchOrchestrator(
+            workers=[
+                USStockDiscoveryWorker(),
+            ],
+        )
+
+        self.financial = (
+            financial
+            or FinancialIntelligenceEngine()
+        )
+
+        self.investment = (
+            investment
+            or InvestmentDecisionEngine()
+        )
+
+        self.evidence = (
+            evidence
+            or DEFAULT_EVIDENCE_COLLECTOR
+        )
+
+        self.verifier = (
+            verifier
+            or DEFAULT_FACT_VERIFIER
+        )
+
+        self.challenger = (
+            challenger
+            or DEFAULT_CHALLENGE_AGENT
+        )
+
+        self.reflection = (
+            reflection
+            or DEFAULT_REFLECTION_AGENT
+        )
+
         self.nick = nick or Nick()
 
     def build_request(
@@ -86,6 +165,161 @@ class IntelligencePipeline:
             depth=depth,
         )
 
+    @staticmethod
+    def _has_explicit_company_target(
+        request: ResearchRequest,
+    ) -> bool:
+        """
+        Return True when the user explicitly supplied a company target.
+
+        Explicit ticker requests must bypass full-market discovery.
+        """
+
+        tickers = getattr(request, "tickers", None)
+
+        if not tickers:
+            return False
+
+        return any(
+            isinstance(ticker, str)
+            and ticker.strip()
+            for ticker in tickers
+        )
+
+    @staticmethod
+    def _resolve_company_direct(
+        ticker: str,
+    ) -> dict[str, Any] | None:
+        """
+        Resolve an explicitly requested US company directly.
+
+        IMPORTANT:
+        This path intentionally does NOT execute
+        USStockDiscoveryWorker and does NOT scan the full
+        SecurityMaster universe.
+
+        The Financial Intelligence Engine can resolve the
+        SEC identity from the ticker/CIK path downstream.
+        """
+
+        if not isinstance(ticker, str):
+            return None
+
+        normalized = ticker.strip().upper()
+
+        if not normalized:
+            return None
+
+        return {
+            "ticker": normalized,
+            "company_name": None,
+            "cik": None,
+            "exchange": None,
+            "resolution_mode": "direct_ticker",
+            "identity_status": "pending_financial_resolution",
+        }
+
+    @staticmethod
+    def _resolve_company(
+        research_result: Any,
+        request: ResearchRequest,
+    ) -> dict[str, Any] | None:
+        """
+        Resolve one canonical company record for the
+        Financial -> Investment bridge.
+
+        Priority:
+            1. Explicit ticker from request
+            2. First investable SecurityMaster record
+
+        This intentionally analyzes ONE company per pipeline
+        execution. It prevents a normal pipeline request from
+        triggering thousands of SEC requests.
+        """
+
+        data = getattr(
+            research_result,
+            "data",
+            {},
+        )
+
+        investable = (
+            data
+            .get("investable_universe", {})
+            .get("records", [])
+        )
+
+        if not isinstance(investable, list):
+            return None
+
+        requested_tickers = {
+            ticker.upper()
+            for ticker in request.tickers
+        }
+
+        if requested_tickers:
+
+            for record in investable:
+
+                if not isinstance(record, dict):
+                    continue
+
+                ticker = (
+                    record.get("ticker")
+                    or record.get("symbol")
+                )
+
+                if (
+                    ticker
+                    and str(ticker).upper()
+                    in requested_tickers
+                ):
+                    return dict(record)
+
+            return None
+
+        for record in investable:
+
+            if not isinstance(record, dict):
+                continue
+
+            cik = (
+                record.get("cik")
+                or record.get("cik_str")
+                or record.get("cik_int")
+            )
+
+            if cik is not None:
+                return dict(record)
+
+        return None
+
+    @staticmethod
+    def _resolve_cik(
+        record: dict[str, Any],
+    ) -> int | None:
+
+        value = (
+            record.get("cik")
+            or record.get("cik_str")
+            or record.get("cik_int")
+        )
+
+        if value is None:
+            return None
+
+        try:
+            return int(
+                str(value)
+                .replace("-", "")
+                .strip()
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            return None
+
     def run(
         self,
         *,
@@ -94,7 +328,12 @@ class IntelligencePipeline:
         trinity_output: Any = None,
         research_type: str = "company",
         depth: str = "standard",
+        thread_id: str | None = None,
     ) -> dict[str, Any]:
+
+        # ---------------------------------------------------------
+        # 0. BUILD REQUEST
+        # ---------------------------------------------------------
 
         request = self.build_request(
             query=query,
@@ -103,28 +342,261 @@ class IntelligencePipeline:
             depth=depth,
         )
 
+        execution_thread_id = (
+            thread_id
+            or f"atlas-{uuid.uuid4().hex[:16]}"
+        )
+
+        # ---------------------------------------------------------
+        # 1. TRINITY EXECUTION
+        # ---------------------------------------------------------
+
+        if trinity_output is None:
+
+            trinity_execution = self.runner.run(
+                instruction=request.query,
+                thread_id=execution_thread_id,
+            )
+
+            raw_trinity_output = trinity_execution
+
+        else:
+
+            trinity_execution = {
+                "status": "external",
+                "thread_id": execution_thread_id,
+            }
+
+            raw_trinity_output = trinity_output
+
+        # ---------------------------------------------------------
+        # 2. TRINITY -> ATLAS CONTRACT
+        # ---------------------------------------------------------
+
         trinity_result = self.adapter.adapt(
-            trinity_output if trinity_output is not None else {},
+            raw_trinity_output,
             query=request.query,
             tickers=request.tickers,
         )
 
-        research_result = self.research.execute(request)
+        if trinity_execution:
+
+            trinity_result.data.setdefault(
+                "execution",
+                trinity_execution,
+            )
+
+        # ---------------------------------------------------------
+        # 3. RESEARCH / COMPANY RESOLUTION
+        # ---------------------------------------------------------
+        #
+        # Explicit ticker:
+        #     DIRECT ROUTE
+        #
+        # No ticker:
+        #     FULL DISCOVERY ROUTE
+        #
+        # This is the critical optimization boundary.
+        # A request such as "Analyze AAPL" must NEVER scan the
+        # complete US SecurityMaster universe just to discover AAPL.
+        #
+
+        explicit_target = self._has_explicit_company_target(
+            request
+        )
+
+        if explicit_target:
+            requested_ticker = (
+                request.tickers[0].strip().upper()
+            )
+
+            direct_record = self._resolve_company_direct(
+                requested_ticker
+            )
+
+            # Build a minimal research-compatible result.
+            #
+            # Financial identity resolution is performed below.
+            research_result = self.research.execute(
+                request,
+                skip_discovery=True,
+                direct_company=direct_record,
+            )
+
+        else:
+            research_result = self.research.execute(
+                request
+            )
+
+        # ---------------------------------------------------------
+        # 4. COMPANY -> FINANCIAL
+        # ---------------------------------------------------------
+
+        if explicit_target:
+            company_record = self._resolve_company_direct(
+                request.tickers[0]
+            )
+        else:
+            company_record = self._resolve_company(
+                research_result,
+                request,
+            )
+
+        financial_result: dict[str, Any] = {
+            "status": "not_run",
+            "stage": "financial_intelligence",
+            "reason": "No company candidate resolved.",
+        }
+
+        investment_result: dict[str, Any] = {
+            "status": "not_run",
+            "stage": "investment_decision",
+            "reason": "Financial intelligence not available.",
+        }
+
+        if company_record is not None:
+
+            cik = self._resolve_cik(
+                company_record
+            )
+
+            ticker = (
+                company_record.get("ticker")
+                or company_record.get("symbol")
+            )
+
+            company_name = (
+                company_record.get("company_name")
+                or company_record.get("name")
+                or company_record.get("title")
+            )
+
+            if cik is not None:
+
+                try:
+
+                    # -------------------------------------------------
+                    # FINANCIAL ENGINE
+                    # -------------------------------------------------
+
+                    financial_result = (
+                        self.financial.analyze_company(
+                            cik,
+                            ticker=ticker,
+                            company_name=company_name,
+                        )
+                    )
+
+                    # -------------------------------------------------
+                    # FINANCIAL -> INVESTMENT
+                    # -------------------------------------------------
+
+                    if (
+                        financial_result.get("status")
+                        == "success"
+                    ):
+
+                        metrics = (
+                            financial_result.get(
+                                "metrics",
+                                {},
+                            )
+                        )
+
+                        financial_quality = (
+                            financial_result.get(
+                                "quality",
+                                {},
+                            )
+                        )
+
+                        investment_result = (
+                            self.investment.analyze(
+                                metrics,
+                                financial_quality=(
+                                    financial_quality
+                                ),
+                                market_cap=(
+                                    metrics.get(
+                                        "market_cap"
+                                    )
+                                ),
+                                enterprise_value=(
+                                    metrics.get(
+                                        "enterprise_value"
+                                    )
+                                ),
+                                price=(
+                                    metrics.get(
+                                        "price"
+                                    )
+                                ),
+                                ticker=(
+                                    financial_result.get(
+                                        "ticker"
+                                    )
+                                    or ticker
+                                ),
+                                company_name=(
+                                    financial_result.get(
+                                        "company_name"
+                                    )
+                                    or company_name
+                                ),
+                            )
+                        )
+
+                except Exception as exc:
+
+                    financial_result = {
+                        "status": "failure",
+                        "stage": "financial_intelligence",
+                        "cik": cik,
+                        "ticker": ticker,
+                        "company_name": company_name,
+                        "error": (
+                            f"{type(exc).__name__}: {exc}"
+                        ),
+                    }
+
+                    investment_result = {
+                        "status": "not_run",
+                        "stage": "investment_decision",
+                        "reason": (
+                            "Financial intelligence failed."
+                        ),
+                    }
+
+        # ---------------------------------------------------------
+        # 5. EVIDENCE
+        # ---------------------------------------------------------
 
         evidence_result = self.evidence.collect(
             trinity=trinity_result,
             research=research_result,
         )
 
+        # ---------------------------------------------------------
+        # 6. VERIFICATION
+        # ---------------------------------------------------------
+
         verification_result = self.verifier.verify(
             research=research_result,
             evidence=evidence_result,
         )
 
+        # ---------------------------------------------------------
+        # 7. CHALLENGE
+        # ---------------------------------------------------------
+
         challenge_result = self.challenger.challenge(
             research=research_result,
             verification=verification_result,
         )
+
+        # ---------------------------------------------------------
+        # 8. REFLECTION
+        # ---------------------------------------------------------
 
         reflection_result = self.reflection.reflect(
             research=research_result,
@@ -132,34 +604,79 @@ class IntelligencePipeline:
             challenge=challenge_result,
         )
 
+        # ---------------------------------------------------------
+        # 9. INVESTMENT PACKAGE
+        # ---------------------------------------------------------
+
         investment_package = {
+
             "request": request.to_dict(),
+
             "trinity": trinity_result.to_dict(),
+
             "research": research_result.to_dict(),
+
+            "financial": financial_result,
+
+            "investment": investment_result,
+
             "evidence": evidence_result.to_dict(),
-            "verification": verification_result.to_dict(),
+
+            "verification": (
+                verification_result.to_dict()
+            ),
+
             "challenge": challenge_result.to_dict(),
+
             "reflection": reflection_result.to_dict(),
         }
+
+        # ---------------------------------------------------------
+        # 10. NICK
+        # ---------------------------------------------------------
 
         nick_result = self.nick.evaluate(
             investment_package
         )
 
+        pipeline_status = (
+            "ready"
+            if nick_result["status"] == "ready"
+            else "incomplete"
+        )
+
+        # ---------------------------------------------------------
+        # 11. FINAL OUTPUT
+        # ---------------------------------------------------------
+
         return {
+
             "pipeline": self.name,
-            "status": (
-                "ready"
-                if nick_result["status"] == "ready"
-                else "incomplete"
-            ),
+
+            "status": pipeline_status,
+
+            "thread_id": execution_thread_id,
+
             "request": request.to_dict(),
+
             "trinity": trinity_result.to_dict(),
+
             "research": research_result.to_dict(),
+
+            "financial": financial_result,
+
+            "investment": investment_result,
+
             "evidence": evidence_result.to_dict(),
-            "verification": verification_result.to_dict(),
+
+            "verification": (
+                verification_result.to_dict()
+            ),
+
             "challenge": challenge_result.to_dict(),
+
             "reflection": reflection_result.to_dict(),
+
             "nick": nick_result,
         }
 

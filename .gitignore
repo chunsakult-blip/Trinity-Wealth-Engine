@@ -1,74 +1,70 @@
-# =========================================
-# 1. Secrets & API Keys
-# =========================================
+
+# ============================================================
+# Trinity-Wealth-Engine — Runtime / Generated Data
+# ============================================================
+
+# Runtime data
+data/
+ai/data/
+logs/
+memories/
+
+# Coverage
+.coverage
+coverage.xml
+tests/coverage.xml
+tests/testing_report.html
+
+# ============================================================
+# Existing rules
+# ============================================================
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local caches
+.cache/
+.atlas_cache/
+
+# SQLite / runtime databases
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+
+# Environment / secrets
 .env
 .env.*
 !.env.example
 
-# =========================================
-# 2. Personal Data & State
-# =========================================
-memories/
-logs/
-data/
-*.sqlite
-*.sqlite3
-*.db
+# Development backups
+_backup*/
+_batch*_backup/
+*.bak
+*.bak_*
+*.broken*
+*.before_*
 
-# =========================================
-# 3. Python & Virtual Environment
-# =========================================
-__pycache__/
-.venv/
-*.py[cod]
-*$py.class
-*.so
-.uv/
+# Temporary audit / trace artifacts
+._atlas_db_audit.py
+ATLAS_*.txt
+_atlas_*.txt
+_step*.txt
+_batch*.txt
+agent_discovery.txt
+exact_goto_trace.py
+manager_archivist_flow.txt
+_security_probe.ps1
 
-# =========================================
-# 4. Test & Coverage Artifacts
-# =========================================
-.pytest_cache/
-.coverage
-coverage.xml
-coverage_report/
-htmlcov/
-test_report.html
-testing_report.html
-qa_dashboard.html
-
-# =========================================
-# 5. Build & Distribution
-# =========================================
-dist/
-build/
-*.egg-info/
-*.egg
-
-# =========================================
-# 6. Code Review & Dev Utilities
-# =========================================
-code_review.txt
-gen_code_review.py
-scripts/
-scratch/
-
-# =========================================
-# 7. OS & IDE
-# =========================================
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
-
-# =========================================
-# 8. Claude Code
-# =========================================
-.claude/settings.local.json
-
-# =========================================
-# 9. Node Modules & Superpowers scratch
-# =========================================
-node_modules/
-.superpowers/
-stock_intelligence/providers/*.bak_*
+# Temporary generated files
+*.tmp
+*.temp
+*.trace
