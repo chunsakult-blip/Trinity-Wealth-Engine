@@ -16,60 +16,90 @@ class RiskScore:
 class RiskEngine:
 
 
-    def analyze(
+    def calculate(
         self,
         financial
     ):
 
-        score = 100
-        reasons = []
 
+        score = 0
+
+        reasons=[]
+
+
+        # profitability risk
 
         if financial.net_income <= 0:
 
-            score -= 30
+            score += 30
+
             reasons.append(
                 "Negative earnings"
             )
 
 
+        # balance sheet risk
+
+        if (
+            financial.liabilities
+            >
+            financial.assets
+        ):
+
+            score += 30
+
+            reasons.append(
+                "Weak balance sheet"
+            )
+
+
+        # cashflow risk
+
         if financial.cashflow <= 0:
 
-            score -= 30
+            score += 25
+
             reasons.append(
-                "Weak operating cashflow"
+                "Negative operating cashflow"
             )
 
 
-        if financial.liabilities > financial.assets:
+        # low data confidence
 
-            score -= 40
+        if financial.revenue <= 0:
+
+            score += 15
+
             reasons.append(
-                "Balance sheet risk"
+                "Missing revenue data"
             )
 
 
-        score = max(score,0)
+
+        if score >= 70:
+
+            level="HIGH"
 
 
-        if score >= 80:
+        elif score >= 40:
 
-            level = "LOW"
+            level="MEDIUM"
 
-        elif score >= 50:
-
-            level = "MEDIUM"
 
         else:
 
-            level = "HIGH"
+            level="LOW"
+
 
 
         return RiskScore(
 
             ticker=financial.ticker,
 
-            risk_score=score,
+            risk_score=min(
+                score,
+                100
+            ),
 
             level=level,
 

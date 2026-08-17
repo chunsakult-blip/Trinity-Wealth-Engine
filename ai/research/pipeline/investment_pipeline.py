@@ -44,20 +44,26 @@ class InvestmentPipeline:
             "Loading market universe..."
         )
 
+
         universe = self.market_loader.load()
+
 
 
         print(
             "Finding growth companies..."
         )
 
-        growth_candidates = (
+
+        candidates = (
             self.growth_builder
-            .build(universe)
+            .build(
+                universe
+            )
         )
 
 
         results=[]
+
 
 
         print(
@@ -65,10 +71,12 @@ class InvestmentPipeline:
         )
 
 
-        for candidate in growth_candidates:
+
+        for candidate in candidates:
 
 
             try:
+
 
                 financial = (
                     self.financial_engine
@@ -77,6 +85,15 @@ class InvestmentPipeline:
                         candidate.cik
                     )
                 )
+
+
+                # safety check
+                if not hasattr(
+                    financial,
+                    "quality_score"
+                ):
+                    continue
+
 
 
                 ranked = (
@@ -100,12 +117,19 @@ class InvestmentPipeline:
                 )
 
 
-        results = self.ranker.rank(
-            results
+
+        results = (
+            self.ranker
+            .rank(
+                results
+            )
+        )
+
+
+        print(
+            "Candidates:",
+            len(results)
         )
 
 
         return results[:limit]
-
-
-
