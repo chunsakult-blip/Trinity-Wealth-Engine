@@ -1,0 +1,210 @@
+from __future__ import annotations
+
+import urllib.request
+import json
+
+from dataclasses import dataclass
+
+from ai.research.financial.sec_cache import (
+    SECCache,
+)
+
+
+
+@dataclass
+class FinancialMetrics:
+
+    ticker: str
+
+    revenue: float
+    net_income: float
+    assets: float
+    liabilities: float
+    cashflow: float
+
+    quality_score: float
+
+
+
+class FinancialIntelligenceEngine:
+
+
+    SEC_URL = (
+        "https://data.sec.gov/api/xbrl/companyfacts/CIK"
+        "{cik}.json"
+    )
+
+
+    def __init__(self):
+
+        self.cache = SECCache()
+
+        self.headers = {
+            "User-Agent":
+            "Trinity-Wealth-Engine contact@example.com"
+        }
+
+
+
+    def load_facts(
+        self,
+        ticker:str,
+        cik:str,
+    ):
+
+
+        if self.cache.exists(ticker):
+
+            return self.cache.load(
+                ticker
+            )
+
+
+        url=self.SEC_URL.format(
+            cik=str(cik).zfill(10)
+        )
+
+
+        request=urllib.request.Request(
+            url,
+            headers=self.headers
+        )
+
+
+        with urllib.request.urlopen(
+            request
+        ) as response:
+
+            data=json.loads(
+                response.read()
+            )
+
+
+        self.cache.save(
+            ticker,
+            cik,
+            data
+        )
+
+
+        return {
+            "data":data
+        }
+
+
+
+    def extract_value(
+        self,
+        facts,
+        tag,
+    ):
+
+
+        try:
+
+            usgaap=facts["facts"]["us-gaap"]
+
+            item=usgaap[tag]
+
+            units=item["units"]
+
+            key=list(units.keys())[0]
+
+            return units[key][-1]["val"]
+
+
+        except Exception:
+
+            return 0
+
+
+
+    def analyze(
+        self,
+        ticker:str,
+        cik:str,
+    ):
+
+
+        raw=self.load_facts(
+            ticker,
+            cik
+        )
+
+
+        facts=raw["data"]
+
+
+
+        revenue=self.extract_value(
+            facts,
+            "Revenues"
+        )
+
+
+        income=self.extract_value(
+            facts,
+            "NetIncomeLoss"
+        )
+
+
+        assets=self.extract_value(
+            facts,
+            "Assets"
+        )
+
+
+        liabilities=self.extract_value(
+            facts,
+            "Liabilities"
+        )
+
+
+        cashflow=self.extract_value(
+            facts,
+            "NetCashProvidedByUsedInOperatingActivities"
+        )
+
+
+
+        score=0
+
+
+        if revenue>0:
+            score+=20
+
+
+        if income>0:
+            score+=25
+
+
+        if cashflow>0:
+            score+=25
+
+
+        if assets>liabilities:
+            score+=30
+
+
+
+        return FinancialMetrics(
+
+            ticker=ticker,
+
+            revenue=revenue,
+
+            net_income=income,
+
+            assets=assets,
+
+            liabilities=liabilities,
+
+            cashflow=cashflow,
+
+            quality_score=min(
+                score,
+                100
+            )
+
+        )
+
