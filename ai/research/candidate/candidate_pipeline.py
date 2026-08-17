@@ -12,6 +12,8 @@ from ai.research.candidate.investor_signal_enricher import (
 )
 
 
+from ai.research.investment.investment_bridge import InvestmentBridge
+
 class CandidatePipeline:
     """
     Converts Security Master output into a persistent
@@ -32,6 +34,7 @@ class CandidatePipeline:
         ranker: CandidateRanker | None = None,
         financial_enricher: FinancialSignalEnricher | None = None,
         investor_enricher: InvestorSignalEnricher | None = None,
+        investment_bridge: InvestmentBridge | None = None,
     ) -> None:
 
         self.store = store or CandidateStore()
@@ -45,6 +48,11 @@ class CandidatePipeline:
         self.investor_enricher = (
             investor_enricher
             or InvestorSignalEnricher()
+        )
+
+        self.investment_bridge = (
+            investment_bridge
+            or InvestmentBridge()
         )
 
     def ingest(
@@ -89,6 +97,36 @@ class CandidatePipeline:
         selected = ranked[: max(1, int(top_n))]
 
         # ------------------------------------------------------------
+        # INVESTMENT DECISION BRIDGE
+        #
+        # Candidate ranking is already complete.
+        #
+        # candidate_score:
+        #     discovery / research priority
+        #
+        # investment_final_score:
+        #     investment decision quality
+        #
+        # These signals intentionally remain separate.
+        # ------------------------------------------------------------
+
+        investment_evaluated: list[dict[str, Any]] = []
+
+        for record in selected:
+
+            item = dict(record)
+
+            investment_result = (
+                self.investment_bridge.evaluate(item)
+            )
+
+            item.update(investment_result)
+
+            investment_evaluated.append(item)
+
+        selected = investment_evaluated
+
+        # ------------------------------------------------------------
         # PERSIST
         # ------------------------------------------------------------
 
@@ -106,6 +144,22 @@ class CandidatePipeline:
             "enriched_records": len(enriched),
             "ranked_records": len(ranked),
             "selected_candidates": len(selected),
+            "investment_evaluated": len(investment_evaluated),
+            "investment_pass": sum(
+                1
+                for item in investment_evaluated
+                if item.get("investment_decision") == "PASS"
+            ),
+            "investment_watch": sum(
+                1
+                for item in investment_evaluated
+                if item.get("investment_decision") == "WATCH"
+            ),
+            "investment_reject": sum(
+                1
+                for item in investment_evaluated
+                if item.get("investment_decision") == "REJECT"
+            ),
             "top_n": top_n,
             "database_summary": self.store.summary(),
         }
