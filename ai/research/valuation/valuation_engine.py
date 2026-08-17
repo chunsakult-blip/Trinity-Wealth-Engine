@@ -1,96 +1,122 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+
 
 
 @dataclass
 class ValuationResult:
 
-    pe: Optional[float] = None
+    ticker:str
 
-    pfcf: Optional[float] = None
+    valuation_score:float
 
-    score: float = 0
+    margin_of_safety:float
+
+    rating:str
+
 
 
 
 class ValuationEngine:
 
 
+
     def calculate(
-
         self,
-
-        price: float,
-
-        shares: float,
-
-        net_income: float | None,
-
-        free_cash_flow: float | None,
-
-    ) -> ValuationResult:
+        ticker:str,
+        revenue:float,
+        net_income:float,
+        cashflow:float,
+        market_cap:float,
+        growth:float
+    ):
 
 
-        market_cap = (
-            price * shares
+        score=0
+
+
+
+        # profitability
+
+        if net_income > 0:
+
+            score += 25
+
+
+
+        # cash generation
+
+        if cashflow > 0:
+
+            score += 25
+
+
+
+        # growth quality
+
+        if growth >= 15:
+
+            score += 30
+
+        elif growth >= 5:
+
+            score += 15
+
+
+
+        # valuation multiple
+
+        if market_cap > 0 and net_income > 0:
+
+            pe = market_cap / net_income
+
+            if pe < 20:
+
+                score += 20
+
+            elif pe < 40:
+
+                score += 10
+
+
+
+        score=min(
+            score,
+            100
         )
 
 
-        pe = None
+        if score >= 80:
 
-        pfcf = None
+            rating="UNDERVALUED"
 
+        elif score >= 60:
 
-        score = 0
+            rating="FAIR VALUE"
 
+        else:
 
-
-        if (
-            net_income
-            and net_income > 0
-        ):
-
-            pe = (
-                market_cap /
-                net_income
-            )
-
-
-            if pe < 15:
-                score += 50
-
-            elif pe < 25:
-                score += 25
+            rating="EXPENSIVE"
 
 
 
-        if (
-            free_cash_flow
-            and free_cash_flow > 0
-        ):
-
-            pfcf = (
-                market_cap /
-                free_cash_flow
-            )
-
-
-            if pfcf < 20:
-                score += 50
-
-            elif pfcf < 35:
-                score += 25
+        margin = max(
+            0,
+            100-score
+        )
 
 
 
         return ValuationResult(
 
-            pe=pe,
+            ticker=ticker,
 
-            pfcf=pfcf,
+            valuation_score=score,
 
-            score=score,
+            margin_of_safety=margin,
+
+            rating=rating
 
         )
+
