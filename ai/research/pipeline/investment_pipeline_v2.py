@@ -29,6 +29,10 @@ from ai.research.ranking.master_ranker_v2 import (
     MasterRankerV2
 )
 
+from ai.research.decision.investment_decision_engine import (
+    InvestmentDecisionEngine
+)
+
 
 
 class InvestmentPipelineV2:
@@ -49,6 +53,8 @@ class InvestmentPipelineV2:
         self.valuation = ValuationEngine()
 
         self.rank = MasterRankerV2()
+
+        self.decision = InvestmentDecisionEngine()
 
 
 
@@ -71,7 +77,7 @@ class InvestmentPipelineV2:
         )
 
 
-        results=[]
+        results = []
 
 
 
@@ -132,6 +138,29 @@ class InvestmentPipelineV2:
                 )
 
 
+
+                decision = (
+                    self.decision
+                    .analyze(
+                        ranked
+                    )
+                )
+
+
+                # attach AI decision safely
+
+                ranked.decision = decision.decision
+
+                ranked.confidence = decision.confidence
+
+                ranked.risk_level = decision.risk_level
+
+                ranked.strengths = decision.strengths
+
+                ranked.weaknesses = decision.weaknesses
+
+
+
                 results.append(
                     ranked
                 )
@@ -148,7 +177,7 @@ class InvestmentPipelineV2:
 
 
 
-        ranked = (
+        ranked_results = (
             self.rank
             .rank(
                 results
@@ -158,9 +187,9 @@ class InvestmentPipelineV2:
 
         print(
             "Candidates:",
-            len(ranked)
+            len(ranked_results)
         )
 
 
-        return ranked[:limit]
+        return ranked_results[:limit]
 
