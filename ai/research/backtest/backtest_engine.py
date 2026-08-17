@@ -8,14 +8,11 @@ from dataclasses import dataclass
 class BacktestResult:
 
     ticker:str
-
-    initial:float
-    final:float
-
+    start_value:float
+    end_value:float
     return_pct:float
-
-    win:bool
-
+    max_drawdown:float
+    grade:str
 
 
 
@@ -25,36 +22,72 @@ class BacktestEngine:
 
     def simulate(
         self,
-        ticker:str,
-        prices:list[float],
-        capital:float=10000
+        ticker,
+        prices,
+        capital=100000
     ):
 
 
         if not prices:
 
-            raise ValueError(
-                "No price data"
+            return None
+
+
+
+        peak=capital
+
+        max_drawdown=0
+
+
+
+        value=capital
+
+
+
+        for change in prices:
+
+            value *= (
+                1 + change
             )
 
 
-        shares = (
-            capital /
-            prices[0]
-        )
+            if value > peak:
+
+                peak=value
 
 
-        final_value = (
-            shares *
-            prices[-1]
-        )
+            drawdown=(
+
+                peak-value
+
+            )/peak*100
 
 
-        result = (
-            (final_value-capital)
-            /
-            capital
-        ) * 100
+            if drawdown > max_drawdown:
+
+                max_drawdown=drawdown
+
+
+
+        result=(
+
+            value-capital
+
+        )/capital*100
+
+
+
+        if result >=50:
+
+            grade="A"
+
+        elif result >=20:
+
+            grade="B"
+
+        else:
+
+            grade="C"
 
 
 
@@ -62,10 +95,10 @@ class BacktestEngine:
 
             ticker=ticker,
 
-            initial=capital,
+            start_value=capital,
 
-            final=round(
-                final_value,
+            end_value=round(
+                value,
                 2
             ),
 
@@ -74,25 +107,12 @@ class BacktestEngine:
                 2
             ),
 
-            win=result > 0
+            max_drawdown=round(
+                max_drawdown,
+                2
+            ),
 
-        )
-
-
-
-    def compare(
-        self,
-        results
-    ):
-
-
-        return sorted(
-
-            results,
-
-            key=lambda x:x.return_pct,
-
-            reverse=True
+            grade=grade
 
         )
 
