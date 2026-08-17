@@ -319,10 +319,42 @@ class CandidateStore:
                 (limit,),
             ).fetchall()
 
-        return [
-            dict(row)
-            for row in rows
-        ]
+        results: list[dict[str, Any]] = []
+
+        for row in rows:
+
+            item = dict(row)
+
+            metadata_raw = item.get(
+                "metadata_json"
+            )
+
+            if metadata_raw:
+
+                try:
+                    metadata = json.loads(
+                        metadata_raw
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                    json.JSONDecodeError,
+                ):
+                    metadata = {}
+
+                if isinstance(metadata, dict):
+
+                    for key, value in metadata.items():
+
+                        if (
+                            key not in item
+                            or item.get(key) is None
+                        ):
+                            item[key] = value
+
+            results.append(item)
+
+        return results
 
     def count(self) -> int:
 
