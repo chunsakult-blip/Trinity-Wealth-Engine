@@ -19,13 +19,14 @@ class AnalystReport:
 
 
 
-class InvestmentAnalyst:
+class InvestmentAnalystAgent:
 
 
 
     def analyze(
         self,
-        stock
+        stock,
+        portfolio=None
     ):
 
 
@@ -35,23 +36,47 @@ class InvestmentAnalyst:
 
 
 
-        score = stock.final_score
+        score = getattr(
+            stock,
+            "final_score",
+            0
+        )
+
+
+        growth = getattr(
+            stock,
+            "growth_score",
+            0
+        )
+
+
+        financial = getattr(
+            stock,
+            "financial_score",
+            0
+        )
+
+
+        valuation = getattr(
+            stock,
+            "valuation_score",
+            0
+        )
+
+
+        investor = getattr(
+            stock,
+            "investor_score",
+            0
+        )
 
 
 
-        if stock.growth_score >= 70:
+        if growth >= 70:
 
             strengths.append(
                 "Strong growth profile"
             )
-
-
-        elif stock.growth_score >= 50:
-
-            strengths.append(
-                "Positive growth signal"
-            )
-
 
         else:
 
@@ -61,12 +86,11 @@ class InvestmentAnalyst:
 
 
 
-        if stock.financial_score >= 70:
+        if financial >= 70:
 
             strengths.append(
                 "High financial quality"
             )
-
 
         else:
 
@@ -76,25 +100,24 @@ class InvestmentAnalyst:
 
 
 
-        if stock.valuation_score >= 80:
+        if investor >= 50:
+
+            strengths.append(
+                "Institutional support"
+            )
+
+
+
+        if valuation >= 80:
 
             strengths.append(
                 "Attractive valuation"
             )
 
-
-        elif stock.valuation_score < 50:
+        else:
 
             risks.append(
-                "Expensive valuation"
-            )
-
-
-
-        if stock.investor_score >= 50:
-
-            strengths.append(
-                "Institutional support"
+                "Valuation not attractive"
             )
 
 
@@ -118,8 +141,8 @@ class InvestmentAnalyst:
 
 
         confidence = min(
-            round(score * 0.8,1),
-            100
+            round(score * 0.9,2),
+            95
         )
 
 
@@ -134,7 +157,11 @@ class InvestmentAnalyst:
 
             risks=risks,
 
-            confidence=confidence,
+            confidence=confidence
 
         )
+
+
+
+InvestmentAnalyst = InvestmentAnalystAgent
 
