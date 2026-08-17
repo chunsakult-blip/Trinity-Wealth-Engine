@@ -15,6 +15,10 @@ from ai.research.investor.investor_signal_engine import (
     InvestorSignalEngine
 )
 
+from ai.research.valuation.valuation_engine import (
+    ValuationEngine
+)
+
 from ai.research.ranking.master_ranker_v2 import (
     MasterRankerV2
 )
@@ -34,6 +38,8 @@ class InvestmentPipelineV2:
 
         self.investor = InvestorSignalEngine()
 
+        self.valuation = ValuationEngine()
+
         self.rank = MasterRankerV2()
 
 
@@ -44,24 +50,26 @@ class InvestmentPipelineV2:
     ):
 
 
-        universe = (
-            self.market.load()
-        )
+        universe = self.market.load()
 
 
         candidates = (
             self.growth
-            .build(universe)
+            .build(
+                universe
+            )
         )
 
 
         results=[]
 
 
+
         for candidate in candidates:
 
 
             try:
+
 
                 financial = (
                     self.finance.fetch(
@@ -84,6 +92,7 @@ class InvestmentPipelineV2:
                 )
 
 
+
                 investor = (
                     self.investor
                     .analyze(
@@ -92,11 +101,20 @@ class InvestmentPipelineV2:
                 )
 
 
+                valuation = (
+                    self.valuation
+                    .calculate(
+                        financial
+                    )
+                )
+
+
                 ranked = (
                     self.rank.calculate(
                         candidate,
                         financial,
-                        investor
+                        investor,
+                        valuation
                     )
                 )
 
@@ -104,6 +122,7 @@ class InvestmentPipelineV2:
                 results.append(
                     ranked
                 )
+
 
 
             except Exception as e:
@@ -114,8 +133,11 @@ class InvestmentPipelineV2:
                 )
 
 
+
         return (
             self.rank
-            .rank(results)
+            .rank(
+                results
+            )
         )[:limit]
 

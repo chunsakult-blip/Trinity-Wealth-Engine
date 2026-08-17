@@ -3,120 +3,111 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-
 @dataclass
-class ValuationResult:
+class ValuationScore:
 
-    ticker:str
+    ticker: str
 
-    valuation_score:float
+    valuation_score: float
 
-    margin_of_safety:float
+    margin_of_safety: float
 
-    rating:str
+    level: str
 
+    reasons: list[str]
 
 
 
 class ValuationEngine:
 
 
-
     def calculate(
         self,
-        ticker:str,
-        revenue:float,
-        net_income:float,
-        cashflow:float,
-        market_cap:float,
-        growth:float
+        financial,
     ):
 
+        score = 50
 
-        score=0
-
-
-
-        # profitability
-
-        if net_income > 0:
-
-            score += 25
+        reasons=[]
 
 
+        revenue = financial.revenue
 
-        # cash generation
-
-        if cashflow > 0:
-
-            score += 25
+        income = financial.net_income
 
 
+        if revenue > 0:
 
-        # growth quality
+            margin = (
+                income / revenue
+            )
 
-        if growth >= 15:
-
-            score += 30
-
-        elif growth >= 5:
-
-            score += 15
-
-
-
-        # valuation multiple
-
-        if market_cap > 0 and net_income > 0:
-
-            pe = market_cap / net_income
-
-            if pe < 20:
+            if margin > 0.20:
 
                 score += 20
 
-            elif pe < 40:
+                reasons.append(
+                    "High profitability"
+                )
 
-                score += 10
+            elif margin < 0:
+
+                score -= 30
+
+                reasons.append(
+                    "Negative margin"
+                )
 
 
+        if financial.assets > financial.liabilities:
 
-        score=min(
-            score,
-            100
+            score += 10
+
+            reasons.append(
+                "Healthy balance sheet"
+            )
+
+
+        if financial.cashflow > 0:
+
+            score += 10
+
+            reasons.append(
+                "Positive operating cashflow"
+            )
+
+
+        score = max(
+            min(score,100),
+           0
         )
 
 
         if score >= 80:
 
-            rating="UNDERVALUED"
+            level="UNDERVALUED"
 
-        elif score >= 60:
+        elif score >=60:
 
-            rating="FAIR VALUE"
+            level="FAIR VALUE"
 
         else:
 
-            rating="EXPENSIVE"
+            level="OVERVALUED"
 
 
 
-        margin = max(
-            0,
-            100-score
-        )
+        return ValuationScore(
 
-
-
-        return ValuationResult(
-
-            ticker=ticker,
+            ticker=financial.ticker,
 
             valuation_score=score,
 
-            margin_of_safety=margin,
+            margin_of_safety=score,
 
-            rating=rating
+            level=level,
+
+            reasons=reasons
 
         )
 

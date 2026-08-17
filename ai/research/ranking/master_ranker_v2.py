@@ -13,6 +13,7 @@ class RankedStockV2:
     growth_score: float
     financial_score: float
     investor_score: float
+    valuation_score: float
 
     final_score: float
 
@@ -22,9 +23,7 @@ class RankedStockV2:
 
 
 
-
 class MasterRankerV2:
-
 
 
     def calculate(
@@ -32,53 +31,83 @@ class MasterRankerV2:
         candidate,
         financial,
         investor,
+        valuation,
     ):
 
 
-        growth = candidate.score
+        growth = (
+            candidate.score
+        )
+
 
         financial_score = (
             financial.quality_score
         )
+
 
         investor_score = (
             investor.total_score
         )
 
 
+        valuation_score = (
+            valuation.valuation_score
+        )
+
+
+
         final = (
 
-            growth * 0.30
+            growth * 0.25
 
             +
 
-            financial_score * 0.40
+            financial_score * 0.35
 
             +
 
-            investor_score * 0.30
+            investor_score * 0.20
+
+            +
+
+            valuation_score * 0.20
 
         )
+
 
 
         reasons=[]
 
 
+
         if growth >= 70:
+
             reasons.append(
                 "High growth profile"
             )
 
 
+
         if financial_score >= 70:
+
             reasons.append(
                 "Strong financial quality"
             )
 
 
+
         if investor_score >= 50:
+
             reasons.append(
                 "Institutional support"
+            )
+
+
+
+        if valuation_score >= 80:
+
+            reasons.append(
+                "Attractive valuation"
             )
 
 
@@ -116,6 +145,8 @@ class MasterRankerV2:
 
             investor_score=investor_score,
 
+            valuation_score=valuation_score,
+
             final_score=round(
                 final,
                 2
@@ -126,6 +157,7 @@ class MasterRankerV2:
             reasons=reasons,
 
         )
+
 
 
 
