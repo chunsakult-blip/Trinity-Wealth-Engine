@@ -88,6 +88,329 @@ class FinancialFactNormalizer:
         "income_tax_expense",
     }
 
+
+
+
+
+    def _build_true_ttm(
+        self,
+        periods: list[FinancialPeriod],
+    ) -> FinancialPeriod | None:
+
+
+        if not periods:
+            return None
+
+
+        def days(p):
+
+            if not p.start or not p.end:
+                return None
+
+            try:
+                return (
+                    date.fromisoformat(p.end)
+                    -
+                    date.fromisoformat(p.start)
+                ).days
+            except:
+                return None
+
+
+        duration=[
+            p for p in periods
+            if days(p) is not None
+        ]
+
+
+        # =========================
+        # SEC YTD TTM
+        # =========================
+
+        ytd=[
+            p for p in duration
+            if 250 <= days(p) <= 300
+        ]
+
+
+        if ytd:
+
+            current=max(
+                ytd,
+                key=lambda x:x.end or ""
+            )
+
+            prev_year=str(
+                int(current.end[:4])-1
+            )
+
+
+            pytd=[
+                p for p in duration
+                if (
+                    p.end
+                    and p.end[:4]==prev_year
+                    and p.end[4:]==current.end[4:]
+                    and 250 <= days(p) <= 300
+                )
+            ]
+
+
+            pfy=[
+                p for p in duration
+                if (
+                    p.end
+                    and p.end[:4]==prev_year
+                    and days(p)>=300
+                )
+            ]
+
+
+            if pytd and pfy:
+
+                pytd=max(pytd,key=lambda x:x.end)
+                pfy=max(pfy,key=lambda x:x.end)
+
+
+                def calc(name):
+
+                    c=getattr(current,name,None)
+                    p=getattr(pytd,name,None)
+                    f=getattr(pfy,name,None)
+
+                    if c is None:
+                        return None
+
+                    if p is None or f is None:
+                        return None
+
+                    return f-p+c
+
+
+                revenue=calc("revenue")
+
+
+                # revenue is mandatory
+                if revenue is not None:
+
+                    ocf=calc(
+                        "operating_cash_flow"
+                    )
+
+                    capex=calc(
+                        "capex"
+                    )
+
+
+                    return FinancialPeriod(
+
+                        period=f"TTM:{current.end}",
+
+                        start=current.start,
+
+                        end=current.end,
+
+
+                        revenue=revenue,
+
+                        gross_profit=calc(
+                            "gross_profit"
+                        ),
+
+                        operating_income=calc(
+                            "operating_income"
+                        ),
+
+                        net_income=calc(
+                            "net_income"
+                        ),
+
+
+                        assets=current.assets,
+
+                        equity=current.equity,
+
+                        cash=current.cash,
+
+                        debt=current.debt,
+
+
+                        operating_cash_flow=ocf,
+
+
+                        capex=abs(capex)
+                        if capex is not None
+                        else None,
+
+
+                        free_cash_flow=(
+                            ocf-abs(capex)
+                            if ocf is not None
+                            and capex is not None
+                            else None
+                        ),
+
+
+                        interest_expense=calc(
+                            "interest_expense"
+                        ),
+
+                    )
+
+
+        # =========================
+        # Quarterly TTM
+        # =========================
+
+        quarters=[
+            p for p in duration
+            if 70 <= days(p)<=110
+        ]
+
+
+        if len(quarters)>=4:
+
+            qs=sorted(
+                quarters,
+                key=lambda x:x.end or "",
+                reverse=True
+            )[:4]
+
+
+            a=qs[0]
+
+
+            return FinancialPeriod(
+
+                period=f"TTM:{a.end}",
+
+                start=qs[-1].start,
+
+                end=a.end,
+
+
+                revenue=sum(
+                    x.revenue or 0
+                    for x in qs
+                ),
+
+                gross_profit=sum(
+                    x.gross_profit or 0
+                    for x in qs
+                ),
+
+
+                operating_income=sum(
+                    x.operating_income or 0
+                    for x in qs
+                ),
+
+
+                net_income=sum(
+                    x.net_income or 0
+                    for x in qs
+                ),
+
+
+                assets=a.assets,
+                equity=a.equity,
+                cash=a.cash,
+                debt=a.debt,
+
+
+                operating_cash_flow=sum(
+                    x.operating_cash_flow or 0
+                    for x in qs
+                ),
+
+
+                capex=sum(
+                    x.capex or 0
+                    for x in qs
+                ),
+
+
+                free_cash_flow=sum(
+                    x.free_cash_flow or 0
+                    for x in qs
+                ),
+
+                interest_expense=sum(
+                    x.interest_expense or 0
+                    for x in qs
+                ),
+            )
+
+
+        # =========================
+        # Annual fallback
+        # =========================
+        #
+        # IMPORTANT:
+        # If SEC YTD exists but failed completeness check,
+        # never fallback to annual.
+        # Otherwise we fabricate TTM.
+        #
+
+        if ytd:
+            return None
+
+
+        annual=[
+            p for p in duration
+            if days(p)>=300
+        ]
+
+
+        if annual:
+
+            p=max(
+                annual,
+                key=lambda x:x.end or ""
+            )
+
+
+            return FinancialPeriod(
+
+                period=f"TTM:{p.end}",
+
+                start=p.start,
+
+                end=p.end,
+
+
+                revenue=p.revenue,
+
+                gross_profit=p.gross_profit,
+
+                operating_income=p.operating_income,
+
+                net_income=p.net_income,
+
+
+                assets=p.assets,
+
+                equity=p.equity,
+
+                cash=p.cash,
+
+                debt=p.debt,
+
+
+                operating_cash_flow=p.operating_cash_flow,
+
+                capex=p.capex,
+
+                free_cash_flow=p.free_cash_flow,
+
+                interest_expense=p.interest_expense,
+            )
+
+
+        return None
+
+
+
     def normalize(
         self,
         payload: dict[str, Any],
@@ -634,6 +957,10 @@ class FinancialFactNormalizer:
                     - 1.0
                 )
 
+        true_ttm = self._build_true_ttm(
+            periods
+        )
+
         return NormalizedFinancials(
             cik=cik,
             ticker=ticker,
@@ -641,7 +968,7 @@ class FinancialFactNormalizer:
             currency="USD",
             latest_period=latest_period,
             prior_period=prior_period,
-            ttm=latest_period,
+            ttm=true_ttm,
             periods=periods,
             metrics=metrics,
             quality={},
