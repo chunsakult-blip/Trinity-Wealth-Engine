@@ -6,30 +6,22 @@ from typing import List
 class UniverseDeduplicator:
 
 
-    OTC_SUFFIX = [
-        "F",
-        "Y",
-        "W",
-    ]
-
-
     def clean(
         self,
         candidates: List,
     ):
 
+        result = []
 
-        result=[]
-
-        seen=set()
+        seen = set()
 
 
         for item in candidates:
 
-            ticker=item.ticker.upper()
+            ticker = item.ticker.upper()
 
 
-            # remove duplicates
+            # duplicate protection
             if ticker in seen:
                 continue
 
@@ -37,8 +29,15 @@ class UniverseDeduplicator:
             seen.add(ticker)
 
 
-            # remove obvious OTC
-            if len(ticker)>5:
+            # remove OTC / strange symbols
+            if len(ticker) > 5:
+                continue
+
+
+            # remove obvious suffix listings
+            if ticker.endswith(
+                ("F", "Y", "W")
+            ):
                 continue
 
 
