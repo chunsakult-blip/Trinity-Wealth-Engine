@@ -1,21 +1,15 @@
 from __future__ import annotations
 
 
-from ai.research.universe.sec_market_loader import (
-    SECMarketLoader
-)
-
-from ai.research.universe.growth_universe_v3 import (
-    GrowthUniverseV3Builder
-)
+from ai.research.universe.sec_market_loader import SECMarketLoader
+from ai.research.universe.growth_universe_v3 import GrowthUniverseV3Builder
 
 from ai.research.financial.financial_intelligence import (
-    FinancialIntelligenceEngine
+    FinancialIntelligenceEngine,
+    FinancialMetrics
 )
 
-from ai.research.ranking.master_ranker import (
-    MasterRanker
-)
+from ai.research.ranking.master_ranker import MasterRanker
 
 
 
@@ -34,42 +28,26 @@ class InvestmentPipeline:
 
 
 
-    def run(
-        self,
-        limit=20
-    ):
+    def run(self, limit=20):
 
 
-        print(
-            "Loading market universe..."
-        )
-
+        print("Loading market universe...")
 
         universe = self.market_loader.load()
 
 
 
-        print(
-            "Finding growth companies..."
-        )
+        print("Finding growth companies...")
 
-
-        candidates = (
-            self.growth_builder
-            .build(
-                universe
-            )
+        candidates = self.growth_builder.build(
+            universe
         )
 
 
         results=[]
 
 
-
-        print(
-            "Analyzing financial quality..."
-        )
-
+        print("Analyzing financial quality...")
 
 
         for candidate in candidates:
@@ -77,30 +55,28 @@ class InvestmentPipeline:
 
             try:
 
-
-                financial = (
-                    self.financial_engine
-                    .analyze(
-                        candidate.ticker,
-                        candidate.cik
-                    )
+                financial = self.financial_engine.analyze(
+                    candidate.ticker,
+                    candidate.cik
                 )
 
 
-                # safety check
-                if not hasattr(
+                # FORCE CONTRACT
+                if isinstance(
                     financial,
-                    "quality_score"
+                    dict
                 ):
-                    continue
 
-
-
-                ranked = (
-                    self.ranker.calculate(
-                        candidate,
-                        financial
+                    financial = FinancialMetrics(
+                        ticker=candidate.ticker,
+                        quality_score=0
                     )
+
+
+
+                ranked = self.ranker.calculate(
+                    candidate,
+                    financial
                 )
 
 
@@ -112,17 +88,15 @@ class InvestmentPipeline:
             except Exception as e:
 
                 print(
+                    "ERROR",
                     candidate.ticker,
                     e
                 )
 
 
 
-        results = (
-            self.ranker
-            .rank(
-                results
-            )
+        results = self.ranker.rank(
+            results
         )
 
 
@@ -133,3 +107,4 @@ class InvestmentPipeline:
 
 
         return results[:limit]
+

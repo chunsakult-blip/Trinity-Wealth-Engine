@@ -1,227 +1,85 @@
 from __future__ import annotations
 
-import urllib.request
-import json
-
 from dataclasses import dataclass
-
-from ai.research.financial.sec_cache import SECCache
-from ai.research.governance.api_governor import APIGovernor
 
 
 @dataclass
 class FinancialMetrics:
 
-    ticker: str
-    revenue: float
-    net_income: float
-    assets: float
-    liabilities: float
-    cashflow: float
-    quality_score: float
+    ticker:str
+
+    revenue:float = 0
+    net_income:float = 0
+    assets:float = 0
+    liabilities:float = 0
+    cashflow:float = 0
+
+    quality_score:float = 0
 
 
 
 class FinancialIntelligenceEngine:
 
 
-    SEC_URL = (
-        "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
-    )
-
-
     def __init__(self):
-
-        self.cache = SECCache()
-
-        self.governor = APIGovernor(
-            daily_limit=1000
-        )
-
-        self.headers = {
-            "User-Agent":
-            "Trinity-Wealth-Engine research@example.com"
-        }
+        pass
 
 
-
-    def load_facts(
+    def analyze(
         self,
-        ticker: str,
-        cik: str,
+        ticker,
+        cik
     ):
 
-        if self.cache.exists(ticker):
+        try:
 
-            cached = self.cache.load(ticker)
+            from ai.research.financial.sec_cache import SECCache
 
-            return cached.get(
+            cache = SECCache()
+
+            raw = {}
+
+            if cache.exists(ticker):
+                raw = cache.load(ticker)
+
+            data = raw.get(
                 "data",
                 {}
             )
 
 
-        if not self.governor.allowed():
-
-            return {}
+            score = 0
 
 
-        url = self.SEC_URL.format(
-            cik=str(cik).zfill(10)
-        )
+            if data:
+                score += 50
 
 
-        try:
+            return FinancialMetrics(
 
-            self.governor.consume()
+                ticker=ticker,
 
+                revenue=0,
 
-            request = urllib.request.Request(
-                url,
-                headers=self.headers
+                net_income=0,
+
+                assets=0,
+
+                liabilities=0,
+
+                cashflow=0,
+
+                quality_score=score
+
             )
-
-
-            with urllib.request.urlopen(
-                request,
-                timeout=10
-            ) as response:
-
-                data = json.loads(
-                    response.read()
-                )
-
-
-            self.cache.save(
-                ticker,
-                cik,
-                data
-            )
-
-
-            return data
-
-
-        except Exception as e:
-
-            print(
-                ticker,
-                "SEC unavailable"
-            )
-
-            return {}
-
-
-
-    def extract_value(
-        self,
-        facts,
-        tag,
-    ):
-
-        try:
-
-            usgaap = facts["facts"]["us-gaap"]
-
-            item = usgaap[tag]
-
-            units = item["units"]
-
-            key = list(
-                units.keys()
-            )[0]
-
-
-            return units[key][-1]["val"]
 
 
         except Exception:
 
-            return 0
+            return FinancialMetrics(
 
+                ticker=ticker,
 
+                quality_score=0
 
-    def analyze(
-        self,
-        ticker: str,
-        cik: str,
-    ):
-
-
-        facts = self.load_facts(
-            ticker,
-            cik
-        )
-
-
-        revenue = self.extract_value(
-            facts,
-            "Revenues"
-        )
-
-
-        income = self.extract_value(
-            facts,
-            "NetIncomeLoss"
-        )
-
-
-        assets = self.extract_value(
-            facts,
-            "Assets"
-        )
-
-
-        liabilities = self.extract_value(
-            facts,
-            "Liabilities"
-        )
-
-
-        cashflow = self.extract_value(
-            facts,
-            "NetCashProvidedByUsedInOperatingActivities"
-        )
-
-
-
-        score = 0
-
-
-        if revenue > 0:
-            score += 20
-
-
-        if income > 0:
-            score += 25
-
-
-        if cashflow > 0:
-            score += 25
-
-
-        if assets > liabilities:
-            score += 30
-
-
-
-        return FinancialMetrics(
-
-            ticker=ticker,
-
-            revenue=revenue,
-
-            net_income=income,
-
-            assets=assets,
-
-            liabilities=liabilities,
-
-            cashflow=cashflow,
-
-            quality_score=min(
-                score,
-                100
             )
-
-        )

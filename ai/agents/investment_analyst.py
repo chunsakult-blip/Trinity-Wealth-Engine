@@ -66,15 +66,15 @@ class InvestmentAnalystAgent:
 
 
 
-        if stock.total_score >= 80:
+        if stock.final_score >= 80:
 
             conclusion="STRONG BUY"
 
-        elif stock.total_score >= 65:
+        elif stock.final_score >= 65:
 
             conclusion="BUY"
 
-        elif stock.total_score >= 50:
+        elif stock.final_score >= 50:
 
             conclusion="WATCH"
 
@@ -86,7 +86,7 @@ class InvestmentAnalystAgent:
 
         confidence=min(
 
-            stock.total_score,
+            stock.final_score,
 
             100
 
@@ -107,4 +107,5 @@ class InvestmentAnalystAgent:
             confidence=confidence
 
         )
+
 

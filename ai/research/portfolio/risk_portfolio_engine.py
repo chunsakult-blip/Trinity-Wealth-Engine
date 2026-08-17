@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 from dataclasses import dataclass
 
 
@@ -7,38 +8,15 @@ from dataclasses import dataclass
 @dataclass
 class PortfolioPosition:
 
-    ticker:str
-    score:float
-    risk:float
-    weight:float
-    action:str
+    ticker: str
+    score: float
+    allocation: float
+
 
 
 
 
 class RiskPortfolioEngine:
-
-
-    def __init__(self):
-
-        self.max_position = 0.15
-
-
-
-    def calculate_risk(
-        self,
-        stock
-    ):
-
-        risk = 100 - stock.total_score
-
-        if risk < 10:
-            risk = 10
-
-        return min(
-            risk,
-            100
-        )
 
 
 
@@ -48,98 +26,76 @@ class RiskPortfolioEngine:
     ):
 
 
-        results=[]
+        if not stocks:
+
+            return []
+
 
 
         total_score = sum(
-            s.total_score
+
+            getattr(
+                s,
+                "final_score",
+                getattr(
+                    s,
+                    "total_score",
+                    0
+                )
+            )
+
             for s in stocks
+
         )
+
+
+
+        portfolio=[]
+
 
 
         for stock in stocks:
 
 
-            weight = (
-                stock.total_score /
-                total_score
+            score = getattr(
+                stock,
+                "final_score",
+                getattr(
+                    stock,
+                    "total_score",
+                    0
+                )
             )
 
 
-            weight=min(
-                weight,
-                self.max_position
+            allocation = (
+
+                score / total_score * 100
+
+                if total_score > 0
+
+                else 0
+
             )
 
 
-            risk=self.calculate_risk(
-                stock
-            )
-
-
-            if risk < 25:
-                action="ACCUMULATE"
-
-            elif risk < 50:
-                action="HOLD"
-
-            else:
-                action="REDUCE"
-
-
-
-            results.append(
+            portfolio.append(
 
                 PortfolioPosition(
 
                     ticker=stock.ticker,
 
-                    score=stock.total_score,
+                    score=score,
 
-                    risk=risk,
-
-                    weight=round(
-                        weight,
-                        4
-                    ),
-
-                    action=action
+                    allocation=round(
+                        allocation,
+                        2
+                    )
 
                 )
 
             )
 
 
-        return results
-
-
-
-    def summary(
-        self,
-        portfolio
-    ):
-
-
-        return {
-
-            "positions":
-                len(portfolio),
-
-            "allocation":
-            {
-                p.ticker:
-                p.weight
-
-                for p in portfolio
-            },
-
-            "risk":
-            {
-                p.ticker:
-                p.risk
-
-                for p in portfolio
-            }
-
-        }
+        return portfolio
 
