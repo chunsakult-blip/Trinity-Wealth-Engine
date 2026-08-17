@@ -19,16 +19,13 @@ class AnalystReport:
 
 
 
-
-class InvestmentAnalystAgent:
+class InvestmentAnalyst:
 
 
 
     def analyze(
         self,
-        stock,
-        financial,
-        portfolio=None
+        stock
     ):
 
 
@@ -38,11 +35,23 @@ class InvestmentAnalystAgent:
 
 
 
+        score = stock.final_score
+
+
+
         if stock.growth_score >= 70:
 
             strengths.append(
-                "High growth potential"
+                "Strong growth profile"
             )
+
+
+        elif stock.growth_score >= 50:
+
+            strengths.append(
+                "Positive growth signal"
+            )
+
 
         else:
 
@@ -55,8 +64,9 @@ class InvestmentAnalystAgent:
         if stock.financial_score >= 70:
 
             strengths.append(
-                "Strong financial quality"
+                "High financial quality"
             )
+
 
         else:
 
@@ -66,15 +76,38 @@ class InvestmentAnalystAgent:
 
 
 
-        if stock.final_score >= 80:
+        if stock.valuation_score >= 80:
+
+            strengths.append(
+                "Attractive valuation"
+            )
+
+
+        elif stock.valuation_score < 50:
+
+            risks.append(
+                "Expensive valuation"
+            )
+
+
+
+        if stock.investor_score >= 50:
+
+            strengths.append(
+                "Institutional support"
+            )
+
+
+
+        if score >= 85:
 
             conclusion="STRONG BUY"
 
-        elif stock.final_score >= 65:
+        elif score >=70:
 
             conclusion="BUY"
 
-        elif stock.final_score >= 50:
+        elif score >=55:
 
             conclusion="WATCH"
 
@@ -84,12 +117,9 @@ class InvestmentAnalystAgent:
 
 
 
-        confidence=min(
-
-            stock.final_score,
-
+        confidence = min(
+            round(score * 0.8,1),
             100
-
         )
 
 
@@ -104,8 +134,7 @@ class InvestmentAnalystAgent:
 
             risks=risks,
 
-            confidence=confidence
+            confidence=confidence,
 
         )
-
 
