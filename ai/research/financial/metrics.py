@@ -1,202 +1,127 @@
-"""
-Provider-neutral deterministic financial metrics.
-"""
-
 from __future__ import annotations
 
-from .models import NormalizedFinancials
+from dataclasses import dataclass
+from typing import Optional
+
+from ai.research.financial.normalizer import FinancialPeriod
+
+
+@dataclass
+class FinancialMetrics:
+
+    revenue: Optional[float] = None
+    net_income: Optional[float] = None
+
+    gross_margin: Optional[float] = None
+    operating_margin: Optional[float] = None
+    net_margin: Optional[float] = None
+
+    fcf_margin: Optional[float] = None
+
+    roe: Optional[float] = None
+    debt_to_equity: Optional[float] = None
+
+    interest_coverage: Optional[float] = None
 
 
 class FinancialMetricsEngine:
 
     def calculate(
         self,
-        financials: NormalizedFinancials,
-    ) -> dict[str, float | None]:
+        period: FinancialPeriod,
+    ) -> FinancialMetrics:
 
-        metrics = financials.metrics
 
-        revenue = metrics.get("revenue")
-        gross_profit = metrics.get("gross_profit")
-        operating_income = metrics.get("operating_income")
-        net_income = metrics.get("net_income")
+        if period is None:
+            return FinancialMetrics()
 
-        equity = metrics.get("equity")
-        cash = metrics.get("cash")
-        debt = metrics.get("debt")
 
-        operating_cash_flow = metrics.get(
-            "operating_cash_flow"
-        )
+        revenue = period.revenue
+        net_income = period.net_income
 
-        capex = metrics.get("capex")
 
-        result: dict[str, float | None] = {}
+        gross_margin = None
+        operating_margin = None
+        net_margin = None
+        fcf_margin = None
+        roe = None
+        debt_to_equity = None
+        interest_coverage = None
 
-        # ------------------------------------------------------------
-        # MARGINS
-        # ------------------------------------------------------------
 
-        result["gross_margin"] = self._ratio(
-            gross_profit,
-            revenue,
-        )
+        if revenue:
 
-        result["operating_margin"] = self._ratio(
-            operating_income,
-            revenue,
-        )
+            if period.gross_profit is not None:
+                gross_margin = (
+                    period.gross_profit / revenue
+                )
 
-        result["net_margin"] = self._ratio(
-            net_income,
-            revenue,
-        )
 
-        # ------------------------------------------------------------
-        # FREE CASH FLOW
-        #
-        # CapEx is canonicalized as a positive cash outflow.
-        # ------------------------------------------------------------
+            if period.operating_income is not None:
+                operating_margin = (
+                    period.operating_income / revenue
+                )
 
-        if (
-            operating_cash_flow is not None
-            and capex is not None
-        ):
-            result["free_cash_flow"] = (
-                operating_cash_flow
-                - abs(capex)
-            )
-        else:
-            result["free_cash_flow"] = None
 
-        # ------------------------------------------------------------
-        # ROE
-        # ------------------------------------------------------------
+            if net_income is not None:
+                net_margin = (
+                    net_income / revenue
+                )
 
-        result["roe"] = self._ratio(
-            net_income,
-            equity,
-        )
 
-        # ------------------------------------------------------------
-        # ROIC
-        # ------------------------------------------------------------
+            if period.free_cash_flow is not None:
+                fcf_margin = (
+                    period.free_cash_flow / revenue
+                )
 
-        tax_rate = metrics.get("tax_rate")
-
-        invested_capital = self._add(
-            equity,
-            debt,
-        )
 
         if (
-            operating_income is not None
-            and tax_rate is not None
-            and invested_capital is not None
-            and invested_capital != 0
+            net_income is not None
+            and period.equity
         ):
-            nopat = operating_income * (
-                1.0 - tax_rate
+            roe = (
+                net_income /
+                period.equity
             )
 
-            result["roic"] = (
-                nopat / invested_capital
-            )
-        else:
-            result["roic"] = None
-
-        # ------------------------------------------------------------
-        # CAPITAL STRUCTURE
-        # ------------------------------------------------------------
-
-        result["debt_to_equity"] = self._ratio(
-            debt,
-            equity,
-        )
 
         if (
-            debt is not None
-            and cash is not None
+            period.debt is not None
+            and period.equity
         ):
-            result["net_debt"] = (
-                debt - cash
+            debt_to_equity = (
+                period.debt /
+                period.equity
             )
-        else:
-            result["net_debt"] = None
 
-        # ------------------------------------------------------------
-        # INTEREST COVERAGE
-        # ------------------------------------------------------------
-
-        interest_expense = metrics.get(
-            "interest_expense"
-        )
 
         if (
-            operating_income is not None
-            and interest_expense is not None
-            and interest_expense != 0
+            period.operating_income is not None
+            and period.interest_expense
         ):
-            result["interest_coverage"] = (
-                operating_income
-                / abs(interest_expense)
+            interest_coverage = (
+                period.operating_income /
+                abs(period.interest_expense)
             )
-        else:
-            result["interest_coverage"] = None
 
-        # ------------------------------------------------------------
-        # GROWTH
-        # ------------------------------------------------------------
 
-        result["revenue_growth"] = metrics.get(
-            "revenue_growth"
+        return FinancialMetrics(
+
+            revenue=revenue,
+
+            net_income=net_income,
+
+            gross_margin=gross_margin,
+
+            operating_margin=operating_margin,
+
+            net_margin=net_margin,
+
+            fcf_margin=fcf_margin,
+
+            roe=roe,
+
+            debt_to_equity=debt_to_equity,
+
+            interest_coverage=interest_coverage,
         )
-
-        result["net_income_growth"] = metrics.get(
-            "net_income_growth"
-        )
-
-        result["fcf_growth"] = metrics.get(
-            "fcf_growth"
-        )
-
-        return result
-
-    @staticmethod
-    def _ratio(
-        numerator: float | None,
-        denominator: float | None,
-    ) -> float | None:
-
-        if numerator is None:
-            return None
-
-        if denominator is None:
-            return None
-
-        if denominator == 0:
-            return None
-
-        return numerator / denominator
-
-    @staticmethod
-    def _add(
-        a: float | None,
-        b: float | None,
-    ) -> float | None:
-
-        if a is None or b is None:
-            return None
-
-        return a + b
-
-    @staticmethod
-    def _subtract(
-        a: float | None,
-        b: float | None,
-    ) -> float | None:
-
-        if a is None or b is None:
-            return None
-
-        return a - b
