@@ -1,6 +1,5 @@
 from datetime import datetime
 import json
-import os
 from pathlib import Path
 from typing import Optional
 
@@ -24,10 +23,19 @@ log = get_logger(__name__)
 # ---------------------------------------------------------------------------
 # Runtime configuration
 # ---------------------------------------------------------------------------
-
-VAULT_PATH = Path(os.getenv("OBSIDIAN_VAULT_PATH", "./memories"))
-INDEX_PATH = VAULT_PATH / ".system" / "master_index.json"
-INDEX_LOCK = str(INDEX_PATH) + ".lock"
+#
+# IMPORTANT:
+# VAULT_PATH / INDEX_PATH / INDEX_LOCK are imported from core.py.
+#
+# Do NOT redefine them here.
+# core.py is the single runtime configuration owner for Archivist paths.
+#
+# This prevents split-brain behavior where:
+#   core.py -> one Vault
+#   indexer.py -> another Vault
+#
+# Tests may monkeypatch indexer.VAULT_PATH directly when required.
+# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +60,11 @@ def _read_entity_type(file_path: Path) -> str:
     except OSError:
         return "—"
 
-    value = extract_yaml_frontmatter_value(content, "entity_type")
+    value = extract_yaml_frontmatter_value(
+        content,
+        "entity_type",
+    )
+
     return value if value else "—"
 
 
@@ -61,6 +73,7 @@ def _file_folder_label(
     vault_root: Optional[Path | str] = None,
 ) -> str:
     """คืนค่า folder path แบบ relative ต่อ Vault"""
+
     root = Path(vault_root) if vault_root else VAULT_PATH
 
     try:
@@ -73,7 +86,9 @@ def _file_folder_label(
 
     except (ValueError, RuntimeError):
         try:
-            rel = file_path.resolve().relative_to(VAULT_PATH.resolve())
+            rel = file_path.resolve().relative_to(
+                VAULT_PATH.resolve()
+            )
 
             if rel.parent == Path("."):
                 return "Root"
@@ -107,6 +122,7 @@ def _file_folder_label(
 
 def _is_indexable(file_path: Path) -> bool:
     """ตรวจว่าไฟล์ Markdown นี้ควรเข้า Master Index หรือไม่"""
+
     return (
         file_path.name not in _VAULT_SYSTEM_FILES
         and not any(
@@ -123,7 +139,17 @@ def _is_indexable(file_path: Path) -> bool:
 def _build_cache_from_disk(
     vault_root: Optional[Path | str] = None,
 ) -> None:
-    """Full scan ของ Markdown files ใน Vault"""
+    """
+    Full scan ของ Markdown files ใน Vault.
+
+    IMPORTANT:
+        This function builds the indexing cache from filesystem.
+        The resulting cache is then projected into master_index.json.
+
+        Master Index remains the runtime source-of-truth for consumers
+        such as semantic search.
+    """
+
     global _index_cache_built
 
     _index_cache.clear()
@@ -148,8 +174,14 @@ def _build_cache_from_disk(
 
         entity_type = _read_entity_type(file_path)
 
-        _index_cache.setdefault(folder, []).append(
-            (file_path.stem, entity_type)
+        _index_cache.setdefault(
+            folder,
+            [],
+        ).append(
+            (
+                file_path.stem,
+                entity_type,
+            )
         )
 
     _index_cache_built = True
@@ -167,6 +199,7 @@ def _entity_category(folder: str) -> str:
         30_Knowledge_Base/Stocks/AAPL
         → Stocks
     """
+
     parts = folder.replace("\\", "/").split("/")
 
     for index, part in enumerate(parts):
@@ -187,10 +220,10 @@ def _build_master_index_payload(
     vault_root: Optional[Path | str] = None,
 ) -> dict:
     """
-    สร้าง machine-readable Master Index
+    สร้าง machine-readable Master Index.
 
-    master_index.json เป็น source-of-truth สำหรับระบบ
-    ส่วน index.md เป็น human-readable projection
+    master_index.json = machine source-of-truth
+    index.md          = human-readable projection
     """
 
     root = Path(vault_root) if vault_root else VAULT_PATH
@@ -247,7 +280,9 @@ def _write_master_index_json(
     payload: Optional[dict] = None,
 ) -> None:
     """เขียน machine-readable master_index.json"""
+
     root = Path(vault_root) if vault_root else VAULT_PATH
+
     index_path = root / ".system" / "master_index.json"
 
     index_path.parent.mkdir(
@@ -281,11 +316,10 @@ def _write_index_markdown(
     payload: Optional[dict] = None,
 ) -> str:
     """
-    สร้าง index.md สำหรับ Obsidian / human navigation
+    สร้าง index.md สำหรับ Obsidian / human navigation.
 
-    หมายเหตุ:
-        index.md ไม่ใช่ machine source-of-truth
-        master_index.json ต่างหากคือ source-of-truth
+    master_index.json = source-of-truth
+    index.md          = projection
     """
 
     root = Path(vault_root) if vault_root else VAULT_PATH
@@ -406,6 +440,28 @@ def _write_index_markdown(
 
 
 # ---------------------------------------------------------------------------
+# Compatibility writer
+# ---------------------------------------------------------------------------
+
+def _write_index_from_cache(
+    vault_root: Optional[Path | str] = None,
+) -> str:
+    """
+    Legacy compatibility wrapper.
+
+    Older tests / callers may still call _write_index_from_cache().
+
+    The implementation now delegates to the canonical unified writer.
+
+    This does NOT create another source-of-truth.
+    """
+
+    return _write_all_indexes(
+        vault_root=vault_root
+    )
+
+
+# ---------------------------------------------------------------------------
 # Unified index writer
 # ---------------------------------------------------------------------------
 
@@ -413,7 +469,7 @@ def _write_all_indexes(
     vault_root: Optional[Path | str] = None,
 ) -> str:
     """
-    เขียนทั้ง machine index และ human-readable projection
+    เขียนทั้ง machine index และ human-readable projection.
 
     master_index.json = source-of-truth
     index.md           = projection
@@ -454,11 +510,12 @@ def _index_upsert(
     vault_root: Optional[Path | str] = None,
 ) -> None:
     """
-    Incremental update cache
+    Incremental update cache.
 
     ไม่เขียน disk ทันที
     จะ mark dirty แล้ว flush ภายหลัง
     """
+
     global _index_dirty
 
     if not _is_indexable(file_path):
@@ -503,7 +560,7 @@ def flush_index_if_dirty(
     vault_root: Optional[Path | str] = None,
 ) -> str | None:
     """
-    Flush cache ถ้ามีการเปลี่ยนแปลง
+    Flush cache ถ้ามีการเปลี่ยนแปลง.
 
     จะเขียน:
         .system/master_index.json
@@ -530,6 +587,7 @@ def flush_index_if_dirty(
 
 def _rebuild_index() -> str:
     """Full rebuild จาก disk"""
+
     global _index_dirty
 
     _build_cache_from_disk()
@@ -548,7 +606,7 @@ def _rebuild_index() -> str:
 @tool
 def update_master_index() -> str:
     """
-    สร้างหรืออัปเดต Master Index
+    สร้างหรืออัปเดต Master Index.
 
     Source of truth:
         memories/.system/master_index.json
@@ -570,4 +628,5 @@ def update_master_index() -> str:
     Returns:
         str: สถานะการ rebuild พร้อมจำนวนไฟล์
     """
+
     return _rebuild_index()

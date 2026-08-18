@@ -76,7 +76,7 @@ def test_full_intelligence_pipeline_reaches_nick():
         },
     )
 
-    assert result["pipeline"] == "Trinity Intelligence Pipeline"
+    assert result["pipeline"] == "ATLAS Intelligence Pipeline"
     assert result["request"]["tickers"] == ["NVDA"]
 
     assert result["evidence"]["status"] == "success"

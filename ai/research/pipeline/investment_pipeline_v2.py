@@ -13,6 +13,10 @@ from ai.research.financial.financial_intelligence_v2 import (
     FinancialIntelligenceV2
 )
 
+from ai.research.financial.financial_normalizer_v4 import (
+    FinancialNormalizerV4
+)
+
 from ai.research.financial.financial_quality_engine import (
     FinancialQualityEngine
 )
@@ -34,9 +38,7 @@ from ai.research.decision.investment_decision_engine import (
 )
 
 
-
 class InvestmentPipelineV2:
-
 
     def __init__(self):
 
@@ -45,6 +47,8 @@ class InvestmentPipelineV2:
         self.growth = GrowthUniverseV3Builder()
 
         self.finance = FinancialIntelligenceV2()
+
+        self.normalizer = FinancialNormalizerV4()
 
         self.quality = FinancialQualityEngine()
 
@@ -57,108 +61,91 @@ class InvestmentPipelineV2:
         self.decision = InvestmentDecisionEngine()
 
 
-
     def run(
         self,
         limit=20
     ):
 
+        universe = self.market.load()
 
-        universe = (
-            self.market.load()
+        candidates = self.growth.build(
+            universe
         )
-
-
-        candidates = (
-            self.growth
-            .build(
-                universe
-            )
-        )
-
 
         results = []
 
 
-
         for candidate in candidates:
-
 
             try:
 
-
-                financial = (
-                    self.finance.fetch(
-                        candidate.ticker,
-                        candidate.cik
-                    )
+                financial = self.finance.fetch(
+                    candidate.ticker,
+                    candidate.cik
                 )
 
 
-                quality = (
-                    self.quality
-                    .analyze(
-                        financial
-                    )
+                normalized = self.normalizer.normalize(
+                    financial
                 )
 
 
-                financial.quality_score = (
+                quality = self.quality.analyze(
+                    normalized
+                )
+
+
+                normalized.quality_score = (
                     quality.total_score
                 )
 
 
-
-                investor = (
-                    self.investor
-                    .analyze(
-                        candidate.ticker
-                    )
+                investor = self.investor.analyze(
+                    candidate.ticker
                 )
 
 
-
-                valuation = (
-                    self.valuation
-                    .calculate(
-                        financial
-                    )
+                valuation = self.valuation.calculate(
+                    normalized
                 )
 
 
-
-                ranked = (
-                    self.rank
-                    .calculate(
-                        candidate,
-                        financial,
-                        investor,
-                        valuation
-                    )
+                ranked = self.rank.calculate(
+                    candidate,
+                    normalized,
+                    investor,
+                    valuation
                 )
 
 
-
-                decision = (
-                    self.decision
-                    .analyze(
-                        ranked
-                    )
+                decision = self.decision.analyze(
+                    ranked
                 )
 
 
-                # attach AI decision safely
+                ranked.decision = (
+                    decision.decision
+                )
 
-                ranked.decision = decision.decision
+                ranked.confidence = (
+                    decision.confidence
+                )
 
-                ranked.confidence = decision.confidence
+                ranked.risk_level = (
+                    decision.risk_level
+                )
 
-                ranked.risk_level = decision.risk_level
+                ranked.strengths = (
+                    decision.strengths
+                )
 
-                ranked.strengths = decision.strengths
+                ranked.weaknesses = (
+                    decision.weaknesses
+                )
 
-                ranked.weaknesses = decision.weaknesses
-
+                ranked.data_quality = (
+                    normalized.data_quality
+                )
 
 
                 results.append(
@@ -166,9 +153,7 @@ class InvestmentPipelineV2:
                 )
 
 
-
             except Exception as e:
-
 
                 print(
                     candidate.ticker,
@@ -176,12 +161,8 @@ class InvestmentPipelineV2:
                 )
 
 
-
-        ranked_results = (
-            self.rank
-            .rank(
-                results
-            )
+        ranked_results = self.rank.rank(
+            results
         )
 
 
@@ -192,4 +173,3 @@ class InvestmentPipelineV2:
 
 
         return ranked_results[:limit]
-

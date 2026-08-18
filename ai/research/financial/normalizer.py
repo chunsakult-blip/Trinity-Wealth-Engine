@@ -3,13 +3,24 @@ Provider-neutral financial fact normalizer.
 
 Responsibilities:
 - extract SEC XBRL concepts
+- support US-GAAP and IFRS namespaces
 - select deterministic facts
 - construct canonical financial periods
 - normalize CapEx sign convention
-- calculate only period-level FCF
-- expose normalized raw metrics
+- calculate period-level FCF
+- calculate true TTM when sufficient data exists
+- preserve missing data as None
 
-Derived analytical ratios belong to metrics.py.
+Important financial semantics:
+
+    Operating Cash Flow != Free Cash Flow
+
+    CapEx is stored as a POSITIVE cash outflow.
+
+    Free Cash Flow = Operating Cash Flow - CapEx
+
+Missing data MUST remain None.
+Missing data MUST NOT become zero.
 """
 
 from __future__ import annotations
@@ -22,56 +33,108 @@ from .models import FinancialPeriod, NormalizedFinancials
 
 class FinancialFactNormalizer:
 
+    # ------------------------------------------------------------------
+    # Supported namespaces
+    # ------------------------------------------------------------------
+
+    NAMESPACE_PRIORITY = (
+        "us-gaap",
+        "ifrs-full",
+    )
+
+    # ------------------------------------------------------------------
+    # Canonical concept registry
+    #
+    # The normalizer searches all supported namespaces and all aliases.
+    # Provider/taxonomy-specific concepts are intentionally kept here
+    # instead of leaking into downstream financial engines.
+    # ------------------------------------------------------------------
+
     CONCEPTS = {
+
         "revenue": (
             "RevenueFromContractWithCustomerExcludingAssessedTax",
+            "RevenueFromContractsWithCustomers",
+            "Revenue",
             "Revenues",
             "SalesRevenueNet",
             "SalesRevenueGoodsNet",
             "SalesRevenueServicesNet",
         ),
+
         "gross_profit": (
             "GrossProfit",
         ),
+
         "operating_income": (
             "OperatingIncomeLoss",
+            "ProfitLossFromOperatingActivities",
         ),
+
         "net_income": (
             "NetIncomeLoss",
             "ProfitLoss",
+            "ProfitLossAttributableToOwnersOfParent",
+            "ProfitLossFromContinuingOperations",
         ),
+
         "assets": (
             "Assets",
         ),
+
         "equity": (
             "StockholdersEquity",
             "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
             "PartnersCapital",
             "MemberEquity",
+            "Equity",
         ),
+
         "cash": (
             "CashAndCashEquivalentsAtCarryingValue",
             "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+            "CashAndCashEquivalents",
         ),
+
         "debt": (
             "LongTermDebtNoncurrent",
             "LongTermDebtCurrent",
             "LongTermDebt",
             "ShortTermBorrowings",
             "DebtCurrent",
+            "Borrowings",
         ),
+
         "operating_cash_flow": (
             "NetCashProvidedByUsedInOperatingActivities",
+            "CashFlowsFromUsedInOperatingActivities",
+            "CashFlowsFromUsedInOperations",
+            "CashFlowsFromUsedInOperatingActivitiesContinuingOperations",
         ),
+
+        # --------------------------------------------------------------
+        # CapEx
+        #
+        # Different issuers/taxonomies may expose capital expenditure
+        # under different concepts. All are normalized into one
+        # canonical positive cash-outflow value.
+        # --------------------------------------------------------------
+
         "capex": (
             "PaymentsToAcquirePropertyPlantAndEquipment",
             "PaymentsToAcquirePropertyPlantAndEquipmentAndIntangibleAssets",
+            "PaymentsToAcquireProductiveAssets",
+            "PurchaseOfPropertyPlantAndEquipment",
+            "PaymentsForPropertyPlantAndEquipment",
+            "PaymentsToAcquirePropertyPlantAndEquipmentAndIntangibleAssetsClassifiedAsInvestingActivities",
         ),
+
         "interest_expense": (
             "InterestExpenseNonOperating",
             "InterestExpenseDebt",
             "InterestExpense",
         ),
+
         "income_tax_expense": (
             "IncomeTaxExpenseBenefit",
         ),
@@ -88,128 +151,192 @@ class FinancialFactNormalizer:
         "income_tax_expense",
     }
 
+    # ------------------------------------------------------------------
+    # Namespace discovery
+    # ------------------------------------------------------------------
 
+    @classmethod
+    def _available_namespaces(
+        cls,
+        facts_root: dict[str, Any],
+    ) -> list[str]:
 
+        namespaces: list[str] = []
 
+        for namespace in cls.NAMESPACE_PRIORITY:
+
+            data = facts_root.get(namespace)
+
+            if isinstance(data, dict) and data:
+                namespaces.append(namespace)
+
+        return namespaces
+
+    # ------------------------------------------------------------------
+    # True TTM
+    # ------------------------------------------------------------------
 
     def _build_true_ttm(
         self,
         periods: list[FinancialPeriod],
     ) -> FinancialPeriod | None:
 
-
         if not periods:
             return None
 
+        def days(period: FinancialPeriod) -> int | None:
 
-        def days(p):
-
-            if not p.start or not p.end:
+            if not period.start or not period.end:
                 return None
 
             try:
                 return (
-                    date.fromisoformat(p.end)
-                    -
-                    date.fromisoformat(p.start)
+                    date.fromisoformat(period.end)
+                    - date.fromisoformat(period.start)
                 ).days
-            except:
+
+            except (TypeError, ValueError):
                 return None
 
-
-        duration=[
-            p for p in periods
-            if days(p) is not None
+        duration = [
+            period
+            for period in periods
+            if days(period) is not None
         ]
 
+        # ==============================================================
+        # SEC YTD -> TRUE TTM
+        # ==============================================================
 
-        # =========================
-        # SEC YTD TTM
-        # =========================
-
-        ytd=[
-            p for p in duration
-            if 250 <= days(p) <= 300
+        ytd = [
+            period
+            for period in duration
+            if (
+                days(period) is not None
+                and 250 <= days(period) <= 300
+            )
         ]
-
 
         if ytd:
 
-            current=max(
+            current = max(
                 ytd,
-                key=lambda x:x.end or ""
+                key=lambda item: item.end or "",
             )
 
-            prev_year=str(
-                int(current.end[:4])-1
-            )
+            if not current.end:
+                return None
 
+            try:
+                prev_year = str(
+                    int(current.end[:4]) - 1
+                )
+            except ValueError:
+                return None
 
-            pytd=[
-                p for p in duration
+            # Same month/day YTD from prior year.
+            pytd = [
+                period
+                for period in duration
                 if (
-                    p.end
-                    and p.end[:4]==prev_year
-                    and p.end[4:]==current.end[4:]
-                    and 250 <= days(p) <= 300
+                    period.end
+                    and period.end[:4] == prev_year
+                    and period.end[4:] == current.end[4:]
+                    and days(period) is not None
+                    and 250 <= days(period) <= 300
                 )
             ]
 
-
-            pfy=[
-                p for p in duration
+            # Prior-year full year.
+            pfy = [
+                period
+                for period in duration
                 if (
-                    p.end
-                    and p.end[:4]==prev_year
-                    and days(p)>=300
+                    period.end
+                    and period.end[:4] == prev_year
+                    and days(period) is not None
+                    and days(period) >= 300
                 )
             ]
-
 
             if pytd and pfy:
 
-                pytd=max(pytd,key=lambda x:x.end)
-                pfy=max(pfy,key=lambda x:x.end)
+                previous_ytd = max(
+                    pytd,
+                    key=lambda item: item.end or "",
+                )
 
+                previous_fy = max(
+                    pfy,
+                    key=lambda item: item.end or "",
+                )
 
-                def calc(name):
+                def calc(
+                    name: str,
+                ) -> float | None:
 
-                    c=getattr(current,name,None)
-                    p=getattr(pytd,name,None)
-                    f=getattr(pfy,name,None)
+                    current_value = getattr(
+                        current,
+                        name,
+                        None,
+                    )
 
-                    if c is None:
+                    previous_ytd_value = getattr(
+                        previous_ytd,
+                        name,
+                        None,
+                    )
+
+                    previous_fy_value = getattr(
+                        previous_fy,
+                        name,
+                        None,
+                    )
+
+                    if (
+                        current_value is None
+                        or previous_ytd_value is None
+                        or previous_fy_value is None
+                    ):
                         return None
 
-                    if p is None or f is None:
-                        return None
+                    return (
+                        previous_fy_value
+                        - previous_ytd_value
+                        + current_value
+                    )
 
-                    return f-p+c
+                revenue = calc("revenue")
 
-
-                revenue=calc("revenue")
-
-
-                # revenue is mandatory
+                # Revenue remains mandatory.
                 if revenue is not None:
 
-                    ocf=calc(
+                    ocf = calc(
                         "operating_cash_flow"
                     )
 
-                    capex=calc(
+                    capex = calc(
                         "capex"
                     )
 
+                    free_cash_flow = None
+
+                    if (
+                        ocf is not None
+                        and capex is not None
+                    ):
+                        free_cash_flow = (
+                            ocf - abs(capex)
+                        )
 
                     return FinancialPeriod(
 
-                        period=f"TTM:{current.end}",
+                        period=(
+                            f"TTM:{current.end}"
+                        ),
 
                         start=current.start,
-
                         end=current.end,
-
 
                         revenue=revenue,
 
@@ -225,191 +352,273 @@ class FinancialFactNormalizer:
                             "net_income"
                         ),
 
-
                         assets=current.assets,
-
                         equity=current.equity,
-
                         cash=current.cash,
-
                         debt=current.debt,
-
 
                         operating_cash_flow=ocf,
 
-
-                        capex=abs(capex)
-                        if capex is not None
-                        else None,
-
-
-                        free_cash_flow=(
-                            ocf-abs(capex)
-                            if ocf is not None
-                            and capex is not None
+                        capex=(
+                            abs(capex)
+                            if capex is not None
                             else None
                         ),
 
+                        free_cash_flow=free_cash_flow,
 
                         interest_expense=calc(
                             "interest_expense"
                         ),
-
                     )
 
-
-        # =========================
+        # ==============================================================
         # Quarterly TTM
-        # =========================
+        # ==============================================================
 
-        quarters=[
-            p for p in duration
-            if 70 <= days(p)<=110
+        quarters = [
+            period
+            for period in duration
+            if (
+                days(period) is not None
+                and 70 <= days(period) <= 110
+            )
         ]
 
+        if len(quarters) >= 4:
 
-        if len(quarters)>=4:
-
-            qs=sorted(
+            qs = sorted(
                 quarters,
-                key=lambda x:x.end or "",
-                reverse=True
+                key=lambda item: item.end or "",
+                reverse=True,
             )[:4]
 
+            latest = qs[0]
 
-            a=qs[0]
+            operating_cash_flow = sum(
+                (
+                    item.operating_cash_flow
+                    for item in qs
+                    if item.operating_cash_flow is not None
+                ),
+                0.0,
+            )
 
+            capex_values = [
+                item.capex
+                for item in qs
+                if item.capex is not None
+            ]
+
+            # IMPORTANT:
+            #
+            # Do NOT turn missing CapEx into zero.
+            #
+            # If even one quarter is missing CapEx, the
+            # quarterly TTM FCF is considered unavailable.
+            capex = None
+
+            if len(capex_values) == len(qs):
+                capex = sum(
+                    abs(value)
+                    for value in capex_values
+                )
+
+            ocf_values = [
+                item.operating_cash_flow
+                for item in qs
+                if item.operating_cash_flow is not None
+            ]
+
+            operating_cash_flow_value = None
+
+            if len(ocf_values) == len(qs):
+                operating_cash_flow_value = sum(
+                    ocf_values
+                )
+
+            free_cash_flow = None
+
+            if (
+                operating_cash_flow_value is not None
+                and capex is not None
+            ):
+                free_cash_flow = (
+                    operating_cash_flow_value
+                    - capex
+                )
 
             return FinancialPeriod(
 
-                period=f"TTM:{a.end}",
+                period=f"TTM:{latest.end}",
 
                 start=qs[-1].start,
-
-                end=a.end,
-
+                end=latest.end,
 
                 revenue=sum(
-                    x.revenue or 0
-                    for x in qs
+                    (
+                        item.revenue
+                        for item in qs
+                        if item.revenue is not None
+                    ),
+                    0.0,
                 ),
 
-                gross_profit=sum(
-                    x.gross_profit or 0
-                    for x in qs
+                gross_profit=(
+                    sum(
+                        (
+                            item.gross_profit
+                            for item in qs
+                            if item.gross_profit is not None
+                        ),
+                        0.0,
+                    )
+                    if all(
+                        item.gross_profit is not None
+                        for item in qs
+                    )
+                    else None
                 ),
 
-
-                operating_income=sum(
-                    x.operating_income or 0
-                    for x in qs
+                operating_income=(
+                    sum(
+                        (
+                            item.operating_income
+                            for item in qs
+                            if item.operating_income is not None
+                        ),
+                        0.0,
+                    )
+                    if all(
+                        item.operating_income is not None
+                        for item in qs
+                    )
+                    else None
                 ),
 
-
-                net_income=sum(
-                    x.net_income or 0
-                    for x in qs
+                net_income=(
+                    sum(
+                        (
+                            item.net_income
+                            for item in qs
+                            if item.net_income is not None
+                        ),
+                        0.0,
+                    )
+                    if all(
+                        item.net_income is not None
+                        for item in qs
+                    )
+                    else None
                 ),
 
+                assets=latest.assets,
+                equity=latest.equity,
+                cash=latest.cash,
+                debt=latest.debt,
 
-                assets=a.assets,
-                equity=a.equity,
-                cash=a.cash,
-                debt=a.debt,
-
-
-                operating_cash_flow=sum(
-                    x.operating_cash_flow or 0
-                    for x in qs
+                operating_cash_flow=(
+                    operating_cash_flow_value
                 ),
 
+                capex=capex,
 
-                capex=sum(
-                    x.capex or 0
-                    for x in qs
-                ),
+                free_cash_flow=free_cash_flow,
 
-
-                free_cash_flow=sum(
-                    x.free_cash_flow or 0
-                    for x in qs
-                ),
-
-                interest_expense=sum(
-                    x.interest_expense or 0
-                    for x in qs
+                interest_expense=(
+                    sum(
+                        (
+                            item.interest_expense
+                            for item in qs
+                            if item.interest_expense is not None
+                        ),
+                        0.0,
+                    )
+                    if all(
+                        item.interest_expense is not None
+                        for item in qs
+                    )
+                    else None
                 ),
             )
 
-
-        # =========================
+        # ==============================================================
         # Annual fallback
-        # =========================
         #
         # IMPORTANT:
-        # If SEC YTD exists but failed completeness check,
-        # never fallback to annual.
-        # Otherwise we fabricate TTM.
-        #
+        # If YTD data exists but cannot construct a true TTM,
+        # do NOT fabricate a TTM from an annual period.
+        # ==============================================================
 
         if ytd:
             return None
 
-
-        annual=[
-            p for p in duration
-            if days(p)>=300
+        annual = [
+            period
+            for period in duration
+            if (
+                days(period) is not None
+                and days(period) >= 300
+            )
         ]
-
 
         if annual:
 
-            p=max(
+            period = max(
                 annual,
-                key=lambda x:x.end or ""
+                key=lambda item: item.end or "",
             )
 
+            free_cash_flow = None
+
+            if (
+                period.operating_cash_flow is not None
+                and period.capex is not None
+            ):
+                free_cash_flow = (
+                    period.operating_cash_flow
+                    - abs(period.capex)
+                )
 
             return FinancialPeriod(
 
-                period=f"TTM:{p.end}",
+                period=f"TTM:{period.end}",
 
-                start=p.start,
+                start=period.start,
+                end=period.end,
 
-                end=p.end,
+                revenue=period.revenue,
+                gross_profit=period.gross_profit,
+                operating_income=period.operating_income,
+                net_income=period.net_income,
 
+                assets=period.assets,
+                equity=period.equity,
+                cash=period.cash,
+                debt=period.debt,
 
-                revenue=p.revenue,
+                operating_cash_flow=(
+                    period.operating_cash_flow
+                ),
 
-                gross_profit=p.gross_profit,
+                capex=(
+                    abs(period.capex)
+                    if period.capex is not None
+                    else None
+                ),
 
-                operating_income=p.operating_income,
+                free_cash_flow=free_cash_flow,
 
-                net_income=p.net_income,
-
-
-                assets=p.assets,
-
-                equity=p.equity,
-
-                cash=p.cash,
-
-                debt=p.debt,
-
-
-                operating_cash_flow=p.operating_cash_flow,
-
-                capex=p.capex,
-
-                free_cash_flow=p.free_cash_flow,
-
-                interest_expense=p.interest_expense,
+                interest_expense=(
+                    period.interest_expense
+                ),
             )
-
 
         return None
 
-
+    # ------------------------------------------------------------------
+    # Public normalization API
+    # ------------------------------------------------------------------
 
     def normalize(
         self,
@@ -431,77 +640,134 @@ class FinancialFactNormalizer:
             or ""
         )
 
-        facts_root = payload.get("facts", {})
+        facts_root = payload.get(
+            "facts",
+            {},
+        )
 
         if not isinstance(facts_root, dict):
             raise ValueError(
                 "SEC Company Facts payload missing facts."
             )
 
-        us_gaap = facts_root.get("us-gaap", {})
+        namespaces = self._available_namespaces(
+            facts_root
+        )
 
-        if not isinstance(us_gaap, dict):
+        if not namespaces:
             raise ValueError(
-                "SEC Company Facts payload missing us-gaap."
+                "SEC Company Facts payload contains neither "
+                "us-gaap nor ifrs-full facts."
             )
 
         concept_values: dict[
             str,
-            list[dict[str, Any]]
+            list[dict[str, Any]],
         ] = {}
 
         evidence: list[dict[str, Any]] = []
 
-        # ------------------------------------------------------------
+        # --------------------------------------------------------------
         # EXTRACT
-        # ------------------------------------------------------------
+        # --------------------------------------------------------------
 
         for metric_name, concepts in self.CONCEPTS.items():
 
             values: list[dict[str, Any]] = []
 
-            for concept in concepts:
+            for namespace in namespaces:
 
-                node = us_gaap.get(concept)
+                namespace_data = facts_root.get(
+                    namespace,
+                    {},
+                )
 
-                if not isinstance(node, dict):
+                if not isinstance(
+                    namespace_data,
+                    dict,
+                ):
                     continue
 
-                units = node.get("units", {})
+                for concept_priority, concept in enumerate(
+                    concepts
+                ):
 
-                if not isinstance(units, dict):
-                    continue
+                    node = namespace_data.get(
+                        concept
+                    )
 
-                for unit, entries in units.items():
-
-                    if not isinstance(entries, list):
+                    if not isinstance(
+                        node,
+                        dict,
+                    ):
                         continue
 
-                    for entry in entries:
+                    units = node.get(
+                        "units",
+                        {},
+                    )
 
-                        if not isinstance(entry, dict):
+                    if not isinstance(
+                        units,
+                        dict,
+                    ):
+                        continue
+
+                    for unit, entries in units.items():
+
+                        if not isinstance(
+                            entries,
+                            list,
+                        ):
                             continue
 
-                        value = entry.get("val")
-                        end = entry.get("end")
+                        for entry in entries:
 
-                        if value is None or end is None:
-                            continue
+                            if not isinstance(
+                                entry,
+                                dict,
+                            ):
+                                continue
 
-                        item = dict(entry)
+                            value = entry.get(
+                                "val"
+                            )
 
-                        item["_concept"] = concept
-                        item["_unit"] = unit
+                            end = entry.get(
+                                "end"
+                            )
 
-                        values.append(item)
+                            if (
+                                value is None
+                                or end is None
+                            ):
+                                continue
+
+                            item = dict(entry)
+
+                            item["_concept"] = concept
+                            item["_unit"] = unit
+                            item["_namespace"] = namespace
+                            item["_concept_priority"] = (
+                                concept_priority
+                            )
+
+                            values.append(item)
 
             concept_values[metric_name] = values
 
             if values:
+
                 evidence.append(
                     {
                         "type": "sec_xbrl",
                         "metric": metric_name,
+                        "namespaces": sorted(
+                            {
+                                item["_namespace"]
+                                for item in values
+                            }
+                        ),
                         "concepts": sorted(
                             {
                                 item["_concept"]
@@ -512,9 +778,9 @@ class FinancialFactNormalizer:
                     }
                 )
 
-        # ------------------------------------------------------------
-        # SELECT DETERMINISTIC FACT
-        # ------------------------------------------------------------
+        # --------------------------------------------------------------
+        # DETERMINISTIC FACT SELECTION
+        # --------------------------------------------------------------
 
         def select_value(
             metric_name: str,
@@ -532,7 +798,7 @@ class FinancialFactNormalizer:
             candidates: list[
                 tuple[
                     tuple[Any, ...],
-                    float
+                    float,
                 ]
             ] = []
 
@@ -541,35 +807,51 @@ class FinancialFactNormalizer:
                 value = item.get("val")
                 end = item.get("end")
 
-                if value is None or end is None:
+                if (
+                    value is None
+                    or end is None
+                ):
                     continue
 
-                if end_date is not None and end != end_date:
+                if (
+                    end_date is not None
+                    and end != end_date
+                ):
                     continue
 
-                if start_date is not None:
-                    if item.get("start") != start_date:
-                        continue
+                if (
+                    start_date is not None
+                    and item.get("start") != start_date
+                ):
+                    continue
 
                 start = item.get("start")
 
                 duration_days = 0
 
                 if start and end:
+
                     try:
                         duration_days = (
                             date.fromisoformat(end)
                             - date.fromisoformat(start)
                         ).days
+
                     except ValueError:
                         duration_days = 0
 
                 form = str(
-                    item.get("form", "")
+                    item.get(
+                        "form",
+                        "",
+                    )
                 ).upper()
 
                 fp = str(
-                    item.get("fp", "")
+                    item.get(
+                        "fp",
+                        "",
+                    )
                 ).upper()
 
                 annual_preference = (
@@ -587,29 +869,65 @@ class FinancialFactNormalizer:
                     else 0
                 )
 
-                ten_k_preference = (
+                form_preference = (
                     1
-                    if form == "10-K"
+                    if form in {
+                        "10-K",
+                        "10-K/A",
+                        "20-F",
+                        "20-F/A",
+                        "40-F",
+                        "40-F/A",
+                    }
                     else 0
                 )
 
                 filed = str(
-                    item.get("filed", "")
+                    item.get(
+                        "filed",
+                        "",
+                    )
                 )
 
-                # Deterministic preference:
-                # newest end -> annual duration -> FY -> 10-K -> filed
+                namespace_priority = (
+                    len(self.NAMESPACE_PRIORITY)
+                    - self.NAMESPACE_PRIORITY.index(
+                        item.get(
+                            "_namespace",
+                            "",
+                        )
+                    )
+                    if item.get("_namespace")
+                    in self.NAMESPACE_PRIORITY
+                    else 0
+                )
+
+                concept_priority = -int(
+                    item.get(
+                        "_concept_priority",
+                        999,
+                    )
+                )
+
                 score = (
                     end,
                     annual_preference,
                     fy_preference,
-                    ten_k_preference,
+                    form_preference,
+                    namespace_priority,
                     filed,
+                    concept_priority,
                 )
 
                 try:
-                    numeric_value = float(value)
-                except (TypeError, ValueError):
+                    numeric_value = float(
+                        value
+                    )
+
+                except (
+                    TypeError,
+                    ValueError,
+                ):
                     continue
 
                 candidates.append(
@@ -628,12 +946,15 @@ class FinancialFactNormalizer:
 
             return candidates[-1][1]
 
-        # ------------------------------------------------------------
+        # --------------------------------------------------------------
         # DISCOVER PERIOD KEYS
-        # ------------------------------------------------------------
+        # --------------------------------------------------------------
 
         period_keys: set[
-            tuple[str | None, str | None]
+            tuple[
+                str | None,
+                str | None,
+            ]
         ] = set()
 
         for values in concept_values.values():
@@ -653,35 +974,24 @@ class FinancialFactNormalizer:
                     )
                 )
 
-        # ------------------------------------------------------------
-        # DEDUPLICATE INSTANT VS DURATION PERIODS
-        #
-        # SEC Company Facts can contain both:
-        #
-        #     start=2025-01-01, end=2025-12-31
-        #
-        # and:
-        #
-        #     start=None, end=2025-12-31
-        #
-        # The latter is an instant fact (normally balance-sheet data).
-        # It must not become a second FinancialPeriod when a real
-        # duration period with the same end date already exists.
-        #
-        # Therefore:
-        #
-        #   duration exists for end -> remove instant duplicate
-        #   duration does not exist -> retain instant period
-        # ------------------------------------------------------------
+        # --------------------------------------------------------------
+        # REMOVE DUPLICATE INSTANT PERIODS
+        # --------------------------------------------------------------
 
         duration_ends = {
             end
             for start, end in period_keys
-            if start is not None and end is not None
+            if (
+                start is not None
+                and end is not None
+            )
         }
 
         deduplicated_keys = {
-            (start, end)
+            (
+                start,
+                end,
+            )
             for start, end in period_keys
             if not (
                 start is None
@@ -698,11 +1008,13 @@ class FinancialFactNormalizer:
             reverse=True,
         )
 
-        # ------------------------------------------------------------
-        # BUILD PERIODS
-        # ------------------------------------------------------------
+        # --------------------------------------------------------------
+        # BUILD CANONICAL PERIODS
+        # --------------------------------------------------------------
 
-        periods: list[FinancialPeriod] = []
+        periods: list[
+            FinancialPeriod
+        ] = []
 
         for start, end in ordered_keys:
 
@@ -716,7 +1028,9 @@ class FinancialFactNormalizer:
             )
 
             period = FinancialPeriod(
+
                 period=period_name,
+
                 start=start,
                 end=end,
 
@@ -794,35 +1108,52 @@ class FinancialFactNormalizer:
                 ),
             )
 
-            # CapEx canonical convention:
-            # always positive cash outflow.
+            # ----------------------------------------------------------
+            # Canonical CapEx sign
+            # ----------------------------------------------------------
+
             if period.capex is not None:
                 period.capex = abs(
                     period.capex
                 )
 
+            # ----------------------------------------------------------
+            # Canonical FCF
+            #
+            # Missing CapEx MUST remain missing.
+            # ----------------------------------------------------------
+
+            period.free_cash_flow = None
+
             if (
-                period.revenue is not None
-                or period.net_income is not None
-                or period.assets is not None
-                or period.equity is not None
-                or period.operating_cash_flow is not None
+                period.operating_cash_flow is not None
+                and period.capex is not None
             ):
+                period.free_cash_flow = (
+                    period.operating_cash_flow
+                    - period.capex
+                )
 
-                if (
-                    period.operating_cash_flow is not None
-                    and period.capex is not None
-                ):
-                    period.free_cash_flow = (
-                        period.operating_cash_flow
-                        - period.capex
-                    )
+            # Keep a period if at least one meaningful
+            # financial fact exists.
+            if any(
+                value is not None
+                for value in (
+                    period.revenue,
+                    period.net_income,
+                    period.assets,
+                    period.equity,
+                    period.operating_cash_flow,
+                    period.capex,
+                )
+            ):
+                periods.append(
+                    period
+                )
 
-                periods.append(period)
-
-        # ------------------------------------------------------------
+        # --------------------------------------------------------------
         # LATEST / PRIOR
-        # ------------------------------------------------------------
+        # --------------------------------------------------------------
 
         latest_period = (
             periods[0]
@@ -842,13 +1173,13 @@ class FinancialFactNormalizer:
             else None
         )
 
-        # ------------------------------------------------------------
-        # PROVIDER-NEUTRAL BASE METRICS
-        # ------------------------------------------------------------
+        # --------------------------------------------------------------
+        # BASE METRICS
+        # --------------------------------------------------------------
 
         metrics: dict[
             str,
-            float | None
+            float | None,
         ] = {}
 
         for metric_name in self.CONCEPTS:
@@ -862,23 +1193,28 @@ class FinancialFactNormalizer:
                 end_date=latest_end,
                 start_date=(
                     latest_period.start
-                    if latest_period
-                    and metric_name in self.DURATION_METRICS
+                    if (
+                        latest_period
+                        and metric_name
+                        in self.DURATION_METRICS
+                    )
                     else None
                 ),
             )
 
-        # Canonical FCF in metrics.
         if latest_period is not None:
+
             metrics["free_cash_flow"] = (
                 latest_period.free_cash_flow
             )
+
         else:
+
             metrics["free_cash_flow"] = None
 
-        # ------------------------------------------------------------
+        # --------------------------------------------------------------
         # TAX RATE
-        # ------------------------------------------------------------
+        # --------------------------------------------------------------
 
         income_tax = metrics.get(
             "income_tax_expense"
@@ -894,37 +1230,47 @@ class FinancialFactNormalizer:
         ):
 
             pretax_income = (
-                net_income + income_tax
+                net_income
+                + income_tax
             )
 
             if pretax_income > 0:
+
                 metrics["tax_rate"] = (
                     income_tax
                     / pretax_income
                 )
+
             else:
+
                 metrics["tax_rate"] = None
 
         else:
+
             metrics["tax_rate"] = None
 
-        # ------------------------------------------------------------
+        # --------------------------------------------------------------
         # GROWTH
-        # ------------------------------------------------------------
+        # --------------------------------------------------------------
 
         metrics["revenue_growth"] = None
         metrics["net_income_growth"] = None
         metrics["fcf_growth"] = None
 
-        if latest_period and prior_period:
+        if (
+            latest_period
+            and prior_period
+        ):
 
             if (
                 latest_period.revenue is not None
-                and prior_period.revenue not in (
+                and prior_period.revenue
+                not in (
                     None,
                     0,
                 )
             ):
+
                 metrics["revenue_growth"] = (
                     latest_period.revenue
                     / prior_period.revenue
@@ -933,11 +1279,13 @@ class FinancialFactNormalizer:
 
             if (
                 latest_period.net_income is not None
-                and prior_period.net_income not in (
+                and prior_period.net_income
+                not in (
                     None,
                     0,
                 )
             ):
+
                 metrics["net_income_growth"] = (
                     latest_period.net_income
                     / prior_period.net_income
@@ -946,32 +1294,88 @@ class FinancialFactNormalizer:
 
             if (
                 latest_period.free_cash_flow is not None
-                and prior_period.free_cash_flow not in (
+                and prior_period.free_cash_flow
+                not in (
                     None,
                     0,
                 )
             ):
+
                 metrics["fcf_growth"] = (
                     latest_period.free_cash_flow
                     / prior_period.free_cash_flow
                     - 1.0
                 )
 
+        # --------------------------------------------------------------
+        # TRUE TTM
+        # --------------------------------------------------------------
+
         true_ttm = self._build_true_ttm(
             periods
         )
 
+        # --------------------------------------------------------------
+        # Currency detection
+        #
+        # Prefer the unit associated with revenue.
+        # This avoids hard-coding USD for IFRS companies.
+        # --------------------------------------------------------------
+
+        currency = None
+
+        revenue_values = concept_values.get(
+            "revenue",
+            [],
+        )
+
+        if revenue_values:
+
+            latest_revenue = sorted(
+                revenue_values,
+                key=lambda item: (
+                    str(
+                        item.get(
+                            "end",
+                            "",
+                        )
+                    ),
+                    str(
+                        item.get(
+                            "filed",
+                            "",
+                        )
+                    ),
+                ),
+                reverse=True,
+            )[0]
+
+            currency = latest_revenue.get(
+                "_unit"
+            )
+
         return NormalizedFinancials(
+
             cik=cik,
+
             ticker=ticker,
+
             company_name=entity_name,
-            currency="USD",
+
+            currency=currency,
+
             latest_period=latest_period,
+
             prior_period=prior_period,
+
             ttm=true_ttm,
+
             periods=periods,
+
             metrics=metrics,
+
             quality={},
+
             evidence=evidence,
         )
 

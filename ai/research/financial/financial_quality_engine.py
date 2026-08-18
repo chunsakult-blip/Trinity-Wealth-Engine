@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-
 @dataclass
 class FinancialQuality:
 
@@ -20,19 +19,14 @@ class FinancialQuality:
     reasons: list[str]
 
 
-
 class FinancialQualityEngine:
-
-
 
     def analyze(
         self,
         financial
     ):
 
-
-        reasons=[]
-
+        reasons = []
 
         growth_score = 0
         profitability_score = 0
@@ -40,7 +34,53 @@ class FinancialQualityEngine:
         cash_score = 0
         consistency_score = 0
 
+        revenue_growth = getattr(
+            financial,
+            "revenue_growth",
+            0
+        )
 
+        net_margin = getattr(
+            financial,
+            "net_margin",
+            0
+        )
+
+        operating_margin = getattr(
+            financial,
+            "operating_margin",
+            0
+        )
+
+        gross_margin = getattr(
+            financial,
+            "gross_margin",
+            0
+        )
+
+        roe = getattr(
+            financial,
+            "roe",
+            0
+        )
+
+        roic = getattr(
+            financial,
+            "roic",
+            0
+        )
+
+        debt_to_asset = getattr(
+            financial,
+            "debt_to_asset",
+            0
+        )
+
+        free_cashflow_margin = getattr(
+            financial,
+            "free_cashflow_margin",
+            0
+        )
 
         revenue = getattr(
             financial,
@@ -48,13 +88,11 @@ class FinancialQualityEngine:
             0
         )
 
-
         income = getattr(
             financial,
             "net_income",
             0
         )
-
 
         assets = getattr(
             financial,
@@ -62,13 +100,11 @@ class FinancialQualityEngine:
             0
         )
 
-
         liabilities = getattr(
             financial,
             "liabilities",
             0
         )
-
 
         cashflow = getattr(
             financial,
@@ -78,11 +114,37 @@ class FinancialQualityEngine:
 
 
 
-        # Growth
+        # =========================================================
+        # GROWTH — 20 POINTS
+        # =========================================================
 
-        if revenue > 0:
+        if revenue_growth >= 0.20:
 
-            growth_score = 25
+            growth_score = 20
+
+            reasons.append(
+                "Strong revenue growth"
+            )
+
+        elif revenue_growth >= 0.10:
+
+            growth_score = 15
+
+            reasons.append(
+                "Healthy revenue growth"
+            )
+
+        elif revenue_growth > 0:
+
+            growth_score = 8
+
+            reasons.append(
+                "Positive revenue growth"
+            )
+
+        elif revenue > 0:
+
+            growth_score = 5
 
             reasons.append(
                 "Positive revenue base"
@@ -90,54 +152,121 @@ class FinancialQualityEngine:
 
 
 
-        # Profitability
+        # =========================================================
+        # PROFITABILITY — 25 POINTS
+        # =========================================================
 
-        if revenue > 0:
+        if (
+            net_margin >= 0.20
+            or operating_margin >= 0.25
+        ):
 
-            margin = income / revenue
+            profitability_score = 25
+
+            reasons.append(
+                "Excellent profitability"
+            )
+
+        elif (
+            net_margin >= 0.10
+            or operating_margin >= 0.15
+        ):
+
+            profitability_score = 18
+
+            reasons.append(
+                "Strong profitability"
+            )
+
+        elif net_margin > 0:
+
+            profitability_score = 10
+
+            reasons.append(
+                "Positive profitability"
+            )
+
+        elif income < 0:
+
+            profitability_score = 0
+
+            reasons.append(
+                "Negative earnings"
+            )
 
 
-            if margin > 0.20:
 
-                profitability_score = 25
+        # =========================================================
+        # BALANCE SHEET — 20 POINTS
+        # =========================================================
 
-                reasons.append(
-                    "High profit margin"
-                )
+        if assets > 0:
 
-
-            elif margin > 0:
-
-                profitability_score = 15
-
-
-
-        # Balance sheet
-
-        if assets > liabilities:
-
-            ratio = liabilities / assets
-
-
-            if ratio < 0.5:
+            if debt_to_asset < 0.30:
 
                 balance_score = 20
+
+                reasons.append(
+                    "Very strong balance sheet"
+                )
+
+            elif debt_to_asset < 0.50:
+
+                balance_score = 16
 
                 reasons.append(
                     "Healthy balance sheet"
                 )
 
-            else:
+            elif debt_to_asset < 0.70:
 
                 balance_score = 10
 
+            elif liabilities < assets:
+
+                balance_score = 5
+
+            else:
+
+                balance_score = 0
+
+                reasons.append(
+                    "Balance sheet risk"
+                )
 
 
-        # Cash quality
 
-        if cashflow > 0:
+        # =========================================================
+        # CASH GENERATION — 20 POINTS
+        # =========================================================
+
+        if free_cashflow_margin >= 0.15:
 
             cash_score = 20
+
+            reasons.append(
+                "Excellent cash generation"
+            )
+
+        elif free_cashflow_margin >= 0.08:
+
+            cash_score = 15
+
+            reasons.append(
+                "Strong cash generation"
+            )
+
+        elif free_cashflow_margin > 0:
+
+            cash_score = 8
+
+            reasons.append(
+                "Positive cashflow"
+            )
+
+        elif cashflow > 0:
+
+            cash_score = 5
 
             reasons.append(
                 "Positive operating cashflow"
@@ -145,11 +274,42 @@ class FinancialQualityEngine:
 
 
 
-        # Consistency
+        # =========================================================
+        # CONSISTENCY / CAPITAL RETURNS — 15 POINTS
+        # =========================================================
 
-        if income > 0:
+        if roic >= 0.15:
 
-            consistency_score = 10
+            consistency_score += 8
+
+            reasons.append(
+                "Strong ROIC"
+            )
+
+        elif roic >= 0.10:
+
+            consistency_score += 5
+
+
+
+        if roe >= 0.15:
+
+            consistency_score += 7
+
+            reasons.append(
+                "Strong ROE"
+            )
+
+        elif roe >= 0.10:
+
+            consistency_score += 4
+
+
+
+        consistency_score = min(
+            consistency_score,
+            15
+        )
 
 
 
@@ -179,7 +339,11 @@ class FinancialQualityEngine:
 
         return FinancialQuality(
 
-            ticker=financial.ticker,
+            ticker=getattr(
+                financial,
+                "ticker",
+                ""
+            ),
 
             growth_score=growth_score,
 
@@ -192,7 +356,7 @@ class FinancialQualityEngine:
             consistency_score=consistency_score,
 
             total_score=min(
-                total,
+                round(total, 2),
                 100
             ),
 

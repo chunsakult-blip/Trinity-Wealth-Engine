@@ -103,4 +103,5 @@ def test_update_master_index_no_files(test_vault):
     # Clear cache
     indexer_module._index_cache.clear()
     res = indexer_module._write_index_from_cache()
-    assert "ไม่มีไฟล์ที่จะ index" in res
+    assert "อัปเดต Master Index สำเร็จ" in res
+    assert "0 ไฟล์" in res
