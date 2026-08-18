@@ -25,7 +25,7 @@ Missing data MUST NOT become zero.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from .models import FinancialPeriod, NormalizedFinancials
@@ -181,8 +181,9 @@ class FinancialFactNormalizer:
         periods: list[FinancialPeriod],
     ) -> FinancialPeriod | None:
 
-        if not periods:
-            return None
+        # ==========================================================
+        # Helpers
+        # ==========================================================
 
         def days(period: FinancialPeriod) -> int | None:
 
@@ -195,8 +196,79 @@ class FinancialFactNormalizer:
                     - date.fromisoformat(period.start)
                 ).days
 
-            except (TypeError, ValueError):
+            except ValueError:
                 return None
+
+        def end_date(
+            period: FinancialPeriod,
+        ) -> date | None:
+
+            if not period.end:
+                return None
+
+            try:
+                return date.fromisoformat(period.end)
+
+            except ValueError:
+                return None
+
+        def add_day(
+            value: str | None,
+        ) -> str | None:
+
+            if not value:
+                return None
+
+            try:
+                return (
+                    date.fromisoformat(value)
+                    + timedelta(days=1)
+                ).isoformat()
+
+            except ValueError:
+                return None
+
+        def bridge_value(
+            current_ytd: FinancialPeriod,
+            previous_ytd: FinancialPeriod,
+            previous_fy: FinancialPeriod,
+            name: str,
+        ) -> float | None:
+
+            current_value = getattr(
+                current_ytd,
+                name,
+                None,
+            )
+
+            previous_ytd_value = getattr(
+                previous_ytd,
+                name,
+                None,
+            )
+
+            previous_fy_value = getattr(
+                previous_fy,
+                name,
+                None,
+            )
+
+            if (
+                current_value is None
+                or previous_ytd_value is None
+                or previous_fy_value is None
+            ):
+                return None
+
+            return (
+                previous_fy_value
+                - previous_ytd_value
+                + current_value
+            )
+
+        # ==========================================================
+        # Normalize period collection
+        # ==========================================================
 
         duration = [
             period
@@ -204,9 +276,17 @@ class FinancialFactNormalizer:
             if days(period) is not None
         ]
 
-        # ==============================================================
-        # SEC YTD -> TRUE TTM
-        # ==============================================================
+        if not duration:
+            return None
+
+        # ==========================================================
+        # 1. FIND CURRENT YTD
+        #
+        # SEC YTD periods are normally around 250-300 days.
+        #
+        # We intentionally use duration rather than exact calendar
+        # month/day matching because fiscal calendars can move.
+        # ==========================================================
 
         ytd = [
             period
@@ -219,162 +299,353 @@ class FinancialFactNormalizer:
 
         if ytd:
 
-            current = max(
+            current_ytd = max(
                 ytd,
                 key=lambda item: item.end or "",
             )
 
-            if not current.end:
-                return None
+            current_end = end_date(current_ytd)
 
-            try:
-                prev_year = str(
-                    int(current.end[:4]) - 1
-                )
-            except ValueError:
-                return None
+            if current_end is not None:
 
-            # Same month/day YTD from prior year.
-            pytd = [
-                period
-                for period in duration
-                if (
-                    period.end
-                    and period.end[:4] == prev_year
-                    and period.end[4:] == current.end[4:]
-                    and days(period) is not None
-                    and 250 <= days(period) <= 300
-                )
-            ]
+                # ==================================================
+                # 2. FIND PRIOR COMPARABLE YTD
+                #
+                # Requirements:
+                #
+                # - roughly one fiscal year earlier
+                # - similar duration
+                # - earlier than current YTD
+                #
+                # We DO NOT require:
+                #
+                #     current.end[4:] == prior.end[4:]
+                #
+                # because Apple can move from 06-28 to 06-27.
+                # ==================================================
 
-            # Prior-year full year.
-            pfy = [
-                period
-                for period in duration
-                if (
-                    period.end
-                    and period.end[:4] == prev_year
-                    and days(period) is not None
-                    and days(period) >= 300
-                )
-            ]
+                current_duration = days(current_ytd)
 
-            if pytd and pfy:
+                prior_ytd_candidates: list[
+                    tuple[
+                        tuple[int, int, str],
+                        FinancialPeriod,
+                    ]
+                ] = []
 
-                previous_ytd = max(
-                    pytd,
-                    key=lambda item: item.end or "",
-                )
+                for candidate in ytd:
 
-                previous_fy = max(
-                    pfy,
-                    key=lambda item: item.end or "",
-                )
+                    if candidate is current_ytd:
+                        continue
 
-                def calc(
-                    name: str,
-                ) -> float | None:
+                    candidate_end = end_date(candidate)
 
-                    current_value = getattr(
-                        current,
-                        name,
-                        None,
-                    )
-
-                    previous_ytd_value = getattr(
-                        previous_ytd,
-                        name,
-                        None,
-                    )
-
-                    previous_fy_value = getattr(
-                        previous_fy,
-                        name,
-                        None,
-                    )
+                    candidate_duration = days(candidate)
 
                     if (
-                        current_value is None
-                        or previous_ytd_value is None
-                        or previous_fy_value is None
+                        candidate_end is None
+                        or candidate_duration is None
                     ):
-                        return None
+                        continue
 
-                    return (
-                        previous_fy_value
-                        - previous_ytd_value
-                        + current_value
-                    )
+                    if candidate_end >= current_end:
+                        continue
 
-                revenue = calc("revenue")
+                    # Difference between fiscal period ends.
+                    year_gap = (
+                        current_end - candidate_end
+                    ).days
 
-                # Revenue remains mandatory.
-                if revenue is not None:
-
-                    ocf = calc(
-                        "operating_cash_flow"
-                    )
-
-                    capex = calc(
-                        "capex"
-                    )
-
-                    free_cash_flow = None
-
-                    if (
-                        ocf is not None
-                        and capex is not None
+                    # We expect approximately one fiscal year.
+                    if not (
+                        300 <= year_gap <= 400
                     ):
-                        free_cash_flow = (
-                            ocf - abs(capex)
+                        continue
+
+                    duration_gap = abs(
+                        candidate_duration
+                        - current_duration
+                    )
+
+                    # Comparable YTD should have similar duration.
+                    if duration_gap > 30:
+                        continue
+
+                    score = (
+                        duration_gap,
+                        abs(year_gap - 365),
+                        candidate.end or "",
+                    )
+
+                    prior_ytd_candidates.append(
+                        (
+                            score,
+                            candidate,
+                        )
+                    )
+
+                if prior_ytd_candidates:
+
+                    prior_ytd_candidates.sort(
+                        key=lambda item: item[0]
+                    )
+
+                    previous_ytd = (
+                        prior_ytd_candidates[0][1]
+                    )
+
+                    # ==================================================
+                    # 3. FIND THE FY THAT CONTAINS PRIOR YTD
+                    #
+                    # We prefer an annual period whose start matches
+                    # the prior YTD start. This is especially important
+                    # for companies with non-calendar fiscal years.
+                    # ==================================================
+
+                    annual = [
+                        period
+                        for period in duration
+                        if (
+                            days(period) is not None
+                            and days(period) >= 300
+                        )
+                    ]
+
+                    previous_ytd_start = (
+                        previous_ytd.start
+                    )
+
+                    previous_ytd_end = (
+                        end_date(previous_ytd)
+                    )
+
+                    annual_candidates: list[
+                        tuple[
+                            tuple[int, int, str],
+                            FinancialPeriod,
+                        ]
+                    ] = []
+
+                    if previous_ytd_end is not None:
+
+                        for candidate in annual:
+
+                            candidate_start = (
+                                candidate.start
+                            )
+
+                            candidate_end = (
+                                end_date(candidate)
+                            )
+
+                            if (
+                                candidate_start is None
+                                or candidate_end is None
+                            ):
+                                continue
+
+                            # Annual period must contain the prior
+                            # YTD period.
+                            try:
+                                candidate_start_date = (
+                                    date.fromisoformat(
+                                        candidate_start
+                                    )
+                                )
+                            except ValueError:
+                                continue
+
+                            if candidate_start_date > (
+                                date.fromisoformat(
+                                    previous_ytd.start
+                                )
+                            ):
+                                continue
+
+                            if candidate_end < previous_ytd_end:
+                                continue
+
+                            # Must end before current YTD.
+                            if candidate_end >= current_end:
+                                continue
+
+                            same_start = (
+                                0
+                                if (
+                                    candidate.start
+                                    == previous_ytd_start
+                                )
+                                else 1
+                            )
+
+                            end_distance = abs(
+                                (
+                                    candidate_end
+                                    - previous_ytd_end
+                                ).days
+                            )
+
+                            annual_candidates.append(
+                                (
+                                    (
+                                        same_start,
+                                        end_distance,
+                                        candidate.end or "",
+                                    ),
+                                    candidate,
+                                )
+                            )
+
+                    if annual_candidates:
+
+                        annual_candidates.sort(
+                            key=lambda item: item[0]
                         )
 
-                    return FinancialPeriod(
+                        previous_fy = (
+                            annual_candidates[0][1]
+                        )
 
-                        period=(
-                            f"TTM:{current.end}"
-                        ),
+                        # ==================================================
+                        # 4. BUILD TRUE TTM USING FISCAL BRIDGE
+                        #
+                        #       Previous FY
+                        #       - Previous YTD
+                        #       + Current YTD
+                        #
+                        # This reconstructs the trailing fiscal year
+                        # without requiring standalone Q4.
+                        # ==================================================
 
-                        start=current.start,
-                        end=current.end,
+                        revenue = bridge_value(
+                            current_ytd,
+                            previous_ytd,
+                            previous_fy,
+                            "revenue",
+                        )
 
-                        revenue=revenue,
+                        if revenue is not None:
 
-                        gross_profit=calc(
-                            "gross_profit"
-                        ),
+                            gross_profit = bridge_value(
+                                current_ytd,
+                                previous_ytd,
+                                previous_fy,
+                                "gross_profit",
+                            )
 
-                        operating_income=calc(
-                            "operating_income"
-                        ),
+                            operating_income = bridge_value(
+                                current_ytd,
+                                previous_ytd,
+                                previous_fy,
+                                "operating_income",
+                            )
 
-                        net_income=calc(
-                            "net_income"
-                        ),
+                            net_income = bridge_value(
+                                current_ytd,
+                                previous_ytd,
+                                previous_fy,
+                                "net_income",
+                            )
 
-                        assets=current.assets,
-                        equity=current.equity,
-                        cash=current.cash,
-                        debt=current.debt,
+                            operating_cash_flow = bridge_value(
+                                current_ytd,
+                                previous_ytd,
+                                previous_fy,
+                                "operating_cash_flow",
+                            )
 
-                        operating_cash_flow=ocf,
+                            capex = bridge_value(
+                                current_ytd,
+                                previous_ytd,
+                                previous_fy,
+                                "capex",
+                            )
 
-                        capex=(
-                            abs(capex)
-                            if capex is not None
-                            else None
-                        ),
+                            if capex is not None:
+                                capex = abs(capex)
 
-                        free_cash_flow=free_cash_flow,
+                            free_cash_flow = None
 
-                        interest_expense=calc(
-                            "interest_expense"
-                        ),
-                    )
+                            if (
+                                operating_cash_flow is not None
+                                and capex is not None
+                            ):
+                                free_cash_flow = (
+                                    operating_cash_flow
+                                    - capex
+                                )
 
-        # ==============================================================
-        # Quarterly TTM
-        # ==============================================================
+                            interest_expense = bridge_value(
+                                current_ytd,
+                                previous_ytd,
+                                previous_fy,
+                                "interest_expense",
+                            )
+
+                            # The TTM represents the period beginning
+                            # immediately after the prior comparable
+                            # YTD and ending at the current YTD end.
+                            ttm_start = add_day(
+                                previous_ytd.end
+                            )
+
+                            return FinancialPeriod(
+
+                                period=(
+                                    f"TTM:{current_ytd.end}"
+                                ),
+
+                                start=ttm_start,
+
+                                end=current_ytd.end,
+
+                                revenue=revenue,
+
+                                gross_profit=gross_profit,
+
+                                operating_income=(
+                                    operating_income
+                                ),
+
+                                net_income=net_income,
+
+                                assets=current_ytd.assets,
+
+                                equity=current_ytd.equity,
+
+                                cash=current_ytd.cash,
+
+                                debt=current_ytd.debt,
+
+                                operating_cash_flow=(
+                                    operating_cash_flow
+                                ),
+
+                                capex=capex,
+
+                                free_cash_flow=(
+                                    free_cash_flow
+                                ),
+
+                                interest_expense=(
+                                    interest_expense
+                                ),
+                            )
+
+        # ==========================================================
+        # 5. QUARTERLY FALLBACK
+        #
+        # Only use this if fiscal YTD bridge could not be constructed.
+        #
+        # IMPORTANT:
+        # Do not blindly take [:4].
+        #
+        # If standalone Q4 is missing, reconstruct Q4 from:
+        #
+        #       FY - 9M
+        #
+        # before assembling the four quarters.
+        # ==========================================================
 
         quarters = [
             period
@@ -385,170 +656,375 @@ class FinancialFactNormalizer:
             )
         ]
 
-        if len(quarters) >= 4:
+        if len(quarters) >= 3:
 
-            qs = sorted(
+            quarters_sorted = sorted(
                 quarters,
                 key=lambda item: item.end or "",
                 reverse=True,
-            )[:4]
-
-            latest = qs[0]
-
-            operating_cash_flow = sum(
-                (
-                    item.operating_cash_flow
-                    for item in qs
-                    if item.operating_cash_flow is not None
-                ),
-                0.0,
             )
 
-            capex_values = [
-                item.capex
-                for item in qs
-                if item.capex is not None
-            ]
+            latest_quarter = quarters_sorted[0]
 
-            # IMPORTANT:
-            #
-            # Do NOT turn missing CapEx into zero.
-            #
-            # If even one quarter is missing CapEx, the
-            # quarterly TTM FCF is considered unavailable.
-            capex = None
-
-            if len(capex_values) == len(qs):
-                capex = sum(
-                    abs(value)
-                    for value in capex_values
-                )
-
-            ocf_values = [
-                item.operating_cash_flow
-                for item in qs
-                if item.operating_cash_flow is not None
-            ]
-
-            operating_cash_flow_value = None
-
-            if len(ocf_values) == len(qs):
-                operating_cash_flow_value = sum(
-                    ocf_values
-                )
-
-            free_cash_flow = None
-
-            if (
-                operating_cash_flow_value is not None
-                and capex is not None
-            ):
-                free_cash_flow = (
-                    operating_cash_flow_value
-                    - capex
-                )
-
-            return FinancialPeriod(
-
-                period=f"TTM:{latest.end}",
-
-                start=qs[-1].start,
-                end=latest.end,
-
-                revenue=sum(
-                    (
-                        item.revenue
-                        for item in qs
-                        if item.revenue is not None
-                    ),
-                    0.0,
-                ),
-
-                gross_profit=(
-                    sum(
-                        (
-                            item.gross_profit
-                            for item in qs
-                            if item.gross_profit is not None
-                        ),
-                        0.0,
-                    )
-                    if all(
-                        item.gross_profit is not None
-                        for item in qs
-                    )
-                    else None
-                ),
-
-                operating_income=(
-                    sum(
-                        (
-                            item.operating_income
-                            for item in qs
-                            if item.operating_income is not None
-                        ),
-                        0.0,
-                    )
-                    if all(
-                        item.operating_income is not None
-                        for item in qs
-                    )
-                    else None
-                ),
-
-                net_income=(
-                    sum(
-                        (
-                            item.net_income
-                            for item in qs
-                            if item.net_income is not None
-                        ),
-                        0.0,
-                    )
-                    if all(
-                        item.net_income is not None
-                        for item in qs
-                    )
-                    else None
-                ),
-
-                assets=latest.assets,
-                equity=latest.equity,
-                cash=latest.cash,
-                debt=latest.debt,
-
-                operating_cash_flow=(
-                    operating_cash_flow_value
-                ),
-
-                capex=capex,
-
-                free_cash_flow=free_cash_flow,
-
-                interest_expense=(
-                    sum(
-                        (
-                            item.interest_expense
-                            for item in qs
-                            if item.interest_expense is not None
-                        ),
-                        0.0,
-                    )
-                    if all(
-                        item.interest_expense is not None
-                        for item in qs
-                    )
-                    else None
-                ),
+            latest_end = end_date(
+                latest_quarter
             )
 
-        # ==============================================================
-        # Annual fallback
+            if latest_end is not None:
+
+                # Find the latest 3 standalone quarters.
+                latest_three = [
+                    period
+                    for period in quarters_sorted
+                    if (
+                        end_date(period) is not None
+                        and end_date(period) <= latest_end
+                    )
+                ][:3]
+
+                if len(latest_three) == 3:
+
+                    latest_three = sorted(
+                        latest_three,
+                        key=lambda item: item.end or "",
+                    )
+
+                    # ==================================================
+                    # Find a fiscal FY immediately preceding the
+                    # latest quarter and its comparable 9M period.
+                    # ==================================================
+
+                    annual = [
+                        period
+                        for period in duration
+                        if (
+                            days(period) is not None
+                            and days(period) >= 300
+                            and end_date(period) is not None
+                            and end_date(period) < latest_end
+                        )
+                    ]
+
+                    prior_ytd_candidates = [
+                        period
+                        for period in ytd
+                        if (
+                            end_date(period) is not None
+                            and end_date(period) < latest_end
+                        )
+                    ]
+
+                    derived_q4: FinancialPeriod | None = None
+
+                    if annual and prior_ytd_candidates:
+
+                        prior_ytd = max(
+                            prior_ytd_candidates,
+                            key=lambda item: item.end or "",
+                        )
+
+                        prior_ytd_end = end_date(
+                            prior_ytd
+                        )
+
+                        if prior_ytd_end is not None:
+
+                            containing_fy = [
+                                period
+                                for period in annual
+                                if (
+                                    period.start
+                                    and period.start
+                                    <= prior_ytd.start
+                                    and end_date(period)
+                                    is not None
+                                    and end_date(period)
+                                    >= prior_ytd_end
+                                )
+                            ]
+
+                            if containing_fy:
+
+                                previous_fy = min(
+                                    containing_fy,
+                                    key=lambda item: abs(
+                                        (
+                                            end_date(item)
+                                            - prior_ytd_end
+                                        ).days
+                                    ),
+                                )
+
+                                q4_revenue = (
+                                    bridge_value(
+                                        previous_fy,
+                                        prior_ytd,
+                                        FinancialPeriod(
+                                            period="ZERO",
+                                            start=None,
+                                            end=None,
+                                        ),
+                                        "revenue",
+                                    )
+                                    if False
+                                    else None
+                                )
+
+                                def annual_minus_ytd(
+                                    name: str,
+                                ) -> float | None:
+
+                                    annual_value = getattr(
+                                        previous_fy,
+                                        name,
+                                        None,
+                                    )
+
+                                    ytd_value = getattr(
+                                        prior_ytd,
+                                        name,
+                                        None,
+                                    )
+
+                                    if (
+                                        annual_value is None
+                                        or ytd_value is None
+                                    ):
+                                        return None
+
+                                    return (
+                                        annual_value
+                                        - ytd_value
+                                    )
+
+                                q4_revenue = (
+                                    annual_minus_ytd(
+                                        "revenue"
+                                    )
+                                )
+
+                                if q4_revenue is not None:
+
+                                    q4_gross_profit = (
+                                        annual_minus_ytd(
+                                            "gross_profit"
+                                        )
+                                    )
+
+                                    q4_operating_income = (
+                                        annual_minus_ytd(
+                                            "operating_income"
+                                        )
+                                    )
+
+                                    q4_net_income = (
+                                        annual_minus_ytd(
+                                            "net_income"
+                                        )
+                                    )
+
+                                    q4_ocf = (
+                                        annual_minus_ytd(
+                                            "operating_cash_flow"
+                                        )
+                                    )
+
+                                    q4_capex = (
+                                        annual_minus_ytd(
+                                            "capex"
+                                        )
+                                    )
+
+                                    if q4_capex is not None:
+                                        q4_capex = abs(
+                                            q4_capex
+                                        )
+
+                                    q4_fcf = None
+
+                                    if (
+                                        q4_ocf is not None
+                                        and q4_capex is not None
+                                    ):
+                                        q4_fcf = (
+                                            q4_ocf
+                                            - q4_capex
+                                        )
+
+                                    q4_start = add_day(
+                                        prior_ytd.end
+                                    )
+
+                                    derived_q4 = (
+                                        FinancialPeriod(
+                                            period=(
+                                                "Q4:"
+                                                f"{previous_fy.end}"
+                                            ),
+                                            start=q4_start,
+                                            end=previous_fy.end,
+                                            revenue=q4_revenue,
+                                            gross_profit=(
+                                                q4_gross_profit
+                                            ),
+                                            operating_income=(
+                                                q4_operating_income
+                                            ),
+                                            net_income=(
+                                                q4_net_income
+                                            ),
+                                            assets=previous_fy.assets,
+                                            equity=previous_fy.equity,
+                                            cash=previous_fy.cash,
+                                            debt=previous_fy.debt,
+                                            operating_cash_flow=q4_ocf,
+                                            capex=q4_capex,
+                                            free_cash_flow=q4_fcf,
+                                            interest_expense=(
+                                                annual_minus_ytd(
+                                                    "interest_expense"
+                                                )
+                                            ),
+                                        )
+                                    )
+
+                    # ==================================================
+                    # Assemble quarterly TTM only if derived Q4 exists.
+                    # ==================================================
+
+                    if derived_q4 is not None:
+
+                        qs = [
+                            derived_q4,
+                            *latest_three,
+                        ]
+
+                        qs = sorted(
+                            qs,
+                            key=lambda item: item.end or "",
+                        )
+
+                        latest = qs[-1]
+
+                        def sum_complete(
+                            name: str,
+                        ) -> float | None:
+
+                            values = [
+                                getattr(
+                                    item,
+                                    name,
+                                    None,
+                                )
+                                for item in qs
+                            ]
+
+                            if any(
+                                value is None
+                                for value in values
+                            ):
+                                return None
+
+                            return sum(values)
+
+                        revenue = sum_complete(
+                            "revenue"
+                        )
+
+                        if revenue is not None:
+
+                            gross_profit = sum_complete(
+                                "gross_profit"
+                            )
+
+                            operating_income = sum_complete(
+                                "operating_income"
+                            )
+
+                            net_income = sum_complete(
+                                "net_income"
+                            )
+
+                            operating_cash_flow = (
+                                sum_complete(
+                                    "operating_cash_flow"
+                                )
+                            )
+
+                            capex = sum_complete(
+                                "capex"
+                            )
+
+                            if capex is not None:
+                                capex = abs(capex)
+
+                            free_cash_flow = None
+
+                            if (
+                                operating_cash_flow
+                                is not None
+                                and capex is not None
+                            ):
+                                free_cash_flow = (
+                                    operating_cash_flow
+                                    - capex
+                                )
+
+                            interest_expense = (
+                                sum_complete(
+                                    "interest_expense"
+                                )
+                            )
+
+                            return FinancialPeriod(
+
+                                period=(
+                                    f"TTM:{latest.end}"
+                                ),
+
+                                start=qs[0].start,
+
+                                end=latest.end,
+
+                                revenue=revenue,
+
+                                gross_profit=gross_profit,
+
+                                operating_income=(
+                                    operating_income
+                                ),
+
+                                net_income=net_income,
+
+                                assets=latest.assets,
+
+                                equity=latest.equity,
+
+                                cash=latest.cash,
+
+                                debt=latest.debt,
+
+                                operating_cash_flow=(
+                                    operating_cash_flow
+                                ),
+
+                                capex=capex,
+
+                                free_cash_flow=(
+                                    free_cash_flow
+                                ),
+
+                                interest_expense=(
+                                    interest_expense
+                                ),
+                            )
+
+        # ==========================================================
+        # 6. ANNUAL FALLBACK
         #
-        # IMPORTANT:
         # If YTD data exists but cannot construct a true TTM,
-        # do NOT fabricate a TTM from an annual period.
-        # ==============================================================
+        # do not fabricate TTM from an annual period.
+        # ==========================================================
 
         if ytd:
             return None
@@ -585,16 +1061,23 @@ class FinancialFactNormalizer:
                 period=f"TTM:{period.end}",
 
                 start=period.start,
+
                 end=period.end,
 
                 revenue=period.revenue,
+
                 gross_profit=period.gross_profit,
+
                 operating_income=period.operating_income,
+
                 net_income=period.net_income,
 
                 assets=period.assets,
+
                 equity=period.equity,
+
                 cash=period.cash,
+
                 debt=period.debt,
 
                 operating_cash_flow=(

@@ -59,6 +59,7 @@ from ai.orchestration.research_orchestrator import ResearchOrchestrator
 from ai.research.workers.us_stock_discovery_worker import (
     USStockDiscoveryWorker,
 )
+from ai.research.scout.us_stock_scout import USStockScout
 from ai.research.financial.engine import FinancialIntelligenceEngine
 from ai.research.investment.engine import InvestmentDecisionEngine
 from ai.reflection.reflection_agent import (
@@ -117,6 +118,8 @@ class IntelligencePipeline:
                 USStockDiscoveryWorker(),
             ],
         )
+
+        self.security_scout = USStockScout()
 
         self.financial = (
             financial
@@ -186,20 +189,15 @@ class IntelligencePipeline:
             for ticker in tickers
         )
 
-    @staticmethod
     def _resolve_company_direct(
+        self,
         ticker: str,
     ) -> dict[str, Any] | None:
         """
-        Resolve an explicitly requested US company directly.
+        Resolve an explicitly requested ticker directly through
+        the existing SEC-backed USStockScout infrastructure.
 
-        IMPORTANT:
-        This path intentionally does NOT execute
-        USStockDiscoveryWorker and does NOT scan the full
-        SecurityMaster universe.
-
-        The Financial Intelligence Engine can resolve the
-        SEC identity from the ticker/CIK path downstream.
+        Explicit ticker requests do not trigger full-market discovery.
         """
 
         if not isinstance(ticker, str):
@@ -210,14 +208,14 @@ class IntelligencePipeline:
         if not normalized:
             return None
 
-        return {
-            "ticker": normalized,
-            "company_name": None,
-            "cik": None,
-            "exchange": None,
-            "resolution_mode": "direct_ticker",
-            "identity_status": "pending_financial_resolution",
-        }
+        resolved = self.security_scout.resolve_ticker(
+            normalized
+        )
+
+        if resolved is None:
+            return None
+
+        return resolved
 
     @staticmethod
     def _resolve_company(

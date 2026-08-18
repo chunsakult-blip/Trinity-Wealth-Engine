@@ -90,6 +90,77 @@ class USStockScout:
     # PUBLIC API
     # ------------------------------------------------------------
 
+    def resolve_ticker(
+        self,
+        ticker: str,
+    ) -> dict[str, Any] | None:
+        """
+        Resolve one explicit US ticker directly from SEC.
+
+        This method intentionally does NOT perform a full-market scan.
+        It reuses the existing SEC source/cache infrastructure.
+        """
+
+        if not isinstance(ticker, str):
+            return None
+
+        normalized = ticker.strip().upper()
+
+        if not normalized:
+            return None
+
+        payload, source = self._load_source()
+        records = self._extract_records(payload)
+
+        for record in records:
+            candidate = str(
+                record.get("ticker", "")
+            ).strip().upper()
+
+            if candidate != normalized:
+                continue
+
+            exchange = str(
+                record.get("exchange", "")
+            ).strip().upper()
+
+            if exchange not in self.exchanges:
+                return None
+
+            cik_raw = record.get("cik")
+
+            try:
+                cik = int(cik_raw)
+            except (TypeError, ValueError):
+                cik = None
+
+            company_name = str(
+                record.get("name", "")
+            ).strip()
+
+            if not company_name:
+                return None
+
+            return {
+                "ticker": normalized,
+                "company_name": company_name,
+                "exchange": exchange,
+                "cik": cik,
+                "security_type": "equity",
+                "country": "US",
+                "resolution_mode": "direct_sec_lookup",
+                "identity_status": (
+                    "resolved"
+                    if cik is not None
+                    else "degraded"
+                ),
+                "identity_source": source,
+                "source": "SEC",
+                "source_url": self.SEC_URL,
+            }
+
+        return None
+
     def scan(self) -> AgentResult:
 
         started = time.time()

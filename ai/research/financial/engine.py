@@ -64,7 +64,13 @@ class FinancialIntelligenceEngine:
         # Quality must evaluate the complete metric set,
         # including derived metrics.
         financials.metrics.update(
-            calculated_metrics
+            {
+                key: value
+                for key, value in vars(
+                    calculated_metrics
+                ).items()
+                if value is not None
+            }
         )
 
         quality = self.quality.evaluate(
