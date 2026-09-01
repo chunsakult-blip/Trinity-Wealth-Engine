@@ -69,3 +69,95 @@ _security_probe.ps1
 *.temp
 *.trace
 .data/
+
+# ============================================================
+# ATLAS forensic / diagnostic artifacts
+# ============================================================
+V*.txt
+_LIVE_*.txt
+_*_trace.txt
+_*_forensic.txt
+_*_diagnostic.txt
+_*_audit.txt
+*_trace.txt
+*_forensic.txt
+*_diagnostic.txt
+*_audit.txt
+*_report.txt
+*_source.txt
+*_output.txt
+*_inspection.txt
+
+# Temporary investigation scripts
+_atlas_*.py
+_audit_*.py
+_diagnose_*.py
+_financial_contract_forensic.py
+_find_*.py
+_fix_*.py
+_inspect_*.py
+_nick_*.py
+_regression_*.py
+_runtime_diagnostic.py
+_trace_*.py
+audit_ai_investor_100.py
+check_prior_ttm.py
+check_ttm.py
+integration_gate.py
+test_full_run.txt
+manager_source.txt
+da_source_windows.txt
+requirements-atlas-validated.txt
+
+# Temporary backup directories
+.atlas_backup_contract_*/
+.atlas_repair_backup_*/
+_migration_backup/
+_retired/
+
+# Timestamped / migration backup artifacts
+*.bak-*
+*.pre_*
+
+# ============================================================
+# ATLAS temporary forensic artifacts
+# ============================================================
+V68_SELECTOR_INSPECTION.txt
+V69_1_EXTRACTOR_SOURCE.txt
+V70_EXTRACTOR_SOURCE.txt
+V70_LOCATE_OUTPUT.txt
+V76_TTM_FORENSIC.txt
+V86_1_METRICS_FORENSIC.txt
+_LIVE_*.txt
+v92_growth_trace.txt
+v93_prior_ttm_trace.txt
+v95_prior_ttm_*.txt
+valuation_trace.txt
+da_source_windows.txt
+test_full_run.txt
+manager_source.txt
+
+# Temporary forensic scripts
+_atlas_*.py
+_audit_*.py
+_diagnose_*.py
+_find_*.py
+_fix_*.py
+_inspect_*.py
+_nick_*.py
+_regression_*.py
+_trace_*.py
+_runtime_diagnostic.py
+_financial_contract_forensic.py
+audit_ai_investor_100.py
+check_prior_ttm.py
+check_ttm.py
+integration_gate.py
+
+# Temporary backup directories/files
+.atlas_backup_contract_*/
+.atlas_repair_backup_*/
+_migration_backup/
+_retired/
+*.bak-*
+*.pre_*
