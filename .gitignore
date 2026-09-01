@@ -161,3 +161,22 @@ _migration_backup/
 _retired/
 *.bak-*
 *.pre_*
+
+# ============================================================
+# Remaining ATLAS forensic artifacts
+# ============================================================
+_atlas_full_audit/
+_atlas_pytest_full*.log
+_diag.py
+_inspect_*.txt
+_normalizer_git_diff.txt
+_retired_financial_normalizer.py
+
+scripts/atlas_v6322_downstream_contract.py
+tools/atlas_v6323_*.py
+tools/atlas_v6324_*.py
+tools/atlas_v6325_*.py
+tools/atlas_v6326_*.py
+tools/atlas_v6327_*.py
+tools/atlas_v6328_*.py
+tools/atlas_v6329_*.py
