@@ -180,3 +180,5 @@ tools/atlas_v6326_*.py
 tools/atlas_v6327_*.py
 tools/atlas_v6328_*.py
 tools/atlas_v6329_*.py
+
+_atlas_pytest_warning_audit.log
