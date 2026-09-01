@@ -72,6 +72,8 @@ def _build_primary(
         model=FREE_MODEL,
         temperature=temperature,
         max_tokens=max_output_tokens,
+        max_retries=5,
+        request_timeout=120,
     )
 
 

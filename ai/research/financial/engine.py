@@ -44,6 +44,29 @@ class FinancialIntelligenceEngine:
         company_name: str | None = None,
     ) -> dict[str, Any]:
 
+        # --------------------------------------------------------
+        # CANONICAL CIK TYPE CONTRACT
+        #
+        # GrowthUniverse candidates may carry CIK as str.
+        # SECProvider requires numeric CIK because it performs
+        # numeric validation and formatting.
+        #
+        # Normalize once at the financial-engine boundary so all
+        # downstream financial components receive canonical int CIK.
+        # --------------------------------------------------------
+
+        try:
+            cik = int(cik)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Invalid CIK: {cik!r}. Expected numeric CIK."
+            ) from exc
+
+        if cik <= 0:
+            raise ValueError(
+                f"Invalid CIK: {cik!r}. Expected positive CIK."
+            )
+
         payload = self.provider.fetch(cik)
 
         financials = self.normalizer.normalize(

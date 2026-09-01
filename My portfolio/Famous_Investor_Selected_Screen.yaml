@@ -1,0 +1,123 @@
+schema_version: 1
+doc_type: portfolio_master
+name: "Famous Investor Screen - Selected Ideas"
+source_note: "Curated from David Tepper, Warren Buffett, Bill Ackman, Gates Foundation Trust, Howard Marks, and related quality/value screens"
+last_updated: "2026-08-19T00:00:00"
+base_currency: "THB"
+summary:
+  total_candidate_count: 12
+  primary_focus: "Quality compounding, durable moats, capital discipline, and asymmetric upside"
+  style: "Long-horizon, selective, owner-oriented investing"
+  note: "This screen is a shortlist of the most attractive names drawn from famous investor portfolios, not a full recommendation list."
+categories:
+  - category: "AI / Quality Growth"
+    focus: "Long-duration earnings power and platform advantages"
+    members:
+      - symbol: MSFT
+        investor_sources: ["Bill Ackman", "Warren Buffett"]
+        thesis: "Microsoft remains one of the best compounding platforms in the world with cloud, software, security, and AI monetization reinforcing durable earnings power."
+        kill_condition: "If Azure growth stalls materially for several quarters, productivity AI monetization fails to convert into durable margin expansion, or valuation drifts far above normalized earnings, reduce or exit."
+      - symbol: AMZN
+        investor_sources: ["David Tepper", "Bill Ackman"]
+        thesis: "Amazon combines AWS, advertising, and retail efficiency into a multi-engine flywheel that can compound for years if operating leverage continues to improve."
+        kill_condition: "If AWS growth weakens sharply, retail economics stop improving, or market valuation implies unrealistic cash-flow growth, cut exposure."
+      - symbol: GOOGL
+        investor_sources: ["Warren Buffett", "David Tepper"]
+        thesis: "Alphabet combines search monopoly, cloud scale, and AI upside with disciplined capital allocation and one of the strongest balance sheets in big tech."
+        kill_condition: "If search share weakens materially, AI monetization fails to support pricing power, or valuation surpasses what free cash flow can justify, reduce."
+      - symbol: META
+        investor_sources: ["David Tepper", "Bill Ackman"]
+        thesis: "Meta has a high-quality ad engine and improving AI-driven monetization with attractive free cash flow and strong operating leverage."
+        kill_condition: "If ad demand weakens, AI investment destroys profitability, or the company loses its pricing power, sell or trim."
+      - symbol: NVDA
+        investor_sources: ["David Tepper"]
+        thesis: "NVIDIA sits at the center of the AI buildout and benefits from a very strong pricing engine and critical position in data-center infrastructure."
+        kill_condition: "If hyperscaler capex slows, gross margins compress, or valuation becomes detached from future earnings power, reduce aggressively."
+  - category: "Defensive Compounders / Payment Moats"
+    focus: "Business quality, pricing power, and low capital intensity"
+    members:
+      - symbol: AAPL
+        investor_sources: ["Warren Buffett"]
+        thesis: "Apple is a high-quality cash-generating franchise with installed base power, exceptionally strong margins, and recurring services revenue."
+        kill_condition: "If iPhone demand weakens for multiple quarters, services growth stalls, or valuation outpaces underlying earnings quality, reduce size."
+      - symbol: V
+        investor_sources: ["Bill Ackman"]
+        thesis: "Visa is one of the best network businesses in the market: low capital intensity, fee-based economics, and strong global payment growth."
+        kill_condition: "If transaction growth weakens materially, cross-border volumes remain depressed, or valuation rises too far above intrinsic value, trim."
+      - symbol: MA
+        investor_sources: ["Bill Ackman"]
+        thesis: "Mastercard is a structurally strong payments platform with pricing power and durable margins, similar to Visa but with notional scale and quality."
+        kill_condition: "If payment growth slows structurally or pricing power erodes, exit or cut exposure."
+      - symbol: COST
+        investor_sources: ["Warren Buffett", "Bill Ackman"]
+        thesis: "Costco has a high-retention membership model, efficient operations, and disciplined pricing that supports durable cash flow and low volatility."
+        kill_condition: "If membership churn rises sharply or pricing becomes too aggressive with margin damage, trim."
+  - category: "Financials / Balance Sheet Quality"
+    focus: "Strong capital structure, resilient earning power, and conservative underwriting"
+    members:
+      - symbol: JPM
+        investor_sources: ["Warren Buffett", "Bill Ackman"]
+        thesis: "JPMorgan is one of the highest-quality banks in the world with strong earnings consistency, diversified business lines, and cautious risk management."
+        kill_condition: "If credit deterioration becomes broad and persistent, loan growth stalls, or capital quality weakens, reduce exposure."
+      - symbol: BAC
+        investor_sources: ["Warren Buffett"]
+        thesis: "Bank of America offers a strong franchise with reasonable valuation, diversified earnings, and good capital flexibility."
+        kill_condition: "If credit losses accelerate materially or the bank loses its earnings quality, reduce exposure."
+      - symbol: C
+        investor_sources: ["Warren Buffett"]
+        thesis: "Citigroup remains a value-oriented financial allocation with improvement potential if capital markets and profitability normalize."
+        kill_condition: "If the turnaround stalls or capital discipline weakens, exit or reduce."
+  - category: "Energy / Value / Cyclical"
+    focus: "Cash generation, discipline, and attractive pricing relative to value"
+    members:
+      - symbol: XOM
+        investor_sources: ["Warren Buffett"]
+        thesis: "Exxon offers durable free cash flow, capital discipline, and protection during inflationary or commodity-supported periods."
+        kill_condition: "If crude prices collapse and free cash flow drops materially for a sustained period, sell down."
+      - symbol: CVX
+        investor_sources: ["Warren Buffett"]
+        thesis: "Chevron offers strong cash generation and capital returns with a disciplined energy portfolio."
+        kill_condition: "If productivity and cash generation deteriorate or commodity weakness persists, reduce."
+      - symbol: OXY
+        investor_sources: ["Warren Buffett"]
+        thesis: "Occidental can compound well when oil prices are supportive, with strong cash flow and attractive capital returns."
+        kill_condition: "If commodity downside becomes severe or balance-sheet discipline worsens, cut exposure."
+      - symbol: NRG
+        investor_sources: ["David Tepper"]
+        thesis: "NRG benefits from power market strength and strong earnings power in an environment where grid demand and generation pricing are favorable."
+        kill_condition: "If power pricing normalizes sharply or operational quality deteriorates, exit."
+  - category: "Special Situation / High Conviction Catalyst"
+    focus: "Selected from a famous-investor lens for catalysts or mispricing"
+    members:
+      - symbol: UBER
+        investor_sources: ["David Tepper", "Bill Ackman"]
+        thesis: "Uber is a major network platform with improving margins and a large target market; margin expansion can drive significant earnings power."
+        kill_condition: "If mobility margins do not improve, competition intensifies, or management loses execution discipline, reduce."
+      - symbol: TSM
+        investor_sources: ["David Tepper"]
+        thesis: "TSMC remains the strategic foundry leader in AI infrastructure and benefits from long-cycle semiconductor capex."
+        kill_condition: "If semiconductor demand weakens structurally or Taiwan supply risks materially affect earnings, cut exposure."
+      - symbol: CRWV
+        investor_sources: ["David Tepper"]
+        thesis: "CoreWeave offers exposure to AI infrastructure demand, but only at a selective valuation given operational execution risk."
+        kill_condition: "If AI demand normalizes quickly, debt risk rises, or operating quality weakens, exit."
+
+best_overlaps:
+  - "MSFT"
+  - "AMZN"
+  - "GOOGL"
+  - "AAPL"
+  - "V"
+  - "JPM"
+  - "COST"
+  - "XOM"
+  - "CVX"
+  - "META"
+
+best_exclusive_names:
+  - "NVDA"
+  - "TSM"
+  - "NRG"
+  - "UBER"
+  - "CRWV"
+  - "OXY"

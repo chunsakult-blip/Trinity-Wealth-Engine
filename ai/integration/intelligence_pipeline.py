@@ -54,7 +54,7 @@ from ai.integration.trinity_runner import (
     TrinityRunner,
     DEFAULT_TRINITY_RUNNER,
 )
-from ai.nick.nnick import Nick
+from ai.nick.nick import Nick
 from ai.orchestration.research_orchestrator import ResearchOrchestrator
 from ai.research.workers.us_stock_discovery_worker import (
     USStockDiscoveryWorker,
@@ -62,6 +62,8 @@ from ai.research.workers.us_stock_discovery_worker import (
 from ai.research.scout.us_stock_scout import USStockScout
 from ai.research.financial.engine import FinancialIntelligenceEngine
 from ai.research.investment.engine import InvestmentDecisionEngine
+
+from ai.data.market.market_data_bridge import MarketDataBridge
 from ai.reflection.reflection_agent import (
     ReflectionAgent,
     DEFAULT_REFLECTION_AGENT,
@@ -103,6 +105,8 @@ class IntelligencePipeline:
         research: ResearchOrchestrator | None = None,
         financial: FinancialIntelligenceEngine | None = None,
         investment: InvestmentDecisionEngine | None = None,
+
+        market_bridge: MarketDataBridge | None = None,
         evidence: EvidenceCollector | None = None,
         verifier: FactVerifier | None = None,
         challenger: ChallengeAgent | None = None,
@@ -129,6 +133,10 @@ class IntelligencePipeline:
         self.investment = (
             investment
             or InvestmentDecisionEngine()
+        )
+        self.market_bridge = (
+            market_bridge
+            or MarketDataBridge()
         )
 
         self.evidence = (
@@ -507,6 +515,95 @@ class IntelligencePipeline:
                                 {},
                             )
                         )
+
+                        # -------------------------------------------------
+                        # MARKET DATA ENRICHMENT
+                        #
+                        # FinancialIntelligenceEngine owns canonical
+                        # financial fundamentals.
+                        #
+                        # MarketDataBridge adds current market fields
+                        # required by InvestmentDecisionEngine.
+                        #
+                        # Market enrichment is additive and must not
+                        # replace canonical financial values.
+                        # -------------------------------------------------
+
+                        try:
+                            bridge_result = (
+                                self.market_bridge.enrich(
+                                    ticker=(
+                                        financial_result.get(
+                                            "ticker"
+                                        )
+                                        or ticker
+                                    ),
+                                    metrics=metrics,
+                                )
+                            )
+
+                            enriched_metrics = (
+                                bridge_result.get(
+                                    "metrics",
+                                    metrics,
+                                )
+                            )
+
+                            if isinstance(
+                                enriched_metrics,
+                                dict,
+                            ):
+                                metrics = enriched_metrics
+                            # Reassemble canonical financial metrics after market enrichment.
+                            if isinstance(financial_result, dict):
+                                financial_result["metrics"] = metrics
+
+                        except Exception as market_exc:
+                            # Market data is enrichment only.
+                            # Financial analysis remains usable if the
+                            # market provider is unavailable.
+
+                            metrics = dict(metrics)
+
+                            market_warning = (
+                                "MarketDataBridge enrichment failed: "
+                                f"{market_exc}"
+                            )
+
+                            financial_quality = dict(
+                                financial_quality
+                            )
+
+                            warnings = list(
+                                financial_quality.get(
+                                    "warnings",
+                                    [],
+                                )
+                                or []
+                            )
+
+                            warnings.append(
+                                market_warning
+                            )
+
+                            financial_quality[
+                                "warnings"
+                            ] = warnings
+
+                            # Synchronize the canonical financial result
+                            # with the updated quality object.
+                            #
+                            # MarketDataBridge is enrichment-only, so a
+                            # bridge failure must not invalidate financial
+                            # analysis. However, the warning must remain
+                            # visible at the canonical financial layer.
+                            if isinstance(
+                                financial_result,
+                                dict,
+                            ):
+                                financial_result["quality"] = (
+                                    financial_quality
+                                )
 
                         investment_result = (
                             self.investment.analyze(

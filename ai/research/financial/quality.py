@@ -1,10 +1,19 @@
 """
-Deterministic financial data quality engine.
+Canonical deterministic financial data quality engine.
+
+This is the ONLY authoritative financial-data quality scorer.
+
+Contract:
+    NormalizedFinancials
+        -> FinancialQuality
 """
 
 from __future__ import annotations
 
-from .models import FinancialQuality, NormalizedFinancials
+from .models import (
+    FinancialQuality,
+    NormalizedFinancials,
+)
 
 
 class FinancialQualityEngine:
@@ -24,7 +33,7 @@ class FinancialQualityEngine:
         financials: NormalizedFinancials,
     ) -> FinancialQuality:
 
-        metrics = financials.metrics
+        metrics = financials.metrics or {}
 
         available = sum(
             1
@@ -41,9 +50,10 @@ class FinancialQualityEngine:
             metrics
         )
 
+        # True normalized TTM is the preferred freshness signal.
         freshness = (
             1.0
-            if financials.latest_period is not None
+            if financials.ttm is not None
             else 0.0
         )
 
@@ -70,9 +80,9 @@ class FinancialQualityEngine:
                 "ROIC unavailable."
             )
 
-        if financials.latest_period is None:
+        if financials.ttm is None:
             warnings.append(
-                "No normalized financial period available."
+                "No normalized TTM financial data available."
             )
 
         confidence = (
@@ -107,7 +117,9 @@ class FinancialQualityEngine:
             "freshness": quality.freshness,
             "consistency": quality.consistency,
             "confidence": quality.confidence,
-            "warnings": quality.warnings,
+            "warnings": list(
+                quality.warnings
+            ),
         }
 
         return quality

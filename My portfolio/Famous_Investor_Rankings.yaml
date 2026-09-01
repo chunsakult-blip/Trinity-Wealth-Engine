@@ -1,0 +1,164 @@
+portfolio_name: "Famous Investor Rank Screen"
+last_updated: "2026-08-19"
+framework:
+  core:
+    description: "High-quality, durable, low-noise compounding businesses with structural moats and cash generation"
+    tickers: [MSFT, AMZN, GOOGL, AAPL, V, JPM, COST, XOM]
+  satellite:
+    description: "Higher-beta or thematic names with strong upside but more volatility and execution risk"
+    tickers: [NVDA, META, TSM, UBER, NRG, OXY]
+  avoid:
+    description: "Speculative or operationally fragile names that should not be treated as core holdings"
+    tickers: [CRWV]
+
+ranked_names:
+  - symbol: MSFT
+    priority: 1
+    bucket: core
+    rationale: "Exceptionally durable cash-generation engine with enterprise software, cloud scalability, and AI monetization optionality."
+    thesis: "Microsoft compounds because recurring software revenue, cloud scale, and AI integration reinforce durable earnings growth."
+    kill_condition: "Reduce or exit if Azure growth decelerates materially for several quarters or AI monetization fails to lift earnings quality."
+    decision_rule: "Core holding. Size on valuation discipline rather than momentum alone."
+    entry_mode: "DCA with pullback ladder"
+    target_entry: "Wait for a 5-10% pullback from recent highs; scale in if trend remains intact."
+    price_timing: "Best on weakness, not chase strength."
+  - symbol: AMZN
+    priority: 2
+    bucket: core
+    rationale: "AWS, advertising, and retail efficiency combine into a rare multi-engine compounding setup."
+    thesis: "Amazon compounds as AWS stays structurally strong while advertising and retail margins improve."
+    kill_condition: "Trim or sell if AWS growth weakens sharply or retail margin improvement stalls."
+    decision_rule: "Core holding if operating leverage remains visible and valuation is reasonable."
+    entry_mode: "DCA with pullback ladder"
+    target_entry: "Wait for 8-15% pullback or use monthly DCA if price remains elevated."
+    price_timing: "Good entry on weakness; do not chase full strength."
+  - symbol: GOOGL
+    priority: 3
+    bucket: core
+    rationale: "Search-scale, cloud platform, strong balance sheet, and meaningful AI optionality."
+    thesis: "Alphabet can continue compounding because its ad engine remains structurally strong and AI enhances monetization rather than destroying it."
+    kill_condition: "Reduce exposure if search share weakens materially or AI features erode monetization quality."
+    decision_rule: "Core holding with valuation discipline; not a momentum-only idea."
+    entry_mode: "DCA or opportunistic buy"
+    target_entry: "Wait for 10-15% pullback before adding materially."
+    price_timing: "Prefer 1-2 step buys rather than one full entry."
+  - symbol: AAPL
+    priority: 4
+    bucket: core
+    rationale: "Premium ecosystem business with exceptional installed-base economics and recurring services revenue."
+    thesis: "Apple compounds because ecosystem lock-in and services revenue protect returns even during weaker device cycles."
+    kill_condition: "Reduce if iPhone demand weakens persistently or services growth stalls."
+    decision_rule: "Core holding; buy quality and patience, not hype."
+    entry_mode: "DCA / staggered entry"
+    target_entry: "Buy on 8-12% pullback; avoid chasing after a sharp rally."
+    price_timing: "Best partner for a patient DCA plan."
+  - symbol: V
+    priority: 5
+    bucket: core
+    rationale: "High-margin, low-capital-intensity network business with strong pricing power."
+    thesis: "Visa compounds through digital payment adoption, cross-border growth, and structural fee-based economics."
+    kill_condition: "Trim if transaction volumes weaken structurally or valuation moves too far above intrinsic value."
+    decision_rule: "Core defensive compounder; not a cyclical trading vehicle."
+    entry_mode: "DCA is preferred"
+    target_entry: "Buy on 5-10% weakness or spread entry over 2-3 months."
+    price_timing: "More suitable for DCA than single lump-sum entry."
+  - symbol: JPM
+    priority: 6
+    bucket: core
+    rationale: "Exceptional financial franchise, diversified earnings, and disciplined capital allocation."
+    thesis: "JPMorgan compounds because it combines franchise quality with balance-sheet resilience through the cycle."
+    kill_condition: "Reduce if credit stress broadens materially or underwriting quality declines."
+    decision_rule: "Core financial holding used for stability and quality."
+    entry_mode: "DCA / pullback"
+    target_entry: "Add on 5-8% weakness; do not force a full entry into strength."
+    price_timing: "Good candidate for gradual accumulation."
+  - symbol: COST
+    priority: 7
+    bucket: core
+    rationale: "Sticky membership model, efficient operations, and durable consumer demand support compounding."
+    thesis: "Costco compounds because customer loyalty and membership economics create recurring, defensive cash flow."
+    kill_condition: "Trim if membership churn rises materially or margins compress persistently."
+    decision_rule: "Core defensive growth holding; best when valuation stays rational."
+    entry_mode: "DCA with patience"
+    target_entry: "Wait for 8-12% pullback; otherwise accumulate gradually."
+    price_timing: "DCA is sensible because it is rarely a clean one-shot buy."
+  - symbol: XOM
+    priority: 8
+    bucket: core
+    rationale: "Strong integrated energy scale and disciplined capital returns support free cash flow."
+    thesis: "Exxon compounds when capital discipline and commodity conditions stay constructive."
+    kill_condition: "Reduce or exit if commodity weakness persists and free cash flow falls materially."
+    decision_rule: "Core cyclical holding, but only with discipline on energy cycle conditions."
+    entry_mode: "DCA / opportunistic buy"
+    target_entry: "Prefer 10-15% weakness before adding materially; DCA works well in energy."
+    price_timing: "Ideal for staggered entry rather than one full buy."
+  - symbol: NVDA
+    priority: 9
+    bucket: satellite
+    rationale: "Critical AI infrastructure exposure, but higher valuation and execution risk than the core names."
+    thesis: "NVIDIA compounds because AI compute demand is still structurally expanding and the company sits at the center of that buildout."
+    kill_condition: "Reduce aggressively if hyperscaler capex slows or gross margin compresses sharply."
+    decision_rule: "Satellite growth holding, not a core anchor."
+    entry_mode: "DCA ladder only"
+    target_entry: "Do not chase. Buy in 3-5 tranches on 15-25% pullbacks or repeated weakness."
+    price_timing: "Never do one full entry at elevated valuation."
+  - symbol: META
+    priority: 10
+    bucket: satellite
+    rationale: "High-quality advertising platform with strong operating leverage and improving efficiency."
+    thesis: "Meta compounds because its ad engine remains structurally strong and AI can improve monetization without damaging margins."
+    kill_condition: "Reduce if ad demand weakens materially or AI investment compresses profitability."
+    decision_rule: "Satellite position; sized smaller than the core franchise names."
+    entry_mode: "DCA or pullback buy"
+    target_entry: "Prefer 10-15% pullback; otherwise use monthly DCA."
+    price_timing: "Reasonable to build slowly rather than one-shot."
+  - symbol: TSM
+    priority: 11
+    bucket: satellite
+    rationale: "Strategic semiconductor manufacturing leader with long-cycle AI exposure."
+    thesis: "TSMC compounds because advanced-node demand and AI infrastructure buildout support long-run manufacturing leadership."
+    kill_condition: "Reduce if semiconductor demand weakens materially or geopolitical risk hurts operations."
+    decision_rule: "Satellite strategic exposure, not a core quality anchor."
+    entry_mode: "DCA ladder"
+    target_entry: "Wait for 10-15% pullback; build in stages if thesis remains intact."
+    price_timing: "Better to accumulate slowly than chase rally strength."
+  - symbol: UBER
+    priority: 12
+    bucket: satellite
+    rationale: "Attractive business model and margin expansion potential, but still higher operational risk."
+    thesis: "Uber can compound as mobility and delivery margins improve and platform scale supports higher operating leverage."
+    kill_condition: "Reduce if margin improvement stalls or competition intensifies."
+    decision_rule: "Satellite position with more selective sizing."
+    entry_mode: "DCA / selective buy"
+    target_entry: "Wait for 15-20% pullback or use staggered monthly additions."
+    price_timing: "Can be DCA due to volatility and execution risk."
+  - symbol: NRG
+    priority: 13
+    bucket: satellite
+    rationale: "Power market exposure with potentially strong earnings, but more cyclical and volatile."
+    thesis: "NRG benefits from power market strength and favorable pricing conditions."
+    kill_condition: "Exit if pricing normalizes sharply or operational quality deteriorates."
+    decision_rule: "Thematic satellite only; not core portfolio ballast."
+    entry_mode: "DCA only"
+    target_entry: "Buy in 2-3 steps on 10-20% weakness rather than one full purchase."
+    price_timing: "Volume-sensitive name; DCA better than lump sum."
+  - symbol: OXY
+    priority: 14
+    bucket: satellite
+    rationale: "Commodity exposure with upside in supportive conditions but more cyclicality."
+    thesis: "Occidental compounds when oil conditions remain favorable and capital discipline holds."
+    kill_condition: "Cut exposure if commodity weakness deepens or balance-sheet discipline slips."
+    decision_rule: "Satellite holding with explicit risk budget."
+    entry_mode: "DCA / opportunistic buy"
+    target_entry: "Wait for 15-20% weakness before adding materially."
+    price_timing: "Good candidate for staggered entry; avoid chasing strength."
+  - symbol: CRWV
+    priority: 15
+    bucket: avoid
+    rationale: "Potentially attractive AI infrastructure theme, but operationally immature and more speculative."
+    thesis: "CoreWeave has upside if AI infrastructure demand remains strong and management executes well."
+    kill_condition: "Avoid or treat as speculative only if demand normalizes quickly or leverage becomes a real issue."
+    decision_rule: "Avoid as a core holding; use only as a small, high-risk satellite."
+    entry_mode: "Avoid unless major pullback"
+    target_entry: "Only consider after 30-40% drop and only with tiny position size."
+    price_timing: "Not a DCA name; avoid for now unless risk budget is extremely small."

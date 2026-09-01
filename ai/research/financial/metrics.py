@@ -11,19 +11,49 @@ from ai.research.financial.models import (
 
 @dataclass
 class FinancialMetrics:
+    """
+    Canonical provider-neutral derived financial metrics.
+
+    All ratio values are decimal ratios:
+        0.20 == 20%
+
+    Absolute financial values preserve the canonical provider scale.
+    """
+
     revenue: Optional[float] = None
+    gross_profit: Optional[float] = None
+    operating_income: Optional[float] = None
     net_income: Optional[float] = None
+
+    operating_cash_flow: Optional[float] = None
+    free_cash_flow: Optional[float] = None
+
+    assets: Optional[float] = None
+    equity: Optional[float] = None
+    cash: Optional[float] = None
+    debt: Optional[float] = None
+    liabilities: Optional[float] = None
+
+    interest_expense: Optional[float] = None
 
     gross_margin: Optional[float] = None
     operating_margin: Optional[float] = None
     net_margin: Optional[float] = None
-
     fcf_margin: Optional[float] = None
+    free_cashflow_margin: Optional[float] = None
 
     roe: Optional[float] = None
-    debt_to_equity: Optional[float] = None
+    roic: Optional[float] = None
 
+    debt_to_equity: Optional[float] = None
+    debt_to_asset: Optional[float] = None
+
+    net_debt: Optional[float] = None
     interest_coverage: Optional[float] = None
+
+    revenue_growth: Optional[float] = None
+    net_income_growth: Optional[float] = None
+    fcf_growth: Optional[float] = None
 
 
 class FinancialMetricsEngine:
@@ -36,8 +66,9 @@ class FinancialMetricsEngine:
     Canonical source:
         NormalizedFinancials.metrics
 
-    Period-level values are used only when a derived ratio requires
-    fields that are not already present in the canonical metric map.
+    Derived metrics are returned explicitly in FinancialMetrics so
+    FinancialIntelligenceEngine can merge the complete metric set
+    back into NormalizedFinancials.metrics.
     """
 
     def calculate(
@@ -48,10 +79,6 @@ class FinancialMetricsEngine:
         if financials is None:
             return FinancialMetrics()
 
-        # ----------------------------------------------------------
-        # CANONICAL NORMALIZED FINANCIALS
-        # ----------------------------------------------------------
-
         if isinstance(financials, NormalizedFinancials):
 
             metrics = financials.metrics or {}
@@ -61,30 +88,13 @@ class FinancialMetricsEngine:
                 or financials.latest_period
             )
 
-            revenue = metrics.get("revenue")
-            net_income = metrics.get("net_income")
-
-        # ----------------------------------------------------------
-        # BACKWARD-COMPATIBLE PERIOD INPUT
-        # ----------------------------------------------------------
+            prior = financials.prior_period
 
         elif isinstance(financials, FinancialPeriod):
 
-            period = financials
-
-            revenue = getattr(
-                period,
-                "revenue",
-                None,
-            )
-
-            net_income = getattr(
-                period,
-                "net_income",
-                None,
-            )
-
             metrics = {}
+            period = financials
+            prior = None
 
         else:
             return FinancialMetrics()
@@ -93,96 +103,41 @@ class FinancialMetricsEngine:
         # BASE VALUES
         # ----------------------------------------------------------
 
-        if revenue is None and period is not None:
-            revenue = getattr(
-                period,
-                "revenue",
-                None,
-            )
+        def value(key: str, attribute: str | None = None):
+            result = metrics.get(key)
 
-        if net_income is None and period is not None:
-            net_income = getattr(
-                period,
-                "net_income",
-                None,
-            )
+            if result is not None:
+                return result
 
-        # ----------------------------------------------------------
-        # PERIOD VALUES
-        # ----------------------------------------------------------
+            if period is not None:
+                return getattr(
+                    period,
+                    attribute or key,
+                    None,
+                )
 
-        gross_profit = (
-            getattr(period, "gross_profit", None)
-            if period is not None
-            else None
+            return None
+
+        revenue = value("revenue")
+        gross_profit = value("gross_profit")
+        operating_income = value("operating_income")
+        net_income = value("net_income")
+
+        operating_cash_flow = value(
+            "operating_cash_flow"
         )
 
-        operating_income = (
-            getattr(period, "operating_income", None)
-            if period is not None
-            else None
+        free_cash_flow = value(
+            "free_cash_flow"
         )
 
-        free_cash_flow = (
-            getattr(period, "free_cash_flow", None)
-            if period is not None
-            else None
-        )
-
-        equity = (
-            getattr(period, "equity", None)
-            if period is not None
-            else None
-        )
-
-        debt = (
-            getattr(period, "debt", None)
-            if period is not None
-            else None
-        )
-
-        interest_expense = (
-            getattr(period, "interest_expense", None)
-            if period is not None
-            else None
-        )
-
-        # Prefer canonical metric values when available.
-
-        gross_profit = (
-            metrics.get("gross_profit")
-            if metrics.get("gross_profit") is not None
-            else gross_profit
-        )
-
-        operating_income = (
-            metrics.get("operating_income")
-            if metrics.get("operating_income") is not None
-            else operating_income
-        )
-
-        free_cash_flow = (
-            metrics.get("free_cash_flow")
-            if metrics.get("free_cash_flow") is not None
-            else free_cash_flow
-        )
-
-        equity = (
-            metrics.get("total_equity")
-            if metrics.get("total_equity") is not None
-            else equity
-        )
-
-        debt = (
-            metrics.get("debt")
-            if metrics.get("debt") is not None
-            else debt
-        )
-
-        interest_expense = (
-            metrics.get("interest_expense")
-            if metrics.get("interest_expense") is not None
-            else interest_expense
+        assets = value("assets")
+        equity = value("total_equity", "equity")
+        cash = value("cash")
+        debt = value("debt")
+        liabilities = value("liabilities")
+        interest_expense = value(
+            "interest_expense"
         )
 
         # ----------------------------------------------------------
@@ -190,40 +145,65 @@ class FinancialMetricsEngine:
         # ----------------------------------------------------------
 
         gross_margin = metrics.get("gross_margin")
-        operating_margin = metrics.get("operating_margin")
-        net_margin = metrics.get("net_margin")
-        fcf_margin = metrics.get("fcf_margin")
 
-        if revenue is not None and revenue != 0:
+        if (
+            gross_margin is None
+            and revenue not in (None, 0)
+            and gross_profit is not None
+        ):
+            gross_margin = (
+                gross_profit / revenue
+            )
 
-            if gross_margin is None and gross_profit is not None:
-                gross_margin = (
-                    gross_profit / revenue
-                )
+        operating_margin = metrics.get(
+            "operating_margin"
+        )
 
-            if (
-                operating_margin is None
-                and operating_income is not None
-            ):
-                operating_margin = (
-                    operating_income / revenue
-                )
+        if (
+            operating_margin is None
+            and revenue not in (None, 0)
+            and operating_income is not None
+        ):
+            operating_margin = (
+                operating_income / revenue
+            )
 
-            if net_margin is None and net_income is not None:
-                net_margin = (
-                    net_income / revenue
-                )
+        net_margin = metrics.get(
+            "net_margin"
+        )
 
-            if (
-                fcf_margin is None
-                and free_cash_flow is not None
-            ):
-                fcf_margin = (
-                    free_cash_flow / revenue
-                )
+        if (
+            net_margin is None
+            and revenue not in (None, 0)
+            and net_income is not None
+        ):
+            net_margin = (
+                net_income / revenue
+            )
+
+        fcf_margin = metrics.get(
+            "fcf_margin"
+        )
+
+        if (
+            fcf_margin is None
+            and revenue not in (None, 0)
+            and free_cash_flow is not None
+        ):
+            fcf_margin = (
+                free_cash_flow / revenue
+            )
+
+        # Canonical alias used by the legacy quality layer.
+        free_cashflow_margin = (
+            metrics.get("free_cashflow_margin")
+        )
+
+        if free_cashflow_margin is None:
+            free_cashflow_margin = fcf_margin
 
         # ----------------------------------------------------------
-        # RETURN ON EQUITY
+        # ROE
         # ----------------------------------------------------------
 
         roe = metrics.get("roe")
@@ -231,15 +211,83 @@ class FinancialMetricsEngine:
         if (
             roe is None
             and net_income is not None
-            and equity is not None
-            and equity != 0
+            and equity not in (None, 0)
         ):
             roe = (
                 net_income / equity
             )
 
         # ----------------------------------------------------------
-        # DEBT TO EQUITY
+        # ROIC
+        #
+        # Prefer an existing canonical value.
+        #
+        # Otherwise use:
+        # NOPAT / invested capital
+        #
+        # with a deterministic approximation:
+        # operating income * (1 - tax rate) / (equity + debt - cash)
+        #
+        # Tax rate is only used when supplied by the canonical metric map.
+        # ----------------------------------------------------------
+
+        roic = metrics.get("roic")
+
+        if roic is None:
+
+            # Canonical tax-rate field.
+            #
+            # Financial Intelligence currently publishes:
+            #     tax_rate
+            #
+            # Accept effective_tax_rate only as a legacy
+            # compatibility fallback.
+            tax_rate = metrics.get("tax_rate")
+
+            if tax_rate is None:
+                tax_rate = metrics.get(
+                    "effective_tax_rate"
+                )
+
+            invested_capital = None
+
+            if (
+                equity is not None
+                and debt is not None
+                and cash is not None
+            ):
+                invested_capital = (
+                    equity
+                    + debt
+                    - cash
+                )
+
+            if (
+                operating_income is not None
+                and invested_capital is not None
+                and invested_capital > 0
+            ):
+
+                if tax_rate is None:
+                    tax_rate = 0.21
+
+                tax_rate = max(
+                    0.0,
+                    min(1.0, tax_rate),
+                )
+
+                nopat = (
+                    operating_income
+                    * (1.0 - tax_rate)
+                )
+
+                roic = (
+                    nopat
+                    / invested_capital
+                )
+
+        # ----------------------------------------------------------
+        # LEVERAGE
         # ----------------------------------------------------------
 
         debt_to_equity = metrics.get(
@@ -249,11 +297,36 @@ class FinancialMetricsEngine:
         if (
             debt_to_equity is None
             and debt is not None
-            and equity is not None
-            and equity != 0
+            and equity not in (None, 0)
         ):
             debt_to_equity = (
                 debt / equity
+            )
+
+        debt_to_asset = metrics.get(
+            "debt_to_asset"
+        )
+
+        if (
+            debt_to_asset is None
+            and debt is not None
+            and assets not in (None, 0)
+        ):
+            debt_to_asset = (
+                debt / assets
+            )
+
+        net_debt = metrics.get(
+            "net_debt"
+        )
+
+        if (
+            net_debt is None
+            and debt is not None
+            and cash is not None
+        ):
+            net_debt = (
+                debt - cash
             )
 
         # ----------------------------------------------------------
@@ -267,22 +340,113 @@ class FinancialMetricsEngine:
         if (
             interest_coverage is None
             and operating_income is not None
-            and interest_expense is not None
-            and interest_expense != 0
+            and interest_expense not in (None, 0)
         ):
             interest_coverage = (
                 operating_income
                 / abs(interest_expense)
             )
 
+        # ----------------------------------------------------------
+        # GROWTH
+        #
+        # Use prior normalized period where available.
+        # ----------------------------------------------------------
+
+        revenue_growth = metrics.get(
+            "revenue_growth"
+        )
+
+        net_income_growth = metrics.get(
+            "net_income_growth"
+        )
+
+        fcf_growth = metrics.get(
+            "fcf_growth"
+        )
+
+        if prior is not None:
+
+            prior_revenue = getattr(
+                prior,
+                "revenue",
+                None,
+            )
+
+            prior_net_income = getattr(
+                prior,
+                "net_income",
+                None,
+            )
+
+            prior_fcf = getattr(
+                prior,
+                "free_cash_flow",
+                None,
+            )
+
+            if (
+                revenue_growth is None
+                and revenue is not None
+                and prior_revenue not in (None, 0)
+            ):
+                revenue_growth = (
+                    revenue / prior_revenue
+                ) - 1.0
+
+            if (
+                net_income_growth is None
+                and net_income is not None
+                and prior_net_income not in (None, 0)
+            ):
+                net_income_growth = (
+                    net_income
+                    / prior_net_income
+                ) - 1.0
+
+            if (
+                fcf_growth is None
+                and free_cash_flow is not None
+                and prior_fcf not in (None, 0)
+            ):
+                fcf_growth = (
+                    free_cash_flow
+                    / prior_fcf
+                ) - 1.0
+
         return FinancialMetrics(
             revenue=revenue,
+            gross_profit=gross_profit,
+            operating_income=operating_income,
             net_income=net_income,
+
+            operating_cash_flow=operating_cash_flow,
+            free_cash_flow=free_cash_flow,
+
+            assets=assets,
+            equity=equity,
+            cash=cash,
+            debt=debt,
+            liabilities=liabilities,
+
+            interest_expense=interest_expense,
+
             gross_margin=gross_margin,
             operating_margin=operating_margin,
             net_margin=net_margin,
             fcf_margin=fcf_margin,
+            free_cashflow_margin=free_cashflow_margin,
+
             roe=roe,
+            roic=roic,
+
             debt_to_equity=debt_to_equity,
+            debt_to_asset=debt_to_asset,
+
+            net_debt=net_debt,
             interest_coverage=interest_coverage,
+
+            revenue_growth=revenue_growth,
+            net_income_growth=net_income_growth,
+            fcf_growth=fcf_growth,
         )

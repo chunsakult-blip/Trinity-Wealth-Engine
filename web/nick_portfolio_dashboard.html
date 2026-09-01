@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nick Portfolio Monitor</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #121b2d;
+      --panel-alt: #18253e;
+      --text: #edf4ff;
+      --muted: #a7b7d6;
+      --accent: #60a5fa;
+      --accent-2: #34d399;
+      --warning: #fbbf24;
+      --danger: #f87171;
+      --border: rgba(255,255,255,0.08);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: linear-gradient(180deg, #09111d 0%, #0d1729 100%);
+      color: var(--text);
+    }
+
+    .container {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 32px 20px 80px;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    h1 {
+      margin: 10px 0 0;
+      font-size: 2.2rem;
+      letter-spacing: 0.03em;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(96, 165, 250, 0.12);
+      color: var(--accent);
+      border: 1px solid rgba(96,165,250,0.4);
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 18px;
+      margin: 24px 0 28px;
+    }
+
+    .stat {
+      background: rgba(18, 27, 45, 0.9);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 18px 20px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.18);
+    }
+
+    .stat-label {
+      color: var(--muted);
+      font-size: 0.8rem;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .stat-value {
+      font-size: 1.8rem;
+      font-weight: 700;
+    }
+
+    .stat-sub {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 0.8rem;
+      line-height: 1.5;
+    }
+
+    .summary-box {
+      background: rgba(18,27,45,0.9);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 18px 20px;
+      margin-bottom: 22px;
+      color: var(--text);
+      line-height: 1.7;
+    }
+
+    .summary-box strong {
+      color: var(--accent);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 18px;
+    }
+
+    .card {
+      background: rgba(18, 27, 45, 0.9);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 18px;
+      box-shadow: 0 8px 18px rgba(0,0,0,0.12);
+    }
+
+    .company {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      gap: 12px;
+    }
+
+    .ticker {
+      font-size: 1.2rem;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+    }
+
+    .weight {
+      background: rgba(52, 211, 153, 0.14);
+      color: var(--accent-2);
+      border: 1px solid rgba(52,211,153,0.35);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 0.8rem;
+      font-weight: 700;
+    }
+
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px 14px;
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin: 12px 0;
+    }
+
+    .meta strong {
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .section-label {
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin: 12px 0 6px;
+      font-weight: 700;
+    }
+
+    .thesis, .catalyst, .kill {
+      font-size: 0.96rem;
+      line-height: 1.6;
+      margin-top: 8px;
+    }
+
+    .thesis { color: #eaf3ff; }
+    .catalyst { color: #d9f7ee; }
+    .kill { color: #fcd68a; }
+
+    .risk {
+      color: var(--warning);
+      font-size: 0.82rem;
+      font-weight: 700;
+      margin-top: 12px;
+      line-height: 1.4;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 26px;
+      background: rgba(18,27,45,0.9);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+
+    th, td {
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      padding: 12px 14px;
+    }
+
+    th {
+      background: rgba(255,255,255,0.03);
+      color: var(--muted);
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    td {
+      color: var(--text);
+      font-size: 0.92rem;
+    }
+
+    tr:last-child td { border-bottom: none; }
+
+    .footer-note {
+      margin-top: 24px;
+      font-size: 0.9rem;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    @media (max-width: 640px) {
+      .header { flex-direction: column; align-items: flex-start; }
+      .stat-value { font-size: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div>
+        <div class="badge">Nick • Chief Investment Officer</div>
+        <h1>US Quality Portfolio Monitor</h1>
+      </div>
+      <div class="badge">Updated: 2026-08-18</div>
+    </div>
+
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-label">Total Portfolio</div>
+        <div class="stat-value">THB 1,000,000</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Core Equities</div>
+        <div class="stat-value">60%</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Defensive Assets</div>
+        <div class="stat-value">20%</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Cash Buffer</div>
+        <div class="stat-value">20%</div>
+      </div>
+    </div>
+
+    <div class="summary-box">
+      <strong>Portfolio thesis:</strong> Nick is buying high-quality businesses with durable advantages, strong balance sheets, attractive long-duration earnings power, and valuation discipline. The portfolio mixes core compounders with defensive cash-generative names and maintains a meaningful cash buffer to preserve flexibility during volatility shocks.
+      <br><br>
+      <strong>Decision rule:</strong> quality first, valuation second, momentum third. Positions are reduced or exited if the quality profile weakens, valuation becomes excessive, or the portfolio drifts materially from its risk budget.
+    </div>
+
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-label">Today's Buy</div>
+        <div class="stat-value">MSFT</div>
+        <div class="stat-sub">6.0 units • THB 105,517.50<br>Core quality allocation add</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Benchmark</div>
+        <div class="stat-value">SPY</div>
+        <div class="stat-sub">S&amp;P 500 calibration reference</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Monitoring</div>
+        <div class="stat-value">Growth</div>
+        <div class="stat-sub">Relative return vs benchmark</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom: 22px;">
+      <div class="section-label" style="margin-top: 0;">Price action snapshot</div>
+      <div class="meta" style="grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 14px 0 0;">
+        <div><strong>MSFT:</strong> $483.31</div>
+        <div><strong>SPY:</strong> $767.87</div>
+        <div><strong>Daily move:</strong> +0.62% / -0.62%</div>
+        <div><strong>Signal:</strong> MSFT +1.24 pts vs SPY</div>
+      </div>
+      <div class="footer-note" style="margin-top: 14px;">
+        Live market snapshot captured today: Microsoft is outperforming the S&amp;P 500 benchmark on the day, so the current buy is being recorded with a relative strength readout.
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="company">
+          <div class="ticker">AAPL</div>
+          <div class="weight">14%</div>
+        </div>
+        <div class="meta">
+          <div><strong>Style:</strong> Quality Large Cap</div>
+          <div><strong>Role:</strong> Core</div>
+        </div>
+        <div class="section-label">Thesis</div>
+        <div class="thesis">Apple remains a high-quality compounding franchise with large installed base economics, high-margin services, and durable free cash flow. Even in slower hardware cycles, ecosystem lock-in and recurring monetization support the investment case.</div>
+        <div class="section-label">Catalyst</div>
+        <div class="catalyst">Services growth acceleration, AI-driven device monetization, and continued software margin expansion should support durable earnings growth.</div>
+        <div class="section-label">Kill condition</div>
+        <div class="kill">If iPhone demand deteriorates for multiple quarters, gross margin compresses materially, or valuation outruns earnings supports, the position should be cut or exited.</div>
+        <div class="risk">Nick view: quality compounder with strong moat and cash generation.</div>
+      </div>
+
+      <div class="card">
+        <div class="company">
+          <div class="ticker">MSFT</div>
+          <div class="weight">13%</div>
+        </div>
+        <div class="meta">
+          <div><strong>Style:</strong> Quality Large Cap</div>
+          <div><strong>Role:</strong> Core anchor</div>
+        </div>
+        <div class="section-label">Thesis</div>
+        <div class="thesis">Microsoft combines cloud scale, software durability, and AI monetization in one of the best large-cap compounders in the market. The business benefits from durable enterprise demand and exceptional operating leverage.</div>
+        <div class="section-label">Catalyst</div>
+        <div class="catalyst">Azure growth acceleration, Copilot monetization, and continued enterprise digital transformation spending should sustain high-quality earnings growth.</div>
+        <div class="section-label">Kill condition</div>
+        <div class="kill">If Azure growth slows materially for consecutive quarters, enterprise spending weakens sharply, or valuation rises far beyond underlying earnings power, Nick would reduce the position.</div>
+        <div class="risk">Nick view: one of the strongest long-duration compounding businesses.</div>
+      </div>
+
+      <div class="card">
+        <div class="company">
+          <div class="ticker">NVDA</div>
+          <div class="weight">12%</div>
+        </div>
+        <div class="meta">
+          <div><strong>Style:</strong> Growth Compounder</div>
+          <div><strong>Role:</strong> Growth sleeve</div>
+        </div>
+        <div class="section-label">Thesis</div>
+        <div class="thesis">NVIDIA sits at the center of the AI infrastructure buildout. The company has outsized earnings power from critical GPU demand and global data-center expansion.</div>
+        <div class="section-label">Catalyst</div>
+        <div class="catalyst">Data center capex growth, enterprise AI adoption, and continuing compute demand across cloud workloads and inference use cases.</div>
+        <div class="section-label">Kill condition</div>
+        <div class="kill">If hyperscaler capex slows unexpectedly, gross margin compresses materially, or valuation detaches from future earnings reality, Nick would trim or exit.</div>
+        <div class="risk">Nick view: exceptional growth profile but requires strict valuation discipline.</div>
+      </div>
+
+      <div class="card">
+        <div class="company">
+          <div class="ticker">AMZN</div>
+          <div class="weight">11%</div>
+        </div>
+        <div class="meta">
+          <div><strong>Style:</strong> Quality Growth</div>
+          <div><strong>Role:</strong> Core</div>
+        </div>
+        <div class="section-label">Thesis</div>
+        <div class="thesis">Amazon combines AWS scale, advertising monetization, and retail efficiency into a compelling multi-engine growth model with strong operating leverage and durable moat characteristics.</div>
+        <div class="section-label">Catalyst</div>
+        <div class="catalyst">AWS expansion, ad monetization improvements, and margin recovery from retail and logistics efficiency.</div>
+        <div class="section-label">Kill condition</div>
+        <div class="kill">If AWS growth stalls, retail margins remain structurally weak, or the valuation premium lacks support from earnings quality, the position should be reduced.</div>
+        <div class="risk">Nick view: quality growth exposure with strong long-term compounding potential.</div>
+      </div>
+
+      <div class="card">
+        <div class="company">
+          <div class="ticker">GOOGL</div>
+          <div class="weight">10%</div>
+        </div>
+        <div class="meta">
+          <div><strong>Style:</strong> Quality Growth</div>
+          <div><strong>Role:</strong> Digital quality</div>
+        </div>
+        <div class="section-label">Thesis</div>
+        <div class="thesis">Alphabet remains one of the best compounders in digital advertising and cloud. It has deep monetization, a strong balance sheet, and a large AI opportunity with disciplined capital allocation.</div>
+        <div class="section-label">Catalyst</div>
+        <div class="catalyst">AI-enhanced search, ad monetization, cloud growth recovery, and operating leverage improvements.</div>
+        <div class="section-label">Kill condition</div>
+        <div class="kill">If search share weakens materially, AI disruption reduces monetization efficiency, or valuation ignores quality of earnings, the position should be cut.</div>
+        <div class="risk">Nick view: durable digital moat with attractive long-term compounding.</div>
+      </div>
+
+      <div class="card">
+        <div class="company">
+          <div class="ticker">JPM</div>
+          <div class="weight">6%</div>
+        </div>
+        <div class="meta">
+          <div><strong>Style:</strong> Defensive Financial</div>
+          <div><strong>Role:</strong> Defensive core</div>
+        </div>
+        <div class="section-label">Thesis</div>
+        <div class="thesis">JPMorgan is a high-quality financial company with strong earnings consistency, diversified businesses, and resilient capital structure. It provides defensive quality within the equity sleeve.</div>
+        <div class="section-label">Catalyst</div>
+        <div class="catalyst">Loan growth recovery, stable net interest margins, and continued strength in consumer and corporate credit metrics.</div>
+        <div class="section-label">Kill condition</div>
+        <div class="kill">If credit quality deteriorates materially, loan growth slows persistently, or bank stress conditions expand, Nick would reduce exposure.</div>
+        <div class="risk">Nick view: excellent balance-sheet quality and capital generation.</div>
+      </div>
+
+      <div class="card">
+        <div class="company">
+          <div class="ticker">V</div>
+          <div class="weight">5%</div>
+        </div>
+        <div class="meta">
+          <div><strong>Style:</strong> Quality Defensive</div>
+          <div><strong>Role:</strong> Defensive compounder</div>
+        </div>
+        <div class="section-label">Thesis</div>
+        <div class="thesis">Visa is a structurally superior payment franchise with scalable network economics and durable fee-based revenues. It is a classic defensive cash-flow compounder.</div>
+        <div class="section-label">Catalyst</div>
+        <div class="catalyst">Cross-border payment growth, digital wallet expansion, and recovery in global payment volumes.</div>
+        <div class="section-label">Kill condition</div>
+        <div class="kill">If payment volume growth stalls, consumer spending weakens materially, or valuation rises beyond sustainable support, the position should be cut back.</div>
+        <div class="risk">Nick view: high-margin, low-capex, quality franchise.</div>
+      </div>
+
+      <div class="card">
+        <div class="company">
+          <div class="ticker">COST</div>
+          <div class="weight">4%</div>
+        </div>
+        <div class="meta">
+          <div><strong>Style:</strong> Quality Defensive</div>
+          <div><strong>Role:</strong> Defensive growth</div>
+        </div>
+        <div class="section-label">Thesis</div>
+        <div class="thesis">Costco combines high customer retention, pricing power, and steady operational execution. It offers a defensive growth profile with lower volatility than pure technology.</div>
+        <div class="section-label">Catalyst</div>
+        <div class="catalyst">Membership renewal strength, traffic gains, and superior pricing discipline.</div>
+        <div class="section-label">Kill condition</div>
+        <div class="kill">If membership churn rises, traffic weakens, or valuation premiums remain unjustified, Nick would reduce exposure.</div>
+        <div class="risk">Nick view: strong defensive growth with real economic moat.</div>
+      </div>
+
+      <div class="card">
+        <div class="company">
+          <div class="ticker">PG</div>
+          <div class="weight">3%</div>
+        </div>
+        <div class="meta">
+          <div><strong>Style:</strong> Consumer Staple</div>
+          <div><strong>Role:</strong> Defensive ballast</div>
+        </div>
+        <div class="section-label">Thesis</div>
+        <div class="thesis">Procter &amp; Gamble is a classic defensive compounder with pricing power, stable margins, and a reliable dividend profile. It provides stability during uncertain macro conditions.</div>
+        <div class="section-label">Catalyst</div>
+        <div class="catalyst">Volume recovery, pricing power retention, and product mix improvement should support earnings resilience.</div>
+        <div class="section-label">Kill condition</div>
+        <div class="kill">If demand softens persistently, pricing power breaks down, or raw material costs overwhelm margins, Nick would cut exposure.</div>
+        <div class="risk">Nick view: old-school quality and defensive resilience.</div>
+      </div>
+
+      <div class="card">
+        <div class="company">
+          <div class="ticker">XOM</div>
+          <div class="weight">2%</div>
+        </div>
+        <div class="meta">
+          <div><strong>Style:</strong> Quality Income</div>
+          <div><strong>Role:</strong> Energy hedge</div>
+        </div>
+        <div class="section-label">Thesis</div>
+        <div class="thesis">ExxonMobil offers energy cash flow, dividend yield, and macro hedge characteristics. It helps protect the portfolio during inflationary or risk-off regimes.</div>
+        <div class="section-label">Catalyst</div>
+        <div class="catalyst">Oil price strength, refining and chemicals margin recovery, and disciplined capital allocation.</div>
+        <div class="section-label">Kill condition</div>
+        <div class="kill">If crude prices decline materially and persistently, capital discipline breaks down, or cash flow weakens, the position should be reduced.</div>
+        <div class="risk">Nick view: useful hedge and stable yield support.</div>
+      </div>
+
+      <div class="card">
+        <div class="company">
+          <div class="ticker">CVX</div>
+          <div class="weight">2%</div>
+        </div>
+        <div class="meta">
+          <div><strong>Style:</strong> Quality Income</div>
+          <div><strong>Role:</strong> Secondary energy hedge</div>
+        </div>
+        <div class="section-label">Thesis</div>
+        <div class="thesis">Chevron adds energy exposure with strong cash generation and an attractive capital return profile. It diversifies the defensive sleeve and contributes income stability.</div>
+        <div class="section-label">Catalyst</div>
+        <div class="catalyst">Commodity strength, disciplined production, and improved refining margins.</div>
+        <div class="section-label">Kill condition</div>
+        <div class="kill">If the commodity downturn persists, free cash flow shrinks materially, or capital returns are constrained, Nick would exit or reduce the holding.</div>
+        <div class="risk">Nick view: secondary energy hedge in a quality portfolio.</div>
+      </div>
+
+      <div class="card">
+        <div class="company">
+          <div class="ticker">CASH</div>
+          <div class="weight">18%</div>
+        </div>
+        <div class="meta">
+          <div><strong>Style:</strong> Cash Buffer</div>
+          <div><strong>Role:</strong> Optionality</div>
+        </div>
+        <div class="section-label">Thesis</div>
+        <div class="thesis">Cash is not idle capital; it is a strategic risk-management tool. It allows the portfolio to preserve optionality, absorb volatility, and deploy capital only when valuations and quality become attractive.</div>
+        <div class="section-label">Catalyst</div>
+        <div class="catalyst">Market dislocations, broad selloffs, earnings drawdowns, and high-quality entry opportunities.</div>
+        <div class="section-label">Kill condition</div>
+        <div class="kill">If cash remains too high for too long without compelling opportunities, and the risk budget is no longer being preserved, Nick would deploy capital more aggressively.</div>
+        <div class="risk">Nick view: cash is a strategic defensive asset, not a passive holding.</div>
+      </div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Ticker</th>
+          <th>Weight</th>
+          <th>Bucket</th>
+          <th>Nick Style</th>
+          <th>Core Idea</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>AAPL</td><td>14%</td><td>Core Equities</td><td>Quality Large Cap</td><td>Services + ecosystem cash flow</td></tr>
+        <tr><td>MSFT</td><td>13%</td><td>Core Equities</td><td>Quality Large Cap</td><td>AI + cloud + software compounder</td></tr>
+        <tr><td>NVDA</td><td>12%</td><td>Core Equities</td><td>Growth Compounder</td><td>AI infrastructure leader</td></tr>
+        <tr><td>AMZN</td><td>11%</td><td>Core Equities</td><td>Quality Growth</td><td>Cloud + retail + ads leverage</td></tr>
+        <tr><td>GOOGL</td><td>10%</td><td>Core Equities</td><td>Quality Growth</td><td>Search and digital moat</td></tr>
+        <tr><td>JPM</td><td>6%</td><td>Defensive</td><td>Defensive Financial</td><td>Balance-sheet quality</td></tr>
+        <tr><td>V</td><td>5%</td><td>Defensive</td><td>Quality Defensive</td><td>Payment network moat</td></tr>
+        <tr><td>COST</td><td>4%</td><td>Defensive</td><td>Quality Defensive</td><td>Membership economics</td></tr>
+        <tr><td>PG</td><td>3%</td><td>Defensive</td><td>Consumer Staple</td><td>Defensive cash flow</td></tr>
+        <tr><td>XOM</td><td>2%</td><td>Defensive</td><td>Quality Income</td><td>Energy cash generation</td></tr>
+        <tr><td>CVX</td><td>2%</td><td>Defensive</td><td>Quality Income</td><td>Energy hedge + dividend</td></tr>
+        <tr><td>CASH</td><td>18%</td><td>Cash</td><td>Cash Buffer</td><td>Optionality and downside protection</td></tr>
+      </tbody>
+    </table>
+
+    <div class="footer-note">
+      This page mirrors the formal investment memo style used for Nick: thesis, catalyst, kill condition, and portfolio role. It is intended to be readable as a monitoring dashboard while preserving the investment logic behind each holding.
+    </div>
+  </div>
+</body>
+</html>

@@ -7,6 +7,18 @@ assuming one exact XBRL tag.
 """
 
 GAAP_CONCEPTS = {
+    "depreciation": [
+        "Depreciation",
+        "DepreciationDepletionAndAmortization",
+        "DepreciationDepletionAndAmortizationPropertyPlantAndEquipment",
+        "DepreciationAndAmortization",
+    ],
+    "amortization": [
+        "AmortizationOfIntangibleAssets",
+        "AmortizationOfIntangibleAssetsExcludingGoodwill",
+        "AmortizationOfFinancingCosts",
+        "AmortizationOfDeferredCosts",
+    ],
 
     "revenue": [
         "Revenues",
@@ -58,6 +70,10 @@ GAAP_CONCEPTS = {
         "ShortTermBorrowings",
         "DebtCurrent",
         "DebtLongtermAndShorttermCombinedAmount",
+        "Borrowings",
+        "LongtermBorrowings",
+        "CurrentPortionOfLongtermBorrowings",
+        "ShorttermBorrowings",
     ],
 
     "operating_cash_flow": [
@@ -66,7 +82,12 @@ GAAP_CONCEPTS = {
 
     "capex": [
         "PaymentsToAcquirePropertyPlantAndEquipment",
+        "PaymentsToAcquirePropertyPlantAndEquipmentAndIntangibleAssets",
         "PaymentsToAcquireProductiveAssets",
+        "PurchaseOfPropertyPlantAndEquipment",
+        "PaymentsForPropertyPlantAndEquipment",
+        "PaymentsToAcquirePropertyPlantAndEquipmentAndIntangibleAssetsClassifiedAsInvestingActivities",
+        "PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
     ],
 
     "shares": [
@@ -81,3 +102,41 @@ GAAP_CONCEPTS = {
         "InterestAndDebtExpense",
     ],
 }
+
+
+# ============================================================
+# ATLAS — CANONICAL D&A SEC CONCEPT CANDIDATES
+#
+# IMPORTANT:
+# concept_values may contain either:
+#   - bare SEC concept names
+#   - us-gaap:<concept>
+#
+# Therefore both forms are intentionally supported.
+# ============================================================
+
+DEPRECIATION_CANDIDATES = [
+    "DepreciationDepletionAndAmortization",
+    "DepreciationAndAmortization",
+    "DepreciationDepletionAndAmortizationPropertyPlantAndEquipment",
+    "Depreciation",
+    "DepreciationExpense",
+
+    "us-gaap:DepreciationDepletionAndAmortization",
+    "us-gaap:DepreciationAndAmortization",
+    "us-gaap:DepreciationDepletionAndAmortizationPropertyPlantAndEquipment",
+    "us-gaap:Depreciation",
+    "us-gaap:DepreciationExpense",
+]
+
+AMORTIZATION_CANDIDATES = [
+    "AmortizationOfIntangibleAssets",
+    "AmortizationExpense",
+    "AmortizationOfIntangibleAssetsExcludingGoodwill",
+    "Amortization",
+
+    "us-gaap:AmortizationOfIntangibleAssets",
+    "us-gaap:AmortizationExpense",
+    "us-gaap:AmortizationOfIntangibleAssetsExcludingGoodwill",
+    "us-gaap:Amortization",
+]

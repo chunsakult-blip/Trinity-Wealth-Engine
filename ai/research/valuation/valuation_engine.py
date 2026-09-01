@@ -16,6 +16,33 @@ class ValuationScore:
 
     reasons: list[str]
 
+    # ------------------------------------------------------------
+    # LEGACY COMPATIBILITY
+    #
+    # Canonical contract uses:
+    #     valuation_score
+    #
+    # Older consumers expect:
+    #     score
+    #
+    # Keep the alias read-only so legacy imports do not break while
+    # the canonical valuation contract remains unchanged.
+    # ------------------------------------------------------------
+    @property
+    def score(self) -> float:
+        return self.valuation_score
+
+
+# ------------------------------------------------------------
+# LEGACY TYPE COMPATIBILITY
+#
+# Older modules import ValuationResult.
+# Canonical implementation is ValuationScore.
+#
+# This alias preserves import compatibility without creating a
+# second valuation implementation.
+# ------------------------------------------------------------
+ValuationResult = ValuationScore
 
 
 class ValuationEngine:
@@ -28,7 +55,7 @@ class ValuationEngine:
 
         score = 50
 
-        reasons=[]
+        reasons = []
 
 
         revenue = financial.revenue
@@ -78,23 +105,22 @@ class ValuationEngine:
 
 
         score = max(
-            min(score,100),
-           0
+            min(score, 100),
+            0
         )
 
 
         if score >= 80:
 
-            level="UNDERVALUED"
+            level = "UNDERVALUED"
 
-        elif score >=60:
+        elif score >= 60:
 
-            level="FAIR VALUE"
+            level = "FAIR VALUE"
 
         else:
 
-            level="OVERVALUED"
-
+            level = "OVERVALUED"
 
 
         return ValuationScore(
@@ -110,4 +136,3 @@ class ValuationEngine:
             reasons=reasons
 
         )
-

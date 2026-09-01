@@ -87,6 +87,40 @@ class FinancialIntelligenceV2:
         "CashFlowsFromUsedInOperations",
     )
 
+    GROSS_PROFIT_TAGS = (
+        "GrossProfit",
+    )
+
+    OPERATING_INCOME_TAGS = (
+                "ProfitLossFromOperatingActivities",
+"OperatingIncomeLoss",
+        "OperatingIncomeLossFromContinuingOperations",
+    )
+
+    EQUITY_TAGS = (
+        "StockholdersEquity",
+        "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+        "PartnersCapital",
+        "MembersEquity",
+        "Equity",
+    )
+
+    CAPEX_TAGS = (
+        "PaymentsToAcquirePropertyPlantAndEquipment",
+        "PaymentsToAcquireProductiveAssets",
+        "PaymentsToAcquirePropertyPlantAndEquipmentAndOtherProductiveAssets",
+    )
+
+    TAX_EXPENSE_TAGS = (
+        "IncomeTaxExpenseBenefit",
+    )
+
+    PRETAX_INCOME_TAGS = (
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxes",
+    )
+
     PREFERRED_NAMESPACES = (
         "us-gaap",
         "ifrs-full",
@@ -283,37 +317,203 @@ class FinancialIntelligenceV2:
             flow=True,
         )
 
+        gross_profit = self._find_latest_annual_fact(
+            facts,
+            namespaces,
+            self.GROSS_PROFIT_TAGS,
+            flow=True,
+        )
+
+        operating_income = self._find_latest_annual_fact(
+            facts,
+            namespaces,
+            self.OPERATING_INCOME_TAGS,
+            flow=True,
+        )
+
+        equity = self._find_latest_annual_fact(
+            facts,
+            namespaces,
+            self.EQUITY_TAGS,
+            flow=False,
+        )
+
+        capex = self._find_latest_annual_fact(
+            facts,
+            namespaces,
+            self.CAPEX_TAGS,
+            flow=True,
+        )
+
+        tax_expense = self._find_latest_annual_fact(
+            facts,
+            namespaces,
+            self.TAX_EXPENSE_TAGS,
+            flow=True,
+        )
+
+        pretax_income = self._find_latest_annual_fact(
+            facts,
+            namespaces,
+            self.PRETAX_INCOME_TAGS,
+            flow=True,
+        )
+
+        revenue_value = revenue["value"]
+        net_income_value = net_income["value"]
+        cashflow_value = cashflow["value"]
+        gross_profit_value = gross_profit["value"]
+        operating_income_value = operating_income["value"]
+        equity_value = equity["value"]
+        capex_value = capex["value"]
+
+        # SEC XBRL normally reports CapEx as a negative cash outflow.
+        # Canonical engine convention is POSITIVE CapEx.
+        capex_positive = abs(capex_value)
+
+        free_cash_flow = (
+            cashflow_value - capex_positive
+            if cashflow_value != 0
+            else 0.0
+        )
+
+        gross_margin = (
+            gross_profit_value / revenue_value
+            if revenue_value > 0
+            and gross_profit_value != 0
+            else None
+        )
+
+        operating_margin = (
+            operating_income_value / revenue_value
+            if revenue_value > 0
+            and operating_income_value != 0
+            else None
+        )
+
+        roe = (
+            net_income_value / equity_value
+            if equity_value > 0
+            and net_income_value != 0
+            else None
+        )
+
+        # --------------------------------------------------------
+        # ROIC
+        #
+        # NOPAT = Operating Income * (1 - effective tax rate)
+        #
+        # Invested Capital =
+        #     Equity + Liabilities - Cash
+        #
+        # We use operating income rather than net income so ROIC
+        # remains an operating-return metric.
+        # --------------------------------------------------------
+
+        roic = None
+
+        tax_value = tax_expense["value"]
+        pretax_value = pretax_income["value"]
+
+        if (
+            operating_income_value != 0
+            and assets["value"] > 0
+        ):
+            tax_rate = 0.0
+
+            if pretax_value > 0 and tax_value >= 0:
+                tax_rate = min(
+                    max(
+                        tax_value / pretax_value,
+                        0.0,
+                    ),
+                    0.50,
+                )
+
+            nopat = (
+                operating_income_value
+                * (1.0 - tax_rate)
+            )
+
+            invested_capital = (
+                equity_value
+                + liabilities["value"]
+                - 0.0
+            )
+
+            if invested_capital > 0:
+                roic = (
+                    nopat / invested_capital
+                )
+
+        currency = (
+            revenue["currency"]
+            or net_income["currency"]
+            or assets["currency"]
+            or liabilities["currency"]
+            or cashflow["currency"]
+            or gross_profit["currency"]
+            or operating_income["currency"]
+            or equity["currency"]
+        )
+
+        items = (
+            revenue,
+            net_income,
+            assets,
+            liabilities,
+            cashflow,
+            gross_profit,
+            operating_income,
+            equity,
+            capex,
+        )
+
         values = {
-            "revenue": revenue["value"],
-            "net_income": net_income["value"],
+            "revenue": revenue_value,
+            "net_income": net_income_value,
             "assets": assets["value"],
             "liabilities": liabilities["value"],
-            "cashflow": cashflow["value"],
-            "currency": (
-                revenue["currency"]
-                or net_income["currency"]
-                or assets["currency"]
-                or liabilities["currency"]
-                or cashflow["currency"]
-            ),
+            "cashflow": cashflow_value,
+
+            # New canonical metrics
+            "free_cash_flow": free_cash_flow,
+            "gross_profit": gross_profit_value,
+            "operating_income": operating_income_value,
+            "equity": equity_value,
+            "capex": capex_positive,
+            "gross_margin": gross_margin,
+            "operating_margin": operating_margin,
+            "roe": roe,
+            "roic": roic,
+
+            "currency": currency,
             "source": "SEC Company Facts",
             "periods_used": sum(
                 1
-                for item in (
-                    revenue,
-                    net_income,
-                    assets,
-                    liabilities,
-                    cashflow,
-                )
+                for item in items
                 if item["value"] != 0
             ),
+
             "diagnostics": {
                 "revenue": revenue,
                 "net_income": net_income,
                 "assets": assets,
                 "liabilities": liabilities,
                 "cashflow": cashflow,
+                "gross_profit": gross_profit,
+                "operating_income": operating_income,
+                "equity": equity,
+                "capex": capex,
+                "tax_expense": tax_expense,
+                "pretax_income": pretax_income,
+                "derived": {
+                    "free_cash_flow": free_cash_flow,
+                    "gross_margin": gross_margin,
+                    "operating_margin": operating_margin,
+                    "roe": roe,
+                    "roic": roic,
+                },
             },
         }
 

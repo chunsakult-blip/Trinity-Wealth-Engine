@@ -34,12 +34,55 @@ class InvestmentDecisionEngine:
         metrics: dict[str, Any],
     ) -> dict[str, float | None]:
 
+        # ------------------------------------------------------------
+        # INPUT BOUNDARY
+        #
+        # Supported inputs:
+        #   1. Legacy dict
+        #   2. NormalizedFinancials
+        #   3. NormalizedFinancials.ttm
+        #
+        # Canonical derived metrics such as EBITDA live inside
+        # NormalizedFinancials.metrics and must be promoted into the
+        # flat InvestmentDecisionEngine namespace.
+        # ------------------------------------------------------------
+
+        source = metrics
+
+        # NormalizedFinancials
+        if hasattr(metrics, "metrics"):
+            nested_metrics = getattr(
+                metrics,
+                "metrics",
+                None,
+            )
+
+            if isinstance(nested_metrics, dict):
+                source = nested_metrics
+
+        # FinancialPeriod / other dataclass-like objects
+        elif hasattr(metrics, "__dataclass_fields__"):
+            fields = getattr(
+                metrics,
+                "__dataclass_fields__",
+                {},
+            )
+
+            source = {
+                key: getattr(metrics, key)
+                for key in fields
+                if hasattr(metrics, key)
+            }
+
         normalized: dict[str, float | None] = {}
 
-        for key, value in metrics.items():
-            normalized[key] = (
-                InvestmentDecisionEngine._number(value)
-            )
+        if isinstance(source, dict):
+
+            for key, value in source.items():
+
+                normalized[key] = (
+                    InvestmentDecisionEngine._number(value)
+                )
 
         aliases = {
             "free_cash_flow": (
@@ -55,6 +98,14 @@ class InvestmentDecisionEngine:
             "operating_income": (
                 "ebit",
                 "operating_profit",
+            ),
+            "depreciation_and_amortization": (
+                "da",
+                "d_and_a",
+                "depreciation_amortization",
+            ),
+            "ebitda": (
+                "ebitda_ttm",
             ),
         }
 

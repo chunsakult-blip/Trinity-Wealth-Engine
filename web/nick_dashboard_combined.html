@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nick Dashboard</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #121b2d;
+      --panel-alt: #18253e;
+      --text: #edf4ff;
+      --muted: #a7b7d6;
+      --accent: #60a5fa;
+      --accent-2: #34d399;
+      --warning: #fbbf24;
+      --danger: #f87171;
+      --border: rgba(255,255,255,0.08);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: linear-gradient(180deg, #09111d 0%, #0d1729 100%);
+      color: var(--text);
+    }
+
+    .container {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 24px 18px 50px;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(96, 165, 250, 0.12);
+      color: var(--accent);
+      border: 1px solid rgba(96,165,250,0.4);
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 8px 0 0;
+      font-size: 2rem;
+      letter-spacing: 0.03em;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 12px;
+      margin: 18px 0 20px;
+      flex-wrap: wrap;
+    }
+
+    .tab {
+      border: 1px solid var(--border);
+      background: rgba(18, 27, 45, 0.9);
+      color: var(--text);
+      padding: 12px 18px;
+      border-radius: 12px;
+      cursor: pointer;
+      font-size: 0.95rem;
+      font-weight: 700;
+      transition: 0.2s ease;
+    }
+
+    .tab.active {
+      background: rgba(96, 165, 250, 0.16);
+      color: var(--accent);
+      border-color: rgba(96,165,250,0.45);
+    }
+
+    .tab-panel {
+      display: none;
+      border: 1px solid var(--border);
+      background: rgba(18, 27, 45, 0.9);
+      border-radius: 18px;
+      overflow: hidden;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.18);
+    }
+
+    .tab-panel.active {
+      display: block;
+    }
+
+    iframe {
+      display: block;
+      width: 100%;
+      height: 1100px;
+      border: 0;
+      background: #09111d;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div>
+        <div class="badge">Nick • Chief Investment Officer</div>
+        <h1>Nick Portfolio Dashboard</h1>
+      </div>
+      <div class="badge">2 views</div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="portfolio">1. Portfolio Memo</button>
+      <button class="tab" data-tab="live">2. Live Monitor</button>
+      <button class="tab" data-tab="screen">3. Famous Investor Screen</button>
+    </div>
+
+    <div class="tab-panel active" id="panel-portfolio">
+      <iframe src="nick_portfolio_dashboard.html" title="Nick Portfolio Memo View"></iframe>
+    </div>
+
+    <div class="tab-panel" id="panel-live">
+      <iframe src="nick_monitor_live.html" title="Nick Live Monitor View"></iframe>
+    </div>
+
+    <div class="tab-panel" id="panel-screen">
+      <iframe src="famous_investor_screen_dashboard.html" title="Famous Investor Screen View"></iframe>
+    </div>
+  </div>
+
+  <script>
+    const tabs = document.querySelectorAll('.tab');
+    const panels = document.querySelectorAll('.tab-panel');
+
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        const target = tab.dataset.tab;
+
+        tabs.forEach((t) => t.classList.toggle('active', t === tab));
+        panels.forEach((panel) => {
+          panel.classList.toggle('active', panel.id === `panel-${target}`);
+        });
+      });
+    });
+  </script>
+</body>
+</html>

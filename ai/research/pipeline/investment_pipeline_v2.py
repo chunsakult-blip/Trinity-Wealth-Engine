@@ -90,13 +90,13 @@ class InvestmentPipelineV2:
                 )
 
 
-                quality = self.quality.analyze(
+                quality = self.quality.evaluate(
                     normalized
                 )
 
 
                 normalized.quality_score = (
-                    quality.total_score
+                    quality.score
                 )
 
 

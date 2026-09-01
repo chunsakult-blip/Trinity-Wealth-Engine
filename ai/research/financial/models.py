@@ -35,6 +35,8 @@ class FinancialPeriod:
     revenue: float | None = None
     gross_profit: float | None = None
     operating_income: float | None = None
+    depreciation: float | None = None
+    amortization: float | None = None
     net_income: float | None = None
     eps: float | None = None
 
@@ -82,6 +84,8 @@ class NormalizedFinancials:
 
     periods: list[FinancialPeriod] = field(default_factory=list)
 
+    depreciation: float | None = None
+    amortization: float | None = None
     metrics: dict[str, float | None] = field(
         default_factory=dict
     )

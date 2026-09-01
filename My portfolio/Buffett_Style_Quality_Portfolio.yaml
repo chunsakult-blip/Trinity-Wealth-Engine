@@ -1,0 +1,159 @@
+schema_version: 1
+doc_type: portfolio_master
+name: "Buffett-Style Quality Value Portfolio"
+inspired_by: "Warren Buffett & Charlie Munger"
+last_updated: "2026-08-19T00:00:00"
+base_currency: "THB"
+summary:
+  total_value_thb: 1,000,000.00
+  total_cost_basis_thb: 1,000,000.00
+  total_unrealized_profit: 0.00
+  total_realized_profit_ytd: 0.00
+  passive_income_ytd: 0.00
+  total_accumulated_dividend: 0.00
+  style_note: "Quality business, durable moat, rational valuation, long holding period"
+fx_rates:
+  USDTHB: 36.50
+portfolio_style:
+  owner: "Buffett-style"
+  mandate: "Long-duration value investing with quality bias"
+  strategy: "Buy strong businesses at reasonable prices and hold through cycles"
+  emphasis:
+    - durable_competitive_advantage
+    - strong_free_cash_flow
+    - management_quality
+    - undervaluation_buffer
+    - patient_compounding
+holdings:
+  - symbol: AAPL
+    asset_type: equity
+    units: 10.0000
+    status: active
+    bucket_id: quality_value
+    company_name: "Apple"
+    avg_cost_thb: 13000.00
+    current_price_thb: 13000.00
+    market_value_thb: 130000.00
+    portfolio_weight_pct: 13.00
+    nick_style: "quality_value"
+  - symbol: MSFT
+    asset_type: equity
+    units: 6.5000
+    status: active
+    bucket_id: quality_value
+    company_name: "Microsoft"
+    avg_cost_thb: 17000.00
+    current_price_thb: 17000.00
+    market_value_thb: 110500.00
+    portfolio_weight_pct: 11.05
+    nick_style: "quality_value"
+  - symbol: COST
+    asset_type: equity
+    units: 2.0000
+    status: active
+    bucket_id: quality_value
+    company_name: "Costco"
+    avg_cost_thb: 22000.00
+    current_price_thb: 22000.00
+    market_value_thb: 44000.00
+    portfolio_weight_pct: 4.40
+    nick_style: "quality_value"
+  - symbol: KO
+    asset_type: equity
+    units: 16.0000
+    status: active
+    bucket_id: defensive
+    company_name: "Coca-Cola"
+    avg_cost_thb: 6500.00
+    current_price_thb: 6500.00
+    market_value_thb: 104000.00
+    portfolio_weight_pct: 10.40
+    nick_style: "defensive_compounder"
+  - symbol: JPM
+    asset_type: equity
+    units: 4.5000
+    status: active
+    bucket_id: defensive
+    company_name: "JPMorgan Chase"
+    avg_cost_thb: 13000.00
+    current_price_thb: 13000.00
+    market_value_thb: 58500.00
+    portfolio_weight_pct: 5.85
+    nick_style: "banking_quality"
+  - symbol: V
+    asset_type: equity
+    units: 3.5000
+    status: active
+    bucket_id: defensives
+    company_name: "Visa"
+    avg_cost_thb: 13000.00
+    current_price_thb: 13000.00
+    market_value_thb: 45500.00
+    portfolio_weight_pct: 4.55
+    nick_style: "moat_business"
+  - symbol: XOM
+    asset_type: equity
+    units: 8.0000
+    status: active
+    bucket_id: value_cycle
+    company_name: "Exxon Mobil"
+    avg_cost_thb: 6000.00
+    current_price_thb: 6000.00
+    market_value_thb: 48000.00
+    portfolio_weight_pct: 4.80
+    nick_style: "value_cycle"
+  - symbol: OXY
+    asset_type: equity
+    units: 9.5000
+    status: active
+    bucket_id: value_cycle
+    company_name: "Occidental Petroleum"
+    avg_cost_thb: 6200.00
+    current_price_thb: 6200.00
+    market_value_thb: 58900.00
+    portfolio_weight_pct: 5.89
+    nick_style: "value_cycle"
+  - symbol: BAC
+    asset_type: equity
+    units: 12.8000
+    status: active
+    bucket_id: financials
+    company_name: "Bank of America"
+    avg_cost_thb: 7700.00
+    current_price_thb: 7700.00
+    market_value_thb: 98560.00
+    portfolio_weight_pct: 9.86
+    nick_style: "financial_quality"
+  - symbol: C
+    asset_type: equity
+    units: 10.0000
+    status: active
+    bucket_id: financials
+    company_name: "Citigroup"
+    avg_cost_thb: 7100.00
+    current_price_thb: 7100.00
+    market_value_thb: 71000.00
+    portfolio_weight_pct: 7.10
+    nick_style: "financial_quality"
+  - symbol: PG
+    asset_type: equity
+    units: 7.5000
+    status: active
+    bucket_id: defensive
+    company_name: "Procter & Gamble"
+    avg_cost_thb: 5200.00
+    current_price_thb: 5200.00
+    market_value_thb: 39000.00
+    portfolio_weight_pct: 3.90
+    nick_style: "defensive_compounder"
+  - symbol: CASH
+    asset_type: cash
+    units: 180000.00
+    status: active
+    bucket_id: cash
+    company_name: "Cash"
+    avg_cost_thb: 180000.00
+    current_price_thb: 180000.00
+    market_value_thb: 180000.00
+    portfolio_weight_pct: 18.00
+    nick_style: "cash_buffer"

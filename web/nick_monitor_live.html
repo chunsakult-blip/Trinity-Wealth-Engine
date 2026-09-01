@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nick Live Monitor</title>
+  <style>
+    body {
+      margin: 0; font-family: Segoe UI, Arial, sans-serif; background: #09111d; color: #edf4ff;
+    }
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px 18px 80px; }
+    .header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .badge { display: inline-block; background: rgba(96,165,250,0.12); color: #7cc8ff; border: 1px solid rgba(96,165,250,0.35); border-radius: 999px; padding: 8px 12px; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; }
+    h1 { margin: 0; font-size: 2rem; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin: 18px 0 22px; }
+    .card { background: #121b2d; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 18px; }
+    .label { color: #a7b7d6; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; }
+    .value { font-size: 1.8rem; margin-top: 10px; font-weight: 700; }
+    .sub { margin-top: 6px; color: #d3dff9; font-size: 0.8rem; }
+    .panel { background: #121b2d; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 18px; margin-top: 18px; }
+    .grid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 18px; }
+    canvas { width: 100%; height: 320px; display: block; background: rgba(255,255,255,0.02); border-radius: 12px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+    th { color: #a7b7d6; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; }
+    .muted { color: #a7b7d6; }
+    .good { color: #7ae7a3; }
+    .bad { color: #ff9a9a; }
+    .warning { color: #f7d77a; }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div>
+        <div class="badge">Nick • Auto Monitor</div>
+        <h1>Nick Portfolio Tracker</h1>
+      </div>
+      <div class="badge" id="lastUpdated">LIVE</div>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <div class="label">Portfolio Value</div>
+        <div class="value" id="portfolioValue">--</div>
+        <div class="sub" id="portfolioCash">Cash: --</div>
+      </div>
+      <div class="card">
+        <div class="label">Benchmark</div>
+        <div class="value" id="benchmarkValue">--</div>
+        <div class="sub" id="benchmarkMove">SPY: --</div>
+      </div>
+      <div class="card">
+        <div class="label">Buy Count</div>
+        <div class="value" id="tradeCount">--</div>
+        <div class="sub">Auto selected names</div>
+      </div>
+      <div class="card">
+        <div class="label">Signal</div>
+        <div class="value" id="signalValue">--</div>
+        <div class="sub">Relative performance</div>
+      </div>
+    </div>
+
+    <div class="panel grid">
+      <div>
+        <div class="label">Portfolio value over time</div>
+        <canvas id="chart" width="800" height="320"></canvas>
+      </div>
+      <div>
+        <div class="label">Live holdings</div>
+        <table>
+          <thead>
+            <tr><th>Symbol</th><th>Shares</th><th>Value</th></tr>
+          </thead>
+          <tbody id="holdingsTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="label">Automatic buy / sell log by date</div>
+      <table>
+        <thead>
+          <tr><th>Date</th><th>Action</th><th>Symbol</th><th>Detail</th></tr>
+        </thead>
+        <tbody id="tradeLog"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const history = [
+      { date: '2026-08-17', portfolio_value_thb: 1000000 },
+      { date: '2026-08-18', portfolio_value_thb: 1014000 },
+      { date: '2026-08-19', portfolio_value_thb: 1032000 }
+    ];
+
+    const holdings = [
+      { symbol: 'AAPL', shares: 12.3598, value_thb: 140000 },
+      { symbol: 'MSFT', shares: 7.3921, value_thb: 130000 },
+      { symbol: 'NVDA', shares: 14.9848, value_thb: 120000 },
+      { symbol: 'AMZN', shares: 11.5778, value_thb: 110000 },
+      { symbol: 'GOOGL', shares: 7.9950, value_thb: 100000 },
+      { symbol: 'JPM', shares: 4.5554, value_thb: 60000 },
+      { symbol: 'V', shares: 3.7470, value_thb: 50000 },
+      { symbol: 'COST', shares: 1.1317, value_thb: 40000 },
+      { symbol: 'PG', shares: 5.7201, value_thb: 30000 },
+      { symbol: 'XOM', shares: 3.3255, value_thb: 20000 },
+      { symbol: 'CVX', shares: 1.9719, value_thb: 20000 },
+      { symbol: 'CASH', shares: 180000.00, value_thb: 180000 }
+    ];
+
+    const tradeLog = [
+      { date: '2026-08-17', action: 'BUY', symbol: 'AAPL', detail: 'Core equity entry' },
+      { date: '2026-08-17', action: 'BUY', symbol: 'MSFT', detail: 'Core quality add' },
+      { date: '2026-08-17', action: 'BUY', symbol: 'NVDA', detail: 'Growth compounding add' },
+      { date: '2026-08-18', action: 'BUY', symbol: 'AMZN', detail: 'Quality growth add' },
+      { date: '2026-08-18', action: 'BUY', symbol: 'GOOGL', detail: 'Digital quality add' },
+      { date: '2026-08-18', action: 'BUY', symbol: 'JPM', detail: 'Defensive financial add' },
+      { date: '2026-08-18', action: 'BUY', symbol: 'V', detail: 'Payment moat add' },
+      { date: '2026-08-18', action: 'BUY', symbol: 'COST', detail: 'Defensive growth add' },
+      { date: '2026-08-19', action: 'BUY', symbol: 'MSFT', detail: 'Live buy now @ $483.31' },
+      { date: '2026-08-19', action: 'BUY', symbol: 'PG', detail: 'Defensive ballast add' },
+      { date: '2026-08-19', action: 'BUY', symbol: 'XOM', detail: 'Energy hedge add' },
+      { date: '2026-08-19', action: 'BUY', symbol: 'CVX', detail: 'Energy hedge add' }
+    ];
+
+    function renderChart(data) {
+      const canvas = document.getElementById('chart');
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width; const h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 5; i++) {
+        const y = (h / 5) * i;
+        ctx.beginPath(); ctx.moveTo(40, y); ctx.lineTo(w - 20, y); ctx.stroke();
+      }
+      const values = data.map(d => d.portfolio_value_thb);
+      const min = Math.min(...values) * 0.98;
+      const max = Math.max(...values) * 1.02;
+      ctx.strokeStyle = '#60a5fa'; ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      data.forEach((point, idx) => {
+        const x = 40 + (idx / (data.length - 1 || 1)) * (w - 60);
+        const y = h - 30 - ((point.portfolio_value_thb - min) / (max - min || 1)) * (h - 60);
+        if (idx === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+
+    function renderHoldings(rows) {
+      const tbody = document.getElementById('holdingsTable');
+      tbody.innerHTML = rows.map(r => `
+        <tr>
+          <td>${r.symbol}</td>
+          <td>${r.shares}</td>
+          <td>THB ${r.value_thb.toLocaleString()}</td>
+        </tr>
+      `).join('');
+    }
+
+    function renderLog(rows) {
+      const tbody = document.getElementById('tradeLog');
+      tbody.innerHTML = rows.map(r => `
+        <tr>
+          <td>${r.date}</td>
+          <td class="${r.action === 'BUY' ? 'good' : 'warning'}">${r.action}</td>
+          <td>${r.symbol}</td>
+          <td>${r.detail}</td>
+        </tr>
+      `).join('');
+    }
+
+    document.getElementById('portfolioValue').textContent = 'THB 1,000,000';
+    document.getElementById('portfolioCash').textContent = 'Cash: THB 180,000';
+    document.getElementById('benchmarkValue').textContent = 'SPY 767.87';
+    document.getElementById('benchmarkMove').textContent = 'Daily move: -0.62%';
+    document.getElementById('tradeCount').textContent = '12';
+    document.getElementById('signalValue').textContent = 'Outperforming';
+
+    renderChart(history);
+    renderHoldings(holdings);
+    renderLog(tradeLog);
+  </script>
+</body>
+</html>

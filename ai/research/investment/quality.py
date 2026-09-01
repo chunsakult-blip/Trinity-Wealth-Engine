@@ -1,5 +1,13 @@
 """
-Deterministic financial quality scoring.
+Deterministic investment quality aggregation.
+
+Financial data quality is NOT recalculated here.
+
+Canonical financial-data quality:
+    ai.research.financial.quality.FinancialQualityEngine
+
+Investment quality:
+    combines business fundamentals with canonical data confidence.
 """
 
 from __future__ import annotations
@@ -27,12 +35,19 @@ class InvestmentQualityEngine:
         financial_quality: dict[str, Any] | None = None,
     ) -> QualityScore:
 
-        financial_quality = financial_quality or {}
+        financial_quality = (
+            financial_quality or {}
+        )
 
         warnings: list[str] = []
 
-        def clamp(value: float) -> float:
-            return max(0.0, min(100.0, value))
+        def clamp(
+            value: float,
+        ) -> float:
+            return max(
+                0.0,
+                min(100.0, value),
+            )
 
         # ------------------------------------------------------------
         # PROFITABILITY
@@ -40,29 +55,43 @@ class InvestmentQualityEngine:
 
         roe = metrics.get("roe")
         roic = metrics.get("roic")
-        gross_margin = metrics.get("gross_margin")
-        operating_margin = metrics.get("operating_margin")
+        gross_margin = metrics.get(
+            "gross_margin"
+        )
+        operating_margin = metrics.get(
+            "operating_margin"
+        )
 
         profitability_parts: list[float] = []
 
         if roe is not None:
             profitability_parts.append(
-                clamp((roe / 0.20) * 100.0)
+                clamp(
+                    (roe / 0.20) * 100.0
+                )
             )
 
         if roic is not None:
             profitability_parts.append(
-                clamp((roic / 0.20) * 100.0)
+                clamp(
+                    (roic / 0.20) * 100.0
+                )
             )
 
         if gross_margin is not None:
             profitability_parts.append(
-                clamp((gross_margin / 0.60) * 100.0)
+                clamp(
+                    (gross_margin / 0.60)
+                    * 100.0
+                )
             )
 
         if operating_margin is not None:
             profitability_parts.append(
-                clamp((operating_margin / 0.30) * 100.0)
+                clamp(
+                    (operating_margin / 0.30)
+                    * 100.0
+                )
             )
 
         profitability = (
@@ -109,19 +138,27 @@ class InvestmentQualityEngine:
 
         debt = metrics.get("debt")
         cash = metrics.get("cash")
-        net_debt = metrics.get("net_debt")
+        net_debt = metrics.get(
+            "net_debt"
+        )
         interest_coverage = metrics.get(
             "interest_coverage"
         )
 
-        if debt is not None and cash is not None:
+        if (
+            debt is not None
+            and cash is not None
+        ):
 
             if debt <= cash:
                 balance_parts.append(100.0)
+
             elif debt <= cash * 2:
                 balance_parts.append(85.0)
+
             elif debt <= cash * 4:
                 balance_parts.append(65.0)
+
             else:
                 balance_parts.append(30.0)
 
@@ -129,8 +166,10 @@ class InvestmentQualityEngine:
 
             if net_debt <= 0:
                 balance_parts.append(100.0)
+
             elif net_debt < 1_000_000_000:
                 balance_parts.append(80.0)
+
             else:
                 balance_parts.append(60.0)
 
@@ -153,8 +192,13 @@ class InvestmentQualityEngine:
         # CASH FLOW
         # ------------------------------------------------------------
 
-        fcf = metrics.get("free_cash_flow")
-        ocf = metrics.get("operating_cash_flow")
+        fcf = metrics.get(
+            "free_cash_flow"
+        )
+
+        ocf = metrics.get(
+            "operating_cash_flow"
+        )
 
         cash_flow_parts: list[float] = []
 
@@ -182,7 +226,7 @@ class InvestmentQualityEngine:
         )
 
         # ------------------------------------------------------------
-        # DATA CONFIDENCE
+        # CANONICAL DATA CONFIDENCE
         # ------------------------------------------------------------
 
         confidence = float(
@@ -197,6 +241,17 @@ class InvestmentQualityEngine:
                 "Financial data confidence is below 60."
             )
 
+        warnings.extend(
+            financial_quality.get(
+                "warnings",
+                [],
+            )
+        )
+
+        # ------------------------------------------------------------
+        # INVESTMENT QUALITY
+        # ------------------------------------------------------------
+
         score = (
             profitability * 0.35
             + growth * 0.20
@@ -206,7 +261,10 @@ class InvestmentQualityEngine:
         )
 
         return QualityScore(
-            score=round(score, 2),
+            score=round(
+                score,
+                2,
+            ),
             profitability=round(
                 profitability,
                 2,
@@ -227,5 +285,9 @@ class InvestmentQualityEngine:
                 confidence,
                 2,
             ),
-            warnings=warnings,
+            warnings=list(
+                dict.fromkeys(
+                    warnings
+                )
+            ),
         )

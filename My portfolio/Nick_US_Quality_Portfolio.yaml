@@ -1,0 +1,250 @@
+schema_version: 1
+doc_type: portfolio_master
+name: "Nick US Quality Portfolio"
+last_updated: "2026-08-18T00:00:00"
+base_currency: "THB"
+summary:
+  total_value_thb: 1,000,000.00
+  total_cost_basis_thb: 1,000,000.00
+  total_unrealized_profit: 0.00
+  total_realized_profit_ytd: 0.00
+  passive_income_ytd: 0.00
+  total_accumulated_dividend: 0.00
+  last_trade:
+    date: "2026-08-19"
+    action: "BUY"
+    symbol: "MSFT"
+    units: 6.0
+    price_usd: 483.31
+    tx_value_usd: 2899.86
+    cost_thb: 105844.89
+    note: "Added to the core quality bucket today at the current market price and benchmarked against SPY."
+  market_snapshot:
+    msft_price_usd: 483.31
+    spy_price_usd: 767.87
+    msft_daily_change_pct: 0.6162
+    spy_daily_change_pct: -0.6212
+    relative_move_pct: 1.2374
+benchmark:
+  symbol: "SPY"
+  name: "S&P 500 ETF"
+  measurement: "relative_return_vs_sp500"
+  calibration_note: "Portfolio performance is framed against the S&P 500 as the market benchmark."
+fx_rates:
+  USDTHB: 36.50
+allocation_targets:
+  - bucket_id: core_equities
+    name: Core Equities
+    target_percent: 60.0
+    color: "#3B82F6"
+  - bucket_id: defensive
+    name: Defensive Assets
+    target_percent: 20.0
+    color: "#A855F7"
+  - bucket_id: cash
+    name: Cash & Equivalents
+    target_percent: 20.0
+    color: "#06B6D4"
+portfolio_style:
+  owner: "Nick"
+  mandate: "Chief Investment Officer"
+  strategy: "US quality-growth with valuation discipline"
+  emphasis:
+    - quality_companies
+    - balance_sheet_health
+    - valuation_sanity
+    - diversified_growth
+    - low_turnover
+holdings:
+  - symbol: AAPL
+    asset_type: equity
+    units: 12.3598
+    status: active
+    bucket_id: core_equities
+    company_name: "AAPL"
+    avg_cost_thb: 11327.04
+    avg_cost_usd: 310.33
+    current_price_thb: 11327.04
+    current_price_usd: 310.33
+    fx_rate: 36.50
+    market_value_thb: 140000.00
+    unrealized_pnl_percent: 0.00
+    portfolio_weight_pct: 14.00
+    nick_style: quality_large_cap
+  - symbol: MSFT
+    asset_type: equity
+    units: 7.3921
+    status: active
+    bucket_id: core_equities
+    company_name: "MSFT"
+    avg_cost_thb: 17586.25
+    avg_cost_usd: 481.82
+    current_price_thb: 17586.25
+    current_price_usd: 481.82
+    fx_rate: 36.50
+    market_value_thb: 130000.00
+    unrealized_pnl_percent: 0.00
+    portfolio_weight_pct: 13.00
+    nick_style: quality_large_cap
+  - symbol: NVDA
+    asset_type: equity
+    units: 14.9848
+    status: active
+    bucket_id: core_equities
+    company_name: "NVDA"
+    avg_cost_thb: 8008.10
+    avg_cost_usd: 219.40
+    current_price_thb: 8008.10
+    current_price_usd: 219.40
+    fx_rate: 36.50
+    market_value_thb: 120000.00
+    unrealized_pnl_percent: 0.00
+    portfolio_weight_pct: 12.00
+    nick_style: growth_compounder
+  - symbol: AMZN
+    asset_type: equity
+    units: 11.5778
+    status: active
+    bucket_id: core_equities
+    company_name: "AMZN"
+    avg_cost_thb: 9500.95
+    avg_cost_usd: 260.30
+    current_price_thb: 9500.95
+    current_price_usd: 260.30
+    fx_rate: 36.50
+    market_value_thb: 110000.00
+    unrealized_pnl_percent: 0.00
+    portfolio_weight_pct: 11.00
+    nick_style: quality_growth
+  - symbol: GOOGL
+    asset_type: equity
+    units: 7.9950
+    status: active
+    bucket_id: core_equities
+    company_name: "GOOGL"
+    avg_cost_thb: 12507.82
+    avg_cost_usd: 342.68
+    current_price_thb: 12507.82
+    current_price_usd: 342.68
+    fx_rate: 36.50
+    market_value_thb: 100000.00
+    unrealized_pnl_percent: 0.00
+    portfolio_weight_pct: 10.00
+    nick_style: quality_growth
+  - symbol: JPM
+    asset_type: equity
+    units: 4.5554
+    status: active
+    bucket_id: defensive
+    company_name: "JPM"
+    avg_cost_thb: 13171.12
+    avg_cost_usd: 360.85
+    current_price_thb: 13171.12
+    current_price_usd: 360.85
+    fx_rate: 36.50
+    market_value_thb: 60000.00
+    unrealized_pnl_percent: 0.00
+    portfolio_weight_pct: 6.00
+    nick_style: defensive_financial
+  - symbol: V
+    asset_type: equity
+    units: 3.7470
+    status: active
+    bucket_id: defensive
+    company_name: "V"
+    avg_cost_thb: 13343.85
+    avg_cost_usd: 365.58
+    current_price_thb: 13343.85
+    current_price_usd: 365.58
+    fx_rate: 36.50
+    market_value_thb: 50000.00
+    unrealized_pnl_percent: 0.00
+    portfolio_weight_pct: 5.00
+    nick_style: quality_defensive
+  - symbol: COST
+    asset_type: equity
+    units: 1.1317
+    status: active
+    bucket_id: defensive
+    company_name: "COST"
+    avg_cost_thb: 35346.60
+    avg_cost_usd: 968.40
+    current_price_thb: 35346.60
+    current_price_usd: 968.40
+    fx_rate: 36.50
+    market_value_thb: 40000.00
+    unrealized_pnl_percent: 0.00
+    portfolio_weight_pct: 4.00
+    nick_style: quality_defensive
+  - symbol: PG
+    asset_type: equity
+    units: 5.7201
+    status: active
+    bucket_id: defensive
+    company_name: "PG"
+    avg_cost_thb: 5244.69
+    avg_cost_usd: 143.69
+    current_price_thb: 5244.69
+    current_price_usd: 143.69
+    fx_rate: 36.50
+    market_value_thb: 30000.00
+    unrealized_pnl_percent: 0.00
+    portfolio_weight_pct: 3.00
+    nick_style: consumer_staple
+  - symbol: XOM
+    asset_type: equity
+    units: 3.3255
+    status: active
+    bucket_id: defensive
+    company_name: "XOM"
+    avg_cost_thb: 6014.11
+    avg_cost_usd: 164.77
+    current_price_thb: 6014.11
+    current_price_usd: 164.77
+    fx_rate: 36.50
+    market_value_thb: 20000.00
+    unrealized_pnl_percent: 0.00
+    portfolio_weight_pct: 2.00
+    nick_style: quality_income
+  - symbol: CVX
+    asset_type: equity
+    units: 1.9719
+    status: active
+    bucket_id: defensive
+    company_name: "CVX"
+    avg_cost_thb: 10149.58
+    avg_cost_usd: 278.08
+    current_price_thb: 10149.58
+    current_price_usd: 278.08
+    fx_rate: 36.50
+    market_value_thb: 20000.00
+    unrealized_pnl_percent: 0.00
+    portfolio_weight_pct: 2.00
+    nick_style: quality_income
+
+  - symbol: CASH
+    asset_type: cash
+    units: 180000.00
+    status: active
+    bucket_id: cash
+    company_name: "Cash"
+    avg_cost_thb: 180000.00
+    avg_cost_usd: 0.00
+    current_price_thb: 180000.00
+    current_price_usd: 0.00
+    fx_rate: 1.00
+    market_value_thb: 180000.00
+    unrealized_pnl_percent: 0.00
+    portfolio_weight_pct: 18.00
+    nick_style: "cash_buffer"
+
+watchlist:
+  - symbol: AVGO
+    asset_type: equity
+    notes: "Quality semiconductor candidate for future rotation"
+  - symbol: META
+    asset_type: equity
+    notes: "High-quality growth; only add on valuation pullback"
+  - symbol: CRM
+    asset_type: equity
+    notes: "Software compounder with disciplined entry timing"

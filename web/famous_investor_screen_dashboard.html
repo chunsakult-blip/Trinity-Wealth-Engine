@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Famous Investor Screen Dashboard</title>
+  <style>
+    :root {
+      --bg: #08111d;
+      --panel: #101b2d;
+      --panel-alt: #16253d;
+      --text: #ebf4ff;
+      --muted: #a7bdd9;
+      --border: rgba(255,255,255,0.08);
+      --core: #60a5fa;
+      --satellite: #34d399;
+      --avoid: #f87171;
+      --warning: #fbbf24;
+      --shadow: rgba(0,0,0,0.22);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: linear-gradient(180deg, #061018 0%, #0d1729 100%);
+      color: var(--text);
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 28px 18px 48px;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(96, 165, 250, 0.44);
+      background: rgba(96, 165, 250, 0.12);
+      color: var(--core);
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 10px 0 0;
+      font-size: 2.2rem;
+      letter-spacing: 0.03em;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+
+    .summary-card {
+      background: linear-gradient(180deg, rgba(16,27,45,0.96), rgba(22,37,61,0.9));
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px 18px;
+      box-shadow: 0 12px 28px var(--shadow);
+    }
+
+    .summary-label {
+      color: var(--muted);
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .summary-value {
+      font-size: 1.8rem;
+      font-weight: 700;
+    }
+
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 18px 0 22px;
+    }
+
+    .filter-btn {
+      border: 1px solid var(--border);
+      background: rgba(16,27,45,0.85);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 10px 16px;
+      cursor: pointer;
+      font-weight: 700;
+      transition: 0.2s ease;
+    }
+
+    .filter-btn.active {
+      border-color: rgba(96,165,250,0.5);
+      background: rgba(96,165,250,0.14);
+      color: var(--core);
+    }
+
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 18px;
+    }
+
+    .stock-card {
+      background: linear-gradient(180deg, rgba(16,27,45,0.96), rgba(18,35,58,0.9));
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 18px 18px 16px;
+      box-shadow: 0 12px 20px rgba(0,0,0,0.15);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .stock-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .stock-symbol {
+      font-size: 1.5rem;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      margin: 0;
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 7px 10px;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      border: 1px solid transparent;
+    }
+
+    .pill.core { background: rgba(96,165,250,0.12); color: var(--core); border-color: rgba(96,165,250,0.4); }
+    .pill.satellite { background: rgba(52,211,153,0.12); color: var(--satellite); border-color: rgba(52,211,153,0.35); }
+    .pill.avoid { background: rgba(248,113,113,0.12); color: var(--avoid); border-color: rgba(248,113,113,0.38); }
+
+    .meta {
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.4;
+      margin-top: -2px;
+    }
+
+    .tile {
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px 12px 10px;
+    }
+
+    .tile h3 {
+      margin: 0 0 8px;
+      font-size: 0.8rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .tile p {
+      margin: 0;
+      line-height: 1.6;
+      color: var(--text);
+      font-size: 0.94rem;
+    }
+
+    .tile.kill { border-color: rgba(248,113,113,0.3); }
+    .tile.thesis { border-color: rgba(96,165,250,0.25); }
+    .tile.business { border-color: rgba(52,211,153,0.28); }
+    .tile.decision { border-color: rgba(251,191,36,0.32); }
+
+    .hidden { display: none !important; }
+
+    .footer-note {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <div>
+        <div class="badge">Famous Investor Screen</div>
+        <h1>Investor Memo Dashboard</h1>
+      </div>
+      <div class="badge" id="last-updated">LIVE</div>
+    </div>
+
+    <div class="summary-grid">
+      <div class="summary-card">
+        <div class="summary-label">Core</div>
+        <div class="summary-value" id="count-core">0</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Satellite</div>
+        <div class="summary-value" id="count-satellite">0</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Avoid</div>
+        <div class="summary-value" id="count-avoid">0</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Total Ideas</div>
+        <div class="summary-value" id="count-total">0</div>
+      </div>
+    </div>
+
+    <div class="filters" id="filters"></div>
+
+    <div class="card-grid" id="card-grid"></div>
+
+    <div class="footer-note">
+      Selected from high-conviction portfolios and ranked by moat quality, compounding durability, valuation discipline, and execution risk.
+    </div>
+  </div>
+
+  <script>
+    const stocks = [
+      {
+        symbol: 'MSFT',
+        bucket: 'core',
+        category: 'AI / Quality Growth',
+        sources: 'Bill Ackman • Warren Buffett',
+        thesis: 'Microsoft compounds because recurring software revenue, cloud scale, and AI integration reinforce durable earnings growth.',
+        business: 'Enterprise software, Azure, productivity tools, and AI monetization create multiple layers of pricing power and recurring cash generation.',
+        why_now: 'The company is expanding AI value in the installed base without damaging the economics of its core software franchises.',
+        kill: 'Reduce or exit if Azure growth decelerates materially for several quarters or AI monetization fails to lift earnings quality.',
+        decision: 'Core holding. Size on valuation discipline rather than momentum alone.',
+        entry_mode: 'DCA with pullback ladder',
+        entry_rule: 'Wait for a 5-10% pullback from recent highs; scale in if trend remains intact.'
+      },
+      {
+        symbol: 'AMZN',
+        bucket: 'core',
+        category: 'AI / Quality Growth',
+        sources: 'David Tepper • Bill Ackman',
+        thesis: 'Amazon compounds as AWS stays structurally strong while advertising and retail margins improve.',
+        business: 'AWS, advertising, and logistics all contribute to higher operating leverage and improved cash conversion over time.',
+        why_now: 'Retail efficiency and ad monetization are creating real earnings expansion even before fully monetizing AI-related upside.',
+        kill: 'Trim or sell if AWS growth weakens sharply, retail margin improvement stalls, or free cash flow falls behind the market narrative.',
+        decision: 'Core holding if operating leverage remains visible and valuation remains reasonable.',
+        entry_mode: 'DCA with pullback ladder',
+        entry_rule: 'Wait for 8-15% pullback or use monthly DCA if price remains elevated.'
+      },
+      {
+        symbol: 'GOOGL',
+        bucket: 'core',
+        category: 'AI / Quality Growth',
+        sources: 'Warren Buffett • David Tepper',
+        thesis: 'Alphabet can continue compounding because its ad engine remains structurally strong and AI enhances monetization rather than destroying it.',
+        business: 'Search dominance, cloud scale, and balance-sheet strength create a large, high-quality platform with meaningful optionality.',
+        why_now: 'AI may improve ad productivity and search value rather than replace the core monetization engine.',
+        kill: 'Reduce exposure if search share weakens materially or AI features erode monetization quality.',
+        decision: 'Core holding with valuation discipline; not a momentum-only idea.',
+        entry_mode: 'DCA or opportunistic buy',
+        entry_rule: 'Wait for 10-15% pullback before adding materially.'
+      },
+      {
+        symbol: 'AAPL',
+        bucket: 'core',
+        category: 'Defensive Compounders',
+        sources: 'Warren Buffett',
+        thesis: 'Apple compounds because ecosystem lock-in and services revenue protect returns even during weaker device cycles.',
+        business: 'The ecosystem creates a sticky customer base, recurring services revenue, and durable margins.',
+        why_now: 'Services and installed-base economics remain highly resilient even if hardware cycles fluctuate.',
+        kill: 'Reduce if iPhone demand weakens persistently, services growth stalls, or valuation moves too far ahead of earnings quality.',
+        decision: 'Core holding; buy quality and patience, not hype.',
+        entry_mode: 'DCA / staggered entry',
+        entry_rule: 'Buy on 8-12% pullback; avoid chasing after a sharp rally.'
+      },
+      {
+        symbol: 'V',
+        bucket: 'core',
+        category: 'Defensive Compounders',
+        sources: 'Bill Ackman',
+        thesis: 'Visa compounds through digital payment adoption, cross-border growth, and structural fee-based economics.',
+        business: 'Global payment network, low capital intensity, and pricing power create durable earnings quality and attractive cash generation.',
+        why_now: 'Digital commerce and cross-border spending continue to expand the size of the payment network.',
+        kill: 'Trim if transaction volumes weaken structurally or valuation moves too far above intrinsic value.',
+        decision: 'Core defensive compounder; not a cyclical trading vehicle.',
+        entry_mode: 'DCA is preferred',
+        entry_rule: 'Buy on 5-10% weakness or spread entry over 2-3 months.'
+      },
+      {
+        symbol: 'JPM',
+        bucket: 'core',
+        category: 'Financials',
+        sources: 'Warren Buffett • Bill Ackman',
+        thesis: 'JPMorgan compounds because it combines franchise quality with balance-sheet resilience through the cycle.',
+        business: 'Diversified consumer, corporate, and capital markets exposure gives it a robust earnings base and exceptional risk-management discipline.',
+        why_now: 'The bank benefits from a strong franchise and resilient balance sheet in a still-uncertain credit environment.',
+        kill: 'Reduce if credit stress broadens materially or underwriting quality declines.',
+        decision: 'Core financial holding used for stability and quality.',
+        entry_mode: 'DCA / pullback',
+        entry_rule: 'Add on 5-8% weakness; do not force a full entry into strength.'
+      },
+      {
+        symbol: 'COST',
+        bucket: 'core',
+        category: 'Defensive Compounders',
+        sources: 'Warren Buffett • Bill Ackman',
+        thesis: 'Costco compounds because customer loyalty and membership economics create recurring, defensive cash flow.',
+        business: 'Membership economics, traffic, and efficient operations support high retention and healthy operating leverage.',
+        why_now: 'The business tends to be resilient across macro cycles because the membership model is sticky and value-led.',
+        kill: 'Trim if membership churn rises materially or margins compress persistently.',
+        decision: 'Core defensive growth holding; best when valuation remains disciplined.',
+        entry_mode: 'DCA with patience',
+        entry_rule: 'Wait for 8-12% pullback; otherwise accumulate gradually.'
+      },
+      {
+        symbol: 'XOM',
+        bucket: 'core',
+        category: 'Energy / Value',
+        sources: 'Warren Buffett',
+        thesis: 'Exxon compounds when capital discipline and commodity conditions stay constructive.',
+        business: 'Integrated energy scale and strong capital returns create durable free cash flow in supportive commodity environments.',
+        why_now: 'Energy remains important for inflation resilience and supply/security dynamics, and majors with discipline can still compound.',
+        kill: 'Reduce or exit if commodity weakness persists and free cash flow falls materially.',
+        decision: 'Core cyclical holding, but only with discipline on the energy cycle.',
+        entry_mode: 'DCA / opportunistic buy',
+        entry_rule: 'Prefer 10-15% weakness before adding materially; DCA works well in energy.'
+      },
+      {
+        symbol: 'NVDA',
+        bucket: 'satellite',
+        category: 'AI / Quality Growth',
+        sources: 'David Tepper',
+        thesis: 'NVIDIA compounds because AI compute demand is still structurally expanding and the company sits at the center of that buildout.',
+        business: 'Critical role in AI infrastructure, strong pricing power, and large data-center demand create exceptional earnings leverage.',
+        why_now: 'AI capex remains one of the strongest demand drivers in technology, even as supply and valuation become more intense.',
+        kill: 'Reduce aggressively if hyperscaler capex slows or gross margin compresses sharply.',
+        decision: 'Satellite growth holding, not a core anchor.',
+        entry_mode: 'DCA ladder only',
+        entry_rule: 'Do not chase. Buy in 3-5 tranches on 15-25% pullbacks or repeated weakness.'
+      },
+      {
+        symbol: 'META',
+        bucket: 'satellite',
+        category: 'AI / Quality Growth',
+        sources: 'David Tepper • Bill Ackman',
+        thesis: 'Meta compounds because its ad engine remains structurally strong and AI can improve monetization without damaging margins.',
+        business: 'Large advertising platform, strong user engagement, and improving operating efficiency create significant free cash flow capacity.',
+        why_now: 'The business is becoming more efficient while AI can support further monetization and product innovation.',
+        kill: 'Reduce if ad demand weakens materially or AI investment compresses profitability.',
+        decision: 'Satellite position; sized smaller than the core franchise names.',
+        entry_mode: 'DCA or pullback buy',
+        entry_rule: 'Prefer 10-15% pullback; otherwise use monthly DCA.'
+      },
+      {
+        symbol: 'TSM',
+        bucket: 'satellite',
+        category: 'AI / Quality Growth',
+        sources: 'David Tepper',
+        thesis: 'TSMC compounds because advanced-node demand and AI infrastructure buildout support long-run manufacturing leadership.',
+        business: 'Technology leadership in advanced semiconductor manufacturing makes it strategically essential across the supply chain.',
+        why_now: 'AI infrastructure spending continues to require advanced manufacturing capacity and higher-value process nodes.',
+        kill: 'Reduce if semiconductor demand weakens materially or geopolitical risk hurts operations.',
+        decision: 'Satellite strategic exposure, not a core quality anchor.',
+        entry_mode: 'DCA ladder',
+        entry_rule: 'Wait for 10-15% pullback; build in stages if thesis remains intact.'
+      },
+      {
+        symbol: 'UBER',
+        bucket: 'satellite',
+        category: 'Special Situation',
+        sources: 'David Tepper • Bill Ackman',
+        thesis: 'Uber can compound as mobility and delivery margins improve and platform scale supports higher operating leverage.',
+        business: 'The network has large scale, improving unit economics, and scope to expand margins as operating discipline improves.',
+        why_now: 'The company is reaching a stage where scale benefits can show up more clearly in profitability.',
+        kill: 'Reduce if margin improvement stalls or competition intensifies materially.',
+        decision: 'Satellite position with more selective sizing.',
+        entry_mode: 'DCA / selective buy',
+        entry_rule: 'Wait for 15-20% pullback or use staggered monthly additions.'
+      },
+      {
+        symbol: 'NRG',
+        bucket: 'satellite',
+        category: 'Energy / Value',
+        sources: 'David Tepper',
+        thesis: 'NRG benefits from power market strength and favorable pricing conditions.',
+        business: 'Power markets can generate strong earnings, but the business is more cyclical and operationally sensitive than the core quality names.',
+        why_now: 'Higher energy and grid demand can support stronger earnings for a period, but this is still a policy-and-price-sensitive business.',
+        kill: 'Exit if pricing normalizes sharply or operational quality deteriorates.',
+        decision: 'Thematic satellite only; not core portfolio ballast.',
+        entry_mode: 'DCA only',
+        entry_rule: 'Buy in 2-3 steps on 10-20% weakness rather than one full purchase.'
+      },
+      {
+        symbol: 'OXY',
+        bucket: 'satellite',
+        category: 'Energy / Value',
+        sources: 'Warren Buffett',
+        thesis: 'Occidental compounds when oil conditions remain favorable and capital discipline holds.',
+        business: 'Oil and gas exposure can create strong cash generation, but the business is more cyclical than the highest-quality compounders.',
+        why_now: 'The commodity environment still matters, and the company can benefit when energy prices remain constructive.',
+        kill: 'Cut exposure if commodity weakness deepens or balance-sheet discipline slips.',
+        decision: 'Satellite holding with explicit risk budget.',
+        entry_mode: 'DCA / opportunistic buy',
+        entry_rule: 'Wait for 15-20% weakness before adding materially.'
+      },
+      {
+        symbol: 'CRWV',
+        bucket: 'avoid',
+        category: 'Special Situation',
+        sources: 'David Tepper',
+        thesis: 'CoreWeave has upside if AI infrastructure demand remains strong and management executes well.',
+        business: 'The business is tied directly to AI infrastructure demand, but it remains operationally immature and more capital-intensive than better-established names.',
+        why_now: 'AI infrastructure momentum is large, but that alone does not reduce execution and leverage risk.',
+        kill: 'Avoid or treat as purely speculative if demand normalizes quickly, debt becomes a real issue, or execution weakens.',
+        decision: 'Avoid as a core holding; use only as a small, high-risk satellite.',
+        entry_mode: 'Avoid unless major pullback',
+        entry_rule: 'Only consider after 30-40% drop and only with tiny position size.'
+      }
+    ];
+
+    const filters = ['all', 'core', 'satellite', 'avoid'];
+    let activeFilter = 'all';
+
+    function renderFilters() {
+      const container = document.getElementById('filters');
+      container.innerHTML = '';
+
+      filters.forEach((filter) => {
+        const btn = document.createElement('button');
+        btn.className = `filter-btn ${filter === activeFilter ? 'active' : ''}`;
+        btn.textContent = filter === 'all' ? 'All' : filter.charAt(0).toUpperCase() + filter.slice(1);
+        btn.addEventListener('click', () => {
+          activeFilter = filter;
+          renderBoard();
+        });
+        container.appendChild(btn);
+      });
+    }
+
+    function renderBoard() {
+      const grid = document.getElementById('card-grid');
+      const visible = activeFilter === 'all' ? stocks : stocks.filter(item => item.bucket === activeFilter);
+
+      const countCore = stocks.filter(s => s.bucket === 'core').length;
+      const countSatellite = stocks.filter(s => s.bucket === 'satellite').length;
+      const countAvoid = stocks.filter(s => s.bucket === 'avoid').length;
+
+      document.getElementById('count-core').textContent = countCore;
+      document.getElementById('count-satellite').textContent = countSatellite;
+      document.getElementById('count-avoid').textContent = countAvoid;
+      document.getElementById('count-total').textContent = stocks.length;
+
+      grid.innerHTML = '';
+
+      visible.forEach((stock) => {
+        const card = document.createElement('div');
+        card.className = 'stock-card';
+        card.innerHTML = `
+          <div class="stock-header">
+            <h2 class="stock-symbol">${stock.symbol}</h2>
+            <span class="pill ${stock.bucket}">${stock.bucket}</span>
+          </div>
+          <div class="meta">${stock.category} • ${stock.sources}</div>
+          <div class="tile thesis">
+            <h3>Thesis</h3>
+            <p>${stock.thesis}</p>
+          </div>
+          <div class="tile business">
+            <h3>Business Quality</h3>
+            <p>${stock.business}</p>
+          </div>
+          <div class="tile thesis">
+            <h3>Why Now</h3>
+            <p>${stock.why_now}</p>
+          </div>
+          <div class="tile kill">
+            <h3>Kill Condition</h3>
+            <p>${stock.kill}</p>
+          </div>
+          <div class="tile decision">
+            <h3>Decision Rule</h3>
+            <p>${stock.decision}</p>
+          </div>
+          <div class="tile decision">
+            <h3>Entry / Timing</h3>
+            <p><strong>${stock.entry_mode}</strong> • ${stock.entry_rule}</p>
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+
+      renderFilters();
+    }
+
+    const updated = new Date();
+    document.getElementById('last-updated').textContent = 'Updated ' + updated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    renderBoard();
+  </script>
+</body>
+</html>
