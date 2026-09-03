@@ -239,25 +239,12 @@ class ValuationEngine:
             else:
                 components.append(20.0)
 
-        if price_to_fcf is not None:
-
-            if price_to_fcf <= 12:
-                components.append(100.0)
-
-            elif price_to_fcf <= 15:
-                components.append(90.0)
-
-            elif price_to_fcf <= 20:
-                components.append(80.0)
-
-            elif price_to_fcf <= 25:
-                components.append(65.0)
-
-            elif price_to_fcf <= 35:
-                components.append(45.0)
-
-            else:
-                components.append(20.0)
+        # PRICE / FCF is reporting-only.
+        #
+        # It is mathematically the inverse of FCF yield, so scoring
+        # both would double-count the same valuation signal.
+        # Keep price_to_fcf in the result for transparency, but do not
+        # add it to the valuation score.
 
         if fcf_yield is not None:
 

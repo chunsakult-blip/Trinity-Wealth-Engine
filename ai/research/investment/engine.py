@@ -290,6 +290,12 @@ class InvestmentDecisionEngine:
             or 0.0
         )
 
+        # RiskEngine.score is a risk magnitude:
+        # lower = safer, higher = riskier.
+        # Convert it into a positive contribution for the
+        # investment score so higher risk lowers the final score.
+        risk_adjusted_score = 100.0 - risk_score
+
         # ------------------------------------------------------------
         # FINAL ATLAS SCORE
         # ------------------------------------------------------------
@@ -298,7 +304,7 @@ class InvestmentDecisionEngine:
             screening_score * 0.20
             + quality_score * 0.30
             + valuation_score * 0.25
-            + risk_score * 0.25
+            + risk_adjusted_score * 0.25
         )
 
         final_score = max(
