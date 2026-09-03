@@ -51,6 +51,7 @@ class TrinityAdapter:
             tickers=normalized_tickers,
             research_type=research_type.strip() or "company",
             depth=depth.strip() or "standard",
+            as_of_date=as_of_date,
         )
 
     def adapt(
@@ -285,4 +286,3 @@ class TrinityAdapter:
 
 
 DEFAULT_TRINITY_ADAPTER = TrinityAdapter()
-
