@@ -1,4 +1,4 @@
-"""
+﻿"""
 ATLAS Intelligence Pipeline.
 
 Execution chain:
@@ -167,6 +167,7 @@ class IntelligencePipeline:
         tickers: list[str] | None = None,
         research_type: str = "company",
         depth: str = "standard",
+        as_of_date: str | None = None,
     ) -> ResearchRequest:
 
         return self.adapter.research_request(
@@ -174,6 +175,7 @@ class IntelligencePipeline:
             tickers=tickers,
             research_type=research_type,
             depth=depth,
+            as_of_date=as_of_date,
         )
 
     @staticmethod
@@ -334,6 +336,7 @@ class IntelligencePipeline:
         trinity_output: Any = None,
         research_type: str = "company",
         depth: str = "standard",
+        as_of_date: str | None = None,
         thread_id: str | None = None,
     ) -> dict[str, Any]:
 
@@ -346,12 +349,17 @@ class IntelligencePipeline:
             tickers=tickers,
             research_type=research_type,
             depth=depth,
+            as_of_date=as_of_date,
         )
 
         execution_thread_id = (
             thread_id
             or f"atlas-{uuid.uuid4().hex[:16]}"
         )
+
+        import time
+        _t0 = time.perf_counter()
+        print("[ATLAS] START", flush=True)
 
         # ---------------------------------------------------------
         # 1. TRINITY EXECUTION
@@ -375,6 +383,8 @@ class IntelligencePipeline:
 
             raw_trinity_output = trinity_output
 
+        print(f"[ATLAS] TRINITY DONE {time.perf_counter()-_t0:.1f}s", flush=True)
+
         # ---------------------------------------------------------
         # 2. TRINITY -> ATLAS CONTRACT
         # ---------------------------------------------------------
@@ -391,6 +401,8 @@ class IntelligencePipeline:
                 "execution",
                 trinity_execution,
             )
+
+        print(f"[ATLAS] ADAPTER DONE {time.perf_counter()-_t0:.1f}s", flush=True)
 
         # ---------------------------------------------------------
         # 3. RESEARCH / COMPANY RESOLUTION
@@ -433,6 +445,8 @@ class IntelligencePipeline:
             research_result = self.research.execute(
                 request
             )
+
+        print(f"[ATLAS] RESEARCH DONE {time.perf_counter()-_t0:.1f}s", flush=True)
 
         # ---------------------------------------------------------
         # 4. COMPANY -> FINANCIAL
@@ -485,13 +499,16 @@ class IntelligencePipeline:
                     # FINANCIAL ENGINE
                     # -------------------------------------------------
 
+                    print(f"[ATLAS] FINANCIAL START {time.perf_counter()-_t0:.1f}s", flush=True)
                     financial_result = (
                         self.financial.analyze_company(
                             cik,
                             ticker=ticker,
                             company_name=company_name,
+                            as_of_date=request.as_of_date,
                         )
                     )
+                    print(f"[ATLAS] FINANCIAL DONE {time.perf_counter()-_t0:.1f}s", flush=True)
 
                     # -------------------------------------------------
                     # FINANCIAL -> INVESTMENT
@@ -530,6 +547,7 @@ class IntelligencePipeline:
                         # -------------------------------------------------
 
                         try:
+                            print(f"[ATLAS] MARKET START {time.perf_counter()-_t0:.1f}s", flush=True)
                             bridge_result = (
                                 self.market_bridge.enrich(
                                     ticker=(
@@ -548,6 +566,8 @@ class IntelligencePipeline:
                                     metrics,
                                 )
                             )
+
+                            print(f"[ATLAS] MARKET DONE {time.perf_counter()-_t0:.1f}s", flush=True)
 
                             if isinstance(
                                 enriched_metrics,
@@ -605,6 +625,7 @@ class IntelligencePipeline:
                                     financial_quality
                                 )
 
+                        print(f"[ATLAS] INVESTMENT START {time.perf_counter()-_t0:.1f}s", flush=True)
                         investment_result = (
                             self.investment.analyze(
                                 metrics,
@@ -666,33 +687,43 @@ class IntelligencePipeline:
         # 5. EVIDENCE
         # ---------------------------------------------------------
 
+        print(f"[ATLAS] EVIDENCE START {time.perf_counter()-_t0:.1f}s", flush=True)
         evidence_result = self.evidence.collect(
             trinity=trinity_result,
             research=research_result,
         )
 
+        print(f"[ATLAS] EVIDENCE DONE {time.perf_counter()-_t0:.1f}s", flush=True)
+
         # ---------------------------------------------------------
         # 6. VERIFICATION
         # ---------------------------------------------------------
 
+        print(f"[ATLAS] VERIFY START {time.perf_counter()-_t0:.1f}s", flush=True)
         verification_result = self.verifier.verify(
             research=research_result,
             evidence=evidence_result,
         )
 
+        print(f"[ATLAS] VERIFY DONE {time.perf_counter()-_t0:.1f}s", flush=True)
+
         # ---------------------------------------------------------
         # 7. CHALLENGE
         # ---------------------------------------------------------
 
+        print(f"[ATLAS] CHALLENGE START {time.perf_counter()-_t0:.1f}s", flush=True)
         challenge_result = self.challenger.challenge(
             research=research_result,
             verification=verification_result,
         )
 
+        print(f"[ATLAS] CHALLENGE DONE {time.perf_counter()-_t0:.1f}s", flush=True)
+
         # ---------------------------------------------------------
         # 8. REFLECTION
         # ---------------------------------------------------------
 
+        print(f"[ATLAS] REFLECTION START {time.perf_counter()-_t0:.1f}s", flush=True)
         reflection_result = self.reflection.reflect(
             research=research_result,
             verification=verification_result,
@@ -730,6 +761,7 @@ class IntelligencePipeline:
         # 10. NICK
         # ---------------------------------------------------------
 
+        print(f"[ATLAS] NICK START {time.perf_counter()-_t0:.1f}s", flush=True)
         nick_result = self.nick.evaluate(
             investment_package
         )
@@ -777,3 +809,5 @@ class IntelligencePipeline:
 
 
 DEFAULT_INTELLIGENCE_PIPELINE = IntelligencePipeline()
+
+

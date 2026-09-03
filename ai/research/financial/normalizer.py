@@ -1507,6 +1507,7 @@ class FinancialFactNormalizer:
         cik: int,
         ticker: str | None = None,
         company_name: str | None = None,
+        as_of_date: str | None = None,
     ) -> NormalizedFinancials:
 
         if not isinstance(payload, dict):
@@ -1622,6 +1623,11 @@ class FinancialFactNormalizer:
                                 or end is None
                             ):
                                 continue
+
+                            filed = str(entry.get("filed") or "")
+                            if as_of_date is not None:
+                                if not filed or filed > str(as_of_date):
+                                    continue
 
                             item = dict(entry)
 

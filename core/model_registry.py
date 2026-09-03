@@ -1,4 +1,4 @@
-"""Centralized LLM model registry.
+﻿"""Centralized LLM model registry.
 
 Single-model architecture:
     NVIDIA Nemotron 3 Super 120B A12B via OpenRouter
@@ -25,7 +25,7 @@ REGISTRY: dict[str, ModelSlot] = {
     "manager": ModelSlot(
         "MANAGER_MODEL",
         FREE_MODEL,
-        "Manager Agent — routing and orchestration",
+        "Manager Agent โ€” routing and orchestration",
         "agent",
     ),
     "router": ModelSlot(
@@ -135,5 +135,3 @@ def get_registry_summary() -> list[dict]:
         }
         for key, slot in REGISTRY.items()
     ]
-
-

@@ -56,5 +56,6 @@ filterwarnings = ["ignore::DeprecationWarning"]
 asyncio_mode = "auto"
 markers = [
     "integration: live/provider integration tests",
+    "real_llm: integration test that intentionally calls the real LLM provider",
 ]
 addopts = "--html=tests/testing_report.html --self-contained-html --cov=tools --cov-report=html:tests/coverage_report --cov-report=xml:tests/coverage.xml"

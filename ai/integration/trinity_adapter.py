@@ -37,6 +37,7 @@ class TrinityAdapter:
         tickers: list[str] | None = None,
         research_type: str = "company",
         depth: str = "standard",
+        as_of_date: str | None = None,
     ) -> ResearchRequest:
         """Create a normalized research request for the AI research layer."""
         normalized_tickers = [
@@ -284,3 +285,4 @@ class TrinityAdapter:
 
 
 DEFAULT_TRINITY_ADAPTER = TrinityAdapter()
+

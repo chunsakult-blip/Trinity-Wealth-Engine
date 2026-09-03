@@ -1,3 +1,15 @@
+import pytest
+from pathlib import Path
+from dotenv import load_dotenv
+
+project_root = Path(__file__).resolve().parents[2]
+env_file = project_root / ".env"
+
+load_dotenv(
+    dotenv_path=env_file,
+    override=False,
+)
+
 from ai.agent_result import AgentResult
 from ai.integration import IntelligencePipeline
 from ai.orchestration.research_orchestrator import ResearchOrchestrator
@@ -53,8 +65,8 @@ def test_research_orchestrator_worker():
     assert len(result.evidence) == 1
 
 
+@pytest.mark.real_llm
 def test_full_intelligence_pipeline_reaches_nick():
-
     pipeline = IntelligencePipeline()
 
     result = pipeline.run(
@@ -85,7 +97,9 @@ def test_full_intelligence_pipeline_reaches_nick():
     assert result["reflection"]["status"] == "success"
 
     assert result["nick"]["status"] == "ready"
-    assert result["nick"]["decision"] == "PENDING_LLM_DECISION"
+    assert result["nick"]["status"] == "ready"
+    assert result["nick"]["decision"] is not None
+    assert result["nick"]["decision"] != "PENDING_LLM_DECISION"
 
 
 def test_pipeline_preserves_trinity_output():

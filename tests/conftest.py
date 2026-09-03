@@ -329,7 +329,16 @@ def isolated_archivist(tmp_vault, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _no_real_llm_keys(monkeypatch):
+def _no_real_llm_keys(monkeypatch, request):
+    """Prevent real external API calls during unit tests.
+
+    Tests explicitly marked with `real_llm` may use the
+    project OpenRouter API key.
+    """
+
+    if request.node.get_closest_marker("real_llm"):
+        return
+
     """ป้องกันการเรียก network / API จริงระหว่างรัน unit tests ทั้ง suite
 
     ครอบคลุม DISCORD_WEBHOOK_URL ด้วย — ไม่ใช่แค่ LLM keys: api/main.py เรียก load_dotenv()

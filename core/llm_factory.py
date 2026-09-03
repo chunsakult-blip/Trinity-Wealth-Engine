@@ -8,9 +8,29 @@ No Google or Anthropic runtime provider is supported.
 """
 
 import os
+from pathlib import Path
 from typing import Optional, Any
 
 from dotenv import load_dotenv
+
+# ---------------------------------------------------------
+# PROJECT ENVIRONMENT
+# ---------------------------------------------------------
+# Always load the project's .env explicitly.
+#
+# This prevents pytest / scripts / VS Code / PowerShell
+# from behaving differently depending on the current
+# working directory.
+# ---------------------------------------------------------
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_ENV_FILE = _PROJECT_ROOT / ".env"
+
+load_dotenv(
+    dotenv_path=_ENV_FILE,
+    override=False,
+)
+
 from langchain_core.language_models import BaseChatModel
 from langchain_core.runnables import RunnableWithFallbacks
 from langchain_openai import ChatOpenAI
@@ -18,14 +38,26 @@ from langchain_openai import ChatOpenAI
 from core.logger import get_logger
 from core.model_registry import FREE_MODEL
 
-# Always load project .env when this module is imported.
-load_dotenv()
-
 log = get_logger(__name__)
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
-# Single approved model.
+# ---------------------------------------------------------
+# MODEL FALLBACK CHAIN
+# ---------------------------------------------------------
+# All models are routed through OpenRouter.
+# The primary model remains FREE_MODEL.
+# Fallback models are used only when the primary fails.
+# ---------------------------------------------------------
+
+FALLBACK_MODELS = [
+    FREE_MODEL,
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "z-ai/glm-5.2:free",
+    "minimax/minimax-m3:free",
+]
+
+# Backwards compatibility
 FALLBACK_MODEL = FREE_MODEL
 
 
@@ -48,16 +80,6 @@ def _build_primary(
             "Trinity-Wealth-Engine uses OpenRouter only."
         )
 
-    # Hard-lock the model.
-    if model_name != FREE_MODEL:
-        log.warning(
-            "Requested model '%s' was rejected. "
-            "Using enforced free model '%s'.",
-            model_name,
-            FREE_MODEL,
-        )
-        model_name = FREE_MODEL
-
     api_key = os.getenv("OPENROUTER_API_KEY")
 
     if not api_key:
@@ -72,8 +94,8 @@ def _build_primary(
         model=FREE_MODEL,
         temperature=temperature,
         max_tokens=max_output_tokens,
-        max_retries=5,
-        request_timeout=120,
+        max_retries=1,
+        request_timeout=45,
     )
 
 
@@ -204,4 +226,6 @@ def list_available_models(
     return {
         "openrouter": models,
     }
+
+
 

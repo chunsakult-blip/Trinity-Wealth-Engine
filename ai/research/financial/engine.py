@@ -42,6 +42,7 @@ class FinancialIntelligenceEngine:
         *,
         ticker: str | None = None,
         company_name: str | None = None,
+        as_of_date: str | None = None,
     ) -> dict[str, Any]:
 
         # --------------------------------------------------------
@@ -74,6 +75,7 @@ class FinancialIntelligenceEngine:
             cik=cik,
             ticker=ticker,
             company_name=company_name,
+            as_of_date=as_of_date,
         )
 
         # Derived metrics.

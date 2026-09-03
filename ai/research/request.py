@@ -1,4 +1,4 @@
-"""
+﻿"""
 Normalized research request contract.
 """
 
@@ -14,6 +14,7 @@ class ResearchRequest:
     research_type: str = "company"
     depth: str = "standard"
     requested_by: str = "Nick"
+    as_of_date: str | None = None
 
     def __post_init__(self) -> None:
         self.query = str(self.query).strip()
@@ -30,6 +31,9 @@ class ResearchRequest:
         self.depth = str(self.depth).strip() or "standard"
         self.requested_by = str(self.requested_by).strip() or "Nick"
 
+        if self.as_of_date is not None:
+            self.as_of_date = str(self.as_of_date).strip() or None
+
     def to_dict(self) -> dict:
         return {
             "query": self.query,
@@ -37,4 +41,5 @@ class ResearchRequest:
             "research_type": self.research_type,
             "depth": self.depth,
             "requested_by": self.requested_by,
+            "as_of_date": self.as_of_date,
         }
