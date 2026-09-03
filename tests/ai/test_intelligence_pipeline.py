@@ -12,6 +12,7 @@ load_dotenv(
 
 from ai.agent_result import AgentResult
 from ai.integration import IntelligencePipeline
+from ai.nick.nick import Nick
 from ai.orchestration.research_orchestrator import ResearchOrchestrator
 from ai.research.request import ResearchRequest
 
@@ -97,9 +98,46 @@ def test_full_intelligence_pipeline_reaches_nick():
     assert result["reflection"]["status"] == "success"
 
     assert result["nick"]["status"] == "ready"
-    assert result["nick"]["status"] == "ready"
     assert result["nick"]["decision"] is not None
     assert result["nick"]["decision"] != "PENDING_LLM_DECISION"
+
+
+def test_nick_blocks_when_financial_intelligence_fails(monkeypatch):
+    nick = Nick()
+
+    called = False
+
+    def forbidden_llm(_package):
+        nonlocal called
+        called = True
+        raise AssertionError("Nick LLM must not run after financial failure.")
+
+    monkeypatch.setattr(nick, "_invoke_llm", forbidden_llm)
+
+    package = {
+        "research": {"status": "success"},
+        "financial": {
+            "status": "failure",
+            "stage": "financial_intelligence",
+        },
+        "investment": {
+            "status": "not_run",
+            "stage": "investment_decision",
+        },
+        "verification": {"status": "success"},
+        "challenge": {"status": "success"},
+        "reflection": {"status": "success"},
+    }
+
+    result = nick.evaluate(package)
+
+    assert result["status"] == "incomplete"
+    assert result["decision"] is None
+    assert called is False
+    assert any(
+        "Financial stage failed" in warning
+        for warning in result["warnings"]
+    )
 
 
 def test_pipeline_preserves_trinity_output():

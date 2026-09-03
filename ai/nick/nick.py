@@ -124,6 +124,8 @@ class Nick:
 
         required_stages = {
             "research": package.get("research"),
+            "financial": package.get("financial"),
+            "investment": package.get("investment"),
             "verification": package.get("verification"),
             "challenge": package.get("challenge"),
             "reflection": package.get("reflection"),
