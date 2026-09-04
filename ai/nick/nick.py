@@ -356,21 +356,50 @@ Important:
         import time
         _nick_t = time.perf_counter()
 
-        try:
-            response = llm.invoke(fallback_prompt)
+        max_attempts = 3
+        retry_delays = (0.5, 1.0)
+        response = None
+        last_exc: Exception | None = None
 
-        except Exception as exc:
-            elapsed = time.perf_counter() - _nick_t
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = llm.invoke(fallback_prompt)
+                break
 
-            print(
-                f"[NICK] LLM FAILED {elapsed:.1f}s: "
-                f"{type(exc).__name__}: {exc}",
-                flush=True,
-            )
+            except Exception as exc:
+                last_exc = exc
+                elapsed = time.perf_counter() - _nick_t
+                message = str(exc).lower()
 
+                transient = any(
+                    token in message
+                    for token in (
+                        "502",
+                        "503",
+                        "429",
+                        "temporarily overloaded",
+                        "service unavailable",
+                        "rate limit",
+                    )
+                )
+
+                print(
+                    f"[NICK] LLM FAILED attempt={attempt}/{max_attempts} "
+                    f"{elapsed:.1f}s: {type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+
+                if not transient or attempt >= max_attempts:
+                    raise RuntimeError(
+                        f"Nick LLM provider failed: {exc}"
+                    ) from exc
+
+                time.sleep(retry_delays[attempt - 1])
+
+        if response is None:
             raise RuntimeError(
-                f"Nick LLM provider failed: {exc}"
-            ) from exc
+                f"Nick LLM provider failed: {last_exc}"
+            ) from last_exc
 
         print(
             f"[NICK] LLM DONE "
