@@ -198,7 +198,6 @@ class Nick:
                 "decision_original": output.decision,
                 "decision_trace": decision_trace,
                 "risk_guardrail": risk_guardrail,
-                "decision": output.decision,
                 "thesis": output.thesis,
                 "bull_case": output.bull_case,
                 "base_case": output.base_case,
