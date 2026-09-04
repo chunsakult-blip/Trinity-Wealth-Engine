@@ -55,6 +55,11 @@ from ai.integration.trinity_runner import (
     DEFAULT_TRINITY_RUNNER,
 )
 from ai.nick.nick import Nick
+from ai.nick.portfolio_intelligence import (
+    PortfolioCandidate,
+    PortfolioIntelligence,
+)
+from ai.research.investment.investment_bridge import InvestmentBridge
 from ai.orchestration.research_orchestrator import ResearchOrchestrator
 from ai.research.workers.us_stock_discovery_worker import (
     USStockDiscoveryWorker,
@@ -112,6 +117,8 @@ class IntelligencePipeline:
         challenger: ChallengeAgent | None = None,
         reflection: ReflectionAgent | None = None,
         nick: Nick | None = None,
+        portfolio_intelligence: PortfolioIntelligence | None = None,
+        investment_bridge: InvestmentBridge | None = None,
     ) -> None:
 
         self.runner = runner or DEFAULT_TRINITY_RUNNER
@@ -160,6 +167,14 @@ class IntelligencePipeline:
         )
 
         self.nick = nick or Nick()
+        self.portfolio_intelligence = (
+            portfolio_intelligence
+            or PortfolioIntelligence()
+        )
+        self.investment_bridge = (
+            investment_bridge
+            or InvestmentBridge()
+        )
 
     def build_request(
         self,
@@ -338,6 +353,7 @@ class IntelligencePipeline:
         depth: str = "standard",
         as_of_date: str | None = None,
         thread_id: str | None = None,
+        portfolio_candidates: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
 
         # ---------------------------------------------------------
@@ -731,7 +747,123 @@ class IntelligencePipeline:
         )
 
         # ---------------------------------------------------------
-        # 9. INVESTMENT PACKAGE
+        # 9. PORTFOLIO INTELLIGENCE
+        # ---------------------------------------------------------
+        #
+        # Optional portfolio mode.
+        #
+        # Single-stock requests remain unchanged.
+        # Portfolio candidates must already be supplied by an
+        # upstream candidate pipeline / caller.
+        # No full-market discovery is triggered here.
+        # ---------------------------------------------------------
+
+        portfolio_result: dict[str, Any] | None = None
+
+        if portfolio_candidates:
+            portfolio_inputs: list[PortfolioCandidate] = []
+
+            for candidate in portfolio_candidates:
+                if not isinstance(candidate, dict):
+                    continue
+
+                item = dict(candidate)
+
+                # Reuse existing InvestmentBridge output when present.
+                investment_score = item.get(
+                    "investment_final_score"
+                )
+
+                investment_risk = item.get(
+                    "investment_risk"
+                )
+
+                # Evaluate only when canonical investment signals
+                # are not already present.
+                if investment_score is None:
+                    bridged = self.investment_bridge.evaluate(
+                        item
+                    )
+                    item.update(bridged)
+
+                    investment_score = item.get(
+                        "investment_final_score"
+                    )
+                    investment_risk = item.get(
+                        "investment_risk"
+                    )
+
+                ticker = (
+                    item.get("investment_ticker")
+                    or item.get("ticker")
+                    or item.get("symbol")
+                )
+
+                if not ticker:
+                    continue
+
+                risk_score = 0.0
+
+                if isinstance(investment_risk, dict):
+                    risk_score = (
+                        investment_risk.get("score")
+                        or investment_risk.get("risk_score")
+                        or 0.0
+                    )
+
+                try:
+                    investment_score = float(
+                        investment_score or 0.0
+                    )
+                except (TypeError, ValueError):
+                    investment_score = 0.0
+
+                try:
+                    risk_score = float(
+                        risk_score or 0.0
+                    )
+                except (TypeError, ValueError):
+                    risk_score = 0.0
+
+                conviction = item.get("conviction", 1.0)
+
+                try:
+                    conviction = float(conviction)
+                except (TypeError, ValueError):
+                    conviction = 1.0
+
+                portfolio_inputs.append(
+                    PortfolioCandidate(
+                        ticker=str(ticker).strip().upper(),
+                        score=investment_score,
+                        risk_score=risk_score,
+                        conviction=conviction,
+                    )
+                )
+
+            allocation = self.portfolio_intelligence.allocate(
+                portfolio_inputs
+            )
+
+            portfolio_result = {
+                "status": "success",
+                "candidate_count": len(portfolio_inputs),
+                "positions": [
+                    {
+                        "ticker": position.ticker,
+                        "score": position.score,
+                        "risk_score": position.risk_score,
+                        "allocation": position.allocation,
+                        "risk_level": position.risk_level,
+                    }
+                    for position in allocation.positions
+                ],
+                "cash_weight": allocation.cash_weight,
+                "total_invested": allocation.total_invested,
+            }
+
+        # ---------------------------------------------------------
+        # 10. INVESTMENT PACKAGE
         # ---------------------------------------------------------
 
         investment_package = {
@@ -755,10 +887,14 @@ class IntelligencePipeline:
             "challenge": challenge_result.to_dict(),
 
             "reflection": reflection_result.to_dict(),
+
+            **({
+                "portfolio": portfolio_result,
+            } if portfolio_result is not None else {}),
         }
 
         # ---------------------------------------------------------
-        # 10. NICK
+        # 11. NICK
         # ---------------------------------------------------------
 
         print(f"[ATLAS] NICK START {time.perf_counter()-_t0:.1f}s", flush=True)
@@ -773,7 +909,7 @@ class IntelligencePipeline:
         )
 
         # ---------------------------------------------------------
-        # 11. FINAL OUTPUT
+        # 12. FINAL OUTPUT
         # ---------------------------------------------------------
 
         return {
