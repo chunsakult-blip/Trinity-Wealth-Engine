@@ -1,14 +1,9 @@
 from langchain_core.language_models.chat_models import BaseChatModel
 from core.prompt_harness import get_harness
 
-# EQUITY_NARRATIVE_SYSTEM_PROMPT ถูกย้ายไปที่ prompts/skills/equity_narrative/SKILL.md ผ่านระบบ PromptHarness
-
 
 def create_equity_narrative(model: BaseChatModel):
-    """RunnableLambda มิเรอร์ agents/macro_economist_agent.py — เรียก tools ที่มีอยู่แล้วตรงๆ ในโค้ด
-    (ไม่ให้ LLM เลือกเอง เพราะไม่มีอะไรให้ 'เลือก' — ต้องดึงทั้ง Vault sentiment และข่าวล่าสุดเสมอ)
-    แล้วบังคับ schema ผ่าน with_structured_output ครั้งเดียวตอนท้าย
-    """
+    """Create equity narrative using native tool calling for structured output."""
     from langchain_core.runnables import RunnableLambda
     from langchain_core.messages import AIMessage
     from schemas.micro_quant_schemas import EquitySentimentContext
@@ -20,31 +15,80 @@ def create_equity_narrative(model: BaseChatModel):
         market = input_dict.get("market", "US")
         company_name = input_dict.get("company_name")
 
-        # ค้นด้วยชื่อบริษัทเต็มถ้ามี (ไม่ใช่แค่ ticker เปล่าๆ) — search_all_memories เป็น semantic/vector
-        # search ค้นด้วยชื่อบริษัทภาษาธรรมชาติมักได้ผลลัพธ์ตรงกว่าค้นด้วย ticker symbol สั้นๆ
-        search_keyword = f"{ticker} {company_name}".strip() if company_name else ticker
+        search_keyword = (
+            f"{ticker} {company_name}".strip()
+            if company_name
+            else ticker
+        )
 
         try:
-            vault_text = search_all_memories.invoke({"keyword": search_keyword})
+            vault_text = search_all_memories.invoke(
+                {"keyword": search_keyword}
+            )
         except Exception as e:
             vault_text = f"Error searching vault: {e}"
 
         try:
-            news_text = ingest_stock_news.invoke({"ticker": ticker, "market": market})
+            news_text = ingest_stock_news.invoke(
+                {"ticker": ticker, "market": market}
+            )
         except Exception as e:
             news_text = f"Error fetching news: {e}"
 
-        context = f"=== Vault Sentiment History ===\n{vault_text}\n\n=== Latest News ===\n{news_text}"
+        context = (
+            "=== Vault Sentiment History ===\n"
+            f"{vault_text}\n\n"
+            "=== Latest News ===\n"
+            f"{news_text}"
+        )
 
-        structured = model.with_structured_output(EquitySentimentContext)
+        structured = model.bind_tools(
+            [EquitySentimentContext],
+            tool_choice={
+                "type": "function",
+                "function": {
+                    "name": "EquitySentimentContext"
+                },
+            },
+            parallel_tool_calls=False,
+        )
+
         harness = get_harness("equity_narrative")
-        res = structured.invoke([
-            {"role": "system", "content": harness.get_system_prompt()},
-            {"role": "user", "content": harness.get_skill_text("HUMAN.md", ticker=ticker, context=context)},
-        ])
+
+        res = structured.invoke(
+            [
+                {
+                    "role": "system",
+                    "content": harness.get_system_prompt(),
+                },
+                {
+                    "role": "user",
+                    "content": harness.get_skill_text(
+                        "HUMAN.md",
+                        ticker=ticker,
+                        context=context,
+                    ),
+                },
+            ]
+        )
+
+        if not res.tool_calls:
+            raise ValueError(
+                "Equity narrative LLM did not return "
+                "an EquitySentimentContext tool call"
+            )
+
+        parsed = EquitySentimentContext.model_validate(
+            res.tool_calls[0]["args"]
+        )
 
         return {
-            "messages": [AIMessage(content=res.model_dump_json(), name="equity_narrative")],
+            "messages": [
+                AIMessage(
+                    content=parsed.model_dump_json(),
+                    name="equity_narrative",
+                )
+            ],
             "equity_news_raw": news_text,
         }
 
