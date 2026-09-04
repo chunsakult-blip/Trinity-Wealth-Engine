@@ -332,61 +332,198 @@ class Nick:
 
         fallback_prompt = prompt + """
 
-OUTPUT FORMAT REQUIREMENT:
+STRICT OUTPUT CONTRACT
 
-Return ONLY one valid JSON object.
+Return EXACTLY ONE complete JSON object.
+Return JSON only. No markdown. No comments. No prose outside JSON.
 
-Do NOT use markdown.
-Do NOT use ```json fences.
-Do NOT add explanations before or after the JSON.
-
-The JSON object MUST contain exactly these required fields:
+Use EXACTLY these top-level fields:
 
 {
-  "decision": "BUY|HOLD|TRIM|SELL|NO_TRADE",
-  "thesis": "...",
-  "bull_case": "...",
-  "base_case": "...",
-  "bear_case": "...",
-  "key_risks": ["..."],
-  "valuation_view": "...",
-  "position_sizing": "...",
-  "confidence": 0.0,
-  "invalidation_conditions": ["..."],
-  "positions": [],
-  "notes": "..."
+  "decision": "BUY",
+  "thesis": "short string",
+  "bull_case": "short string",
+  "base_case": "short string",
+  "bear_case": "short string",
+  "key_risks": ["risk 1", "risk 2"],
+  "valuation_view": "short string",
+  "position_sizing": "short string",
+  "confidence": 0.75,
+  "invalidation_conditions": ["condition 1", "condition 2"],
+  "positions": [
+    {
+      "symbol": "NVDA",
+      "thesis": "short string",
+      "catalyst": "short string",
+      "kill_conditions": [],
+      "target_weight": 0.05,
+      "conviction": 0.75,
+      "status": "HOLD"
+    }
+  ],
+  "notes": "short string"
 }
 
-Important:
-- decision MUST be one of BUY, HOLD, TRIM, SELL, NO_TRADE.
-- confidence MUST be a number between 0 and 1.
-- positions MUST be a JSON array.
-- key_risks MUST be a JSON array.
-- invalidation_conditions MUST be a JSON array.
-- Do not invent information not contained in the intelligence package.
-"""
+TYPE RULES
 
+decision:
+  string; one of BUY, HOLD, TRIM, SELL, NO_TRADE.
+
+thesis:
+  string only.
+
+bull_case:
+  string only.
+
+base_case:
+  string only.
+
+bear_case:
+  string only.
+
+key_risks:
+  JSON array of strings only.
+  Never return one string.
+
+valuation_view:
+  string only.
+  Example: "Premium valuation supported by strong growth."
+
+position_sizing:
+  string only.
+  Example: "5% target portfolio weight."
+
+confidence:
+  number from 0 to 1.
+
+invalidation_conditions:
+  JSON array of strings only.
+  Never return one string.
+
+positions:
+  JSON array only.
+  Never return a number.
+  Never return a string.
+  Each item must be a JSON object.
+
+positions.target_weight:
+  number, not a percentage string.
+
+positions.conviction:
+  number from 0 to 1.
+
+positions.status:
+  string.
+
+If there are no position recommendations, return:
+"positions": []
+
+All required fields MUST be present.
+Keep every text field concise.
+Do not invent information not contained in the intelligence package.
+Do not stop before the final closing brace.
+"""
         print("[NICK] LLM START", flush=True)
 
         import time
+
         _nick_t = time.perf_counter()
 
         max_attempts = 3
         retry_delays = (0.5, 1.0)
-        response = None
+
         last_exc: Exception | None = None
 
         for attempt in range(1, max_attempts + 1):
+            response = None
+
             try:
                 response = llm.invoke(fallback_prompt)
-                break
+
+                content = getattr(response, "content", None)
+
+                if not content:
+                    raise RuntimeError(
+                        "Nick LLM returned empty content."
+                    )
+
+                if isinstance(content, list):
+                    parts = []
+
+                    for item in content:
+                        if isinstance(item, dict):
+                            value = item.get("text")
+                            if value:
+                                parts.append(str(value))
+                        else:
+                            parts.append(str(item))
+
+                    content = "\n".join(parts).strip()
+
+                if not isinstance(content, str):
+                    content = str(content)
+
+                content = content.strip()
+
+                lines = content.splitlines()
+
+                if lines and lines[0].startswith("```"):
+                    lines = lines[1:]
+
+                if lines and lines[-1].strip() == "```":
+                    lines = lines[:-1]
+
+                content = "\n".join(lines).strip()
+
+                try:
+                    data = json.loads(content)
+
+                except json.JSONDecodeError:
+                    start_json = content.find("{")
+                    end_json = content.rfind("}")
+
+                    if (
+                        start_json == -1
+                        or end_json == -1
+                        or end_json <= start_json
+                    ):
+                        raise RuntimeError(
+                            "Nick LLM response was not a complete JSON object."
+                        )
+
+                    try:
+                        data = json.loads(
+                            content[start_json:end_json + 1]
+                        )
+                    except json.JSONDecodeError as exc:
+                        raise RuntimeError(
+                            "Nick LLM returned malformed or truncated JSON."
+                        ) from exc
+
+                try:
+                    output = NickLLMOutput.model_validate(data)
+                except Exception as exc:
+                    raise RuntimeError(
+                        "Nick LLM JSON failed schema validation. "
+                        f"Validation error: {exc}"
+                    ) from exc
+
+                print(
+                    f"[NICK] LLM DONE "
+                    f"{time.perf_counter()-_nick_t:.1f}s "
+                    f"attempt={attempt}/{max_attempts}",
+                    flush=True,
+                )
+
+                return output
 
             except Exception as exc:
                 last_exc = exc
+
                 elapsed = time.perf_counter() - _nick_t
                 message = str(exc).lower()
 
-                transient = any(
+                transient_provider = any(
                     token in message
                     for token in (
                         "502",
@@ -398,108 +535,55 @@ Important:
                     )
                 )
 
+                retryable_json = any(
+                    token in message
+                    for token in (
+                        "malformed",
+                        "truncated",
+                        "not a complete json object",
+                        "failed schema validation",
+                        "json",
+                    )
+                )
+
+                retryable = transient_provider or retryable_json
+
                 print(
-                    f"[NICK] LLM FAILED attempt={attempt}/{max_attempts} "
-                    f"{elapsed:.1f}s: {type(exc).__name__}: {exc}",
+                    f"[NICK] LLM FAILED "
+                    f"attempt={attempt}/{max_attempts} "
+                    f"{elapsed:.1f}s: "
+                    f"{type(exc).__name__}: {exc}",
                     flush=True,
                 )
 
-                if not transient or attempt >= max_attempts:
+                if not retryable or attempt >= max_attempts:
                     raise RuntimeError(
-                        f"Nick LLM provider failed: {exc}"
+                        f"Nick LLM failed after {attempt} attempt(s): {exc}"
                     ) from exc
+
+                # On malformed output, tighten the prompt for the next attempt.
+                if retryable_json and not transient_provider:
+                    fallback_prompt = prompt + """
+
+OUTPUT FORMAT REQUIREMENT:
+
+Return ONLY one COMPLETE valid JSON object.
+Keep every text field very concise.
+Do not stop before the closing }.
+Do not use markdown or code fences.
+
+Required fields:
+decision, thesis, bull_case, base_case, bear_case,
+key_risks, invalidation_conditions, confidence, positions.
+
+confidence MUST be between 0 and 1.
+"""
 
                 time.sleep(retry_delays[attempt - 1])
 
-        if response is None:
-            raise RuntimeError(
-                f"Nick LLM provider failed: {last_exc}"
-            ) from last_exc
-
-        print(
-            f"[NICK] LLM DONE "
-            f"{time.perf_counter()-_nick_t:.1f}s",
-            flush=True,
-        )
-
-        content = getattr(response, "content", None)
-
-        if not content:
-            raise RuntimeError(
-                "Nick LLM returned empty content."
-            )
-
-        if isinstance(content, list):
-
-            parts = []
-
-            for item in content:
-
-                if isinstance(item, str):
-                    parts.append(item)
-
-                elif isinstance(item, dict):
-                    value = item.get("text")
-
-                    if value:
-                        parts.append(str(value))
-
-            content = "".join(parts)
-
-        content = str(content).strip()
-
-        if content.startswith("```"):
-
-            lines = content.splitlines()
-
-            if lines and lines[0].startswith("```"):
-                lines = lines[1:]
-
-            if lines and lines[-1].strip() == "```":
-                lines = lines[:-1]
-
-            content = "\n".join(lines).strip()
-
-        try:
-
-            data = json.loads(content)
-
-        except json.JSONDecodeError:
-
-            start_json = content.find("{")
-            end_json = content.rfind("}")
-
-            if (
-                start_json == -1
-                or end_json == -1
-                or end_json <= start_json
-            ):
-                raise RuntimeError(
-                    "Nick LLM response did not contain "
-                    "a valid JSON object. "
-                    f"Raw response: {content[:1000]}"
-                )
-
-            try:
-                data = json.loads(
-                    content[start_json:end_json + 1]
-                )
-
-            except json.JSONDecodeError as exc:
-                raise RuntimeError(
-                    "Nick LLM returned malformed JSON. "
-                    f"Raw response: {content[:1000]}"
-                ) from exc
-
-        try:
-            return NickLLMOutput.model_validate(data)
-
-        except Exception as exc:
-            raise RuntimeError(
-                "Nick LLM JSON failed schema validation. "
-                f"Validation error: {exc}"
-            ) from exc
-
+        raise RuntimeError(
+            f"Nick LLM failed after {max_attempts} attempts: {last_exc}"
+        ) from last_exc
 
     def _build_decision_trace(
         self,

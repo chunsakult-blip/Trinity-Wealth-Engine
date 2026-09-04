@@ -61,6 +61,8 @@ from ai.nick.portfolio_intelligence import (
 )
 from ai.nick.portfolio_risk_guard import PortfolioRiskGuard
 from ai.nick.portfolio_quality import PortfolioQualityEngine
+from ai.nick.portfolio_decision_guard import PortfolioDecisionGuard
+from ai.nick.portfolio_rebalance import PortfolioRebalanceEngine
 from ai.research.investment.investment_bridge import InvestmentBridge
 from ai.orchestration.research_orchestrator import ResearchOrchestrator
 from ai.research.workers.us_stock_discovery_worker import (
@@ -122,6 +124,8 @@ class IntelligencePipeline:
         portfolio_intelligence: PortfolioIntelligence | None = None,
         portfolio_risk_guard: PortfolioRiskGuard | None = None,
         portfolio_quality_engine: PortfolioQualityEngine | None = None,
+        portfolio_decision_guard: PortfolioDecisionGuard | None = None,
+        portfolio_rebalance_engine: PortfolioRebalanceEngine | None = None,
         investment_bridge: InvestmentBridge | None = None,
     ) -> None:
 
@@ -182,6 +186,14 @@ class IntelligencePipeline:
         self.portfolio_quality_engine = (
             portfolio_quality_engine
             or PortfolioQualityEngine()
+        )
+        self.portfolio_decision_guard = (
+            portfolio_decision_guard
+            or PortfolioDecisionGuard()
+        )
+        self.portfolio_rebalance_engine = (
+            portfolio_rebalance_engine
+            or PortfolioRebalanceEngine()
         )
         self.investment_bridge = (
             investment_bridge
@@ -366,6 +378,7 @@ class IntelligencePipeline:
         as_of_date: str | None = None,
         thread_id: str | None = None,
         portfolio_candidates: list[dict[str, Any]] | None = None,
+        current_portfolio: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
 
         # ---------------------------------------------------------
@@ -953,6 +966,46 @@ class IntelligencePipeline:
             if nick_result["status"] == "ready"
             else "incomplete"
         )
+
+        # ---------------------------------------------------------
+        # 12. PORTFOLIO DECISION + REBALANCE
+        # ---------------------------------------------------------
+
+        if portfolio_result is not None:
+            portfolio_decision = self.portfolio_decision_guard.decide(
+                portfolio_result,
+                nick_result,
+            )
+
+            portfolio_result["decision"] = {
+                "action": portfolio_decision.action,
+                "approved": portfolio_decision.approved,
+                "score": portfolio_decision.score,
+                "nick_decision": portfolio_decision.nick_decision,
+                "reasons": list(portfolio_decision.reasons),
+            }
+
+            rebalance_plan = self.portfolio_rebalance_engine.build_plan(
+                portfolio_result,
+                current_portfolio,
+            )
+
+            portfolio_result["rebalance"] = {
+                "status": rebalance_plan.status,
+                "actions": [
+                    {
+                        "ticker": action.ticker,
+                        "action": action.action,
+                        "current_weight": action.current_weight,
+                        "target_weight": action.target_weight,
+                        "delta_weight": action.delta_weight,
+                    }
+                    for action in rebalance_plan.actions
+                ],
+                "total_buy_weight": rebalance_plan.total_buy_weight,
+                "total_sell_weight": rebalance_plan.total_sell_weight,
+                "unchanged_count": rebalance_plan.unchanged_count,
+            }
 
         # ---------------------------------------------------------
         # 12. FINAL OUTPUT
