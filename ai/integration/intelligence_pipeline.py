@@ -60,6 +60,7 @@ from ai.nick.portfolio_intelligence import (
     PortfolioIntelligence,
 )
 from ai.nick.portfolio_risk_guard import PortfolioRiskGuard
+from ai.nick.portfolio_quality import PortfolioQualityEngine
 from ai.research.investment.investment_bridge import InvestmentBridge
 from ai.orchestration.research_orchestrator import ResearchOrchestrator
 from ai.research.workers.us_stock_discovery_worker import (
@@ -120,6 +121,7 @@ class IntelligencePipeline:
         nick: Nick | None = None,
         portfolio_intelligence: PortfolioIntelligence | None = None,
         portfolio_risk_guard: PortfolioRiskGuard | None = None,
+        portfolio_quality_engine: PortfolioQualityEngine | None = None,
         investment_bridge: InvestmentBridge | None = None,
     ) -> None:
 
@@ -176,6 +178,10 @@ class IntelligencePipeline:
         self.portfolio_risk_guard = (
             portfolio_risk_guard
             or PortfolioRiskGuard()
+        )
+        self.portfolio_quality_engine = (
+            portfolio_quality_engine
+            or PortfolioQualityEngine()
         )
         self.investment_bridge = (
             investment_bridge
@@ -887,6 +893,20 @@ class IntelligencePipeline:
                 if risk_check.approved
                 else "blocked"
             )
+
+            portfolio_quality = self.portfolio_quality_engine.evaluate(
+                portfolio_result
+            )
+
+            portfolio_result["quality"] = {
+                "score": portfolio_quality.score,
+                "decision": portfolio_quality.decision,
+                "investment_quality": portfolio_quality.investment_quality,
+                "risk_quality": portfolio_quality.risk_quality,
+                "concentration_quality": portfolio_quality.concentration_quality,
+                "cash_quality": portfolio_quality.cash_quality,
+                "reasons": list(portfolio_quality.reasons),
+            }
 
         # ---------------------------------------------------------
         # 10. INVESTMENT PACKAGE
