@@ -178,10 +178,26 @@ class Nick:
 
             contract.validate()
 
+            decision_trace = self._build_decision_trace(
+                output,
+                package,
+            )
+
+            risk_guardrail = self._evaluate_risk_guardrail(
+                output,
+                package,
+            )
+
+            final_decision = risk_guardrail["decision"]
+
             return {
                 "agent": self.name,
                 "role": self.role,
                 "status": "ready",
+                "decision": final_decision,
+                "decision_original": output.decision,
+                "decision_trace": decision_trace,
+                "risk_guardrail": risk_guardrail,
                 "decision": output.decision,
                 "thesis": output.thesis,
                 "bull_case": output.bull_case,
@@ -485,6 +501,155 @@ Important:
                 f"Validation error: {exc}"
             ) from exc
 
+
+    def _build_decision_trace(
+        self,
+        output: NickLLMOutput,
+        package: dict[str, Any],
+    ) -> dict[str, Any]:
+        equity = {}
+
+        trinity = package.get("trinity")
+        if isinstance(trinity, dict):
+            data = trinity.get("data")
+            if isinstance(data, dict):
+                candidate = data.get("equity")
+                if isinstance(candidate, dict):
+                    equity = candidate
+
+        quant = equity.get("quant_score")
+        narrative = equity.get("narrative_context")
+
+        drivers: list[str] = []
+
+        if isinstance(quant, dict):
+            composite = quant.get("composite_score")
+            quality = quant.get("quality_score")
+            momentum = quant.get("momentum_score")
+            valuation = quant.get("value_score")
+
+            if composite is not None:
+                drivers.append(f"composite_score={composite}")
+            if quality is not None:
+                drivers.append(f"quality_score={quality}")
+            if momentum is not None:
+                drivers.append(f"momentum_score={momentum}")
+            if valuation is not None:
+                drivers.append(f"value_score={valuation}")
+
+        sentiment = None
+        if isinstance(narrative, dict):
+            sentiment = narrative.get("market_sentiment")
+
+        return {
+            "decision": output.decision,
+            "confidence": output.confidence,
+            "drivers": drivers,
+            "valuation_view": output.valuation_view,
+            "market_sentiment": sentiment,
+            "key_risks": list(output.key_risks),
+            "invalidation_conditions": list(
+                output.invalidation_conditions
+            ),
+            "evidence_sources": [
+                "investment_package",
+                "trinity/data/equity",
+            ],
+        }
+
+    def _evaluate_risk_guardrail(
+        self,
+        output: NickLLMOutput,
+        package: dict[str, Any],
+    ) -> dict[str, Any]:
+        original = output.decision
+        final = original
+        reasons: list[str] = []
+
+        # Conservative confidence floor.
+        if output.confidence < 0.55:
+            final = "NO_TRADE"
+            reasons.append(
+                "Confidence below 0.55 confidence floor."
+            )
+
+        # Any explicit upstream failure blocks a new trade decision.
+        def contains_failure(value: Any) -> bool:
+            if isinstance(value, dict):
+                status = str(value.get("status", "")).lower()
+                if status in {"failure", "error"}:
+                    return True
+                return any(
+                    contains_failure(item)
+                    for item in value.values()
+                )
+
+            if isinstance(value, list):
+                return any(
+                    contains_failure(item)
+                    for item in value
+                )
+
+            return False
+
+        if contains_failure(package):
+            final = "NO_TRADE"
+            reasons.append(
+                "Investment package contains a failed or error stage."
+            )
+
+        # BUY requires an explicit invalidation framework.
+        if original == "BUY" and not output.invalidation_conditions:
+            final = "NO_TRADE"
+            reasons.append(
+                "BUY requires at least one invalidation condition."
+            )
+
+        # Explicitly conflicting valuation language blocks BUY.
+        valuation_text = (
+            str(output.valuation_view or "")
+            .strip()
+            .lower()
+        )
+
+        if original == "BUY" and any(
+            phrase in valuation_text
+            for phrase in (
+                "overvalued",
+                "materially overvalued",
+                "significantly overvalued",
+            )
+        ):
+            final = "HOLD"
+            reasons.append(
+                "BUY conflicts with an explicitly overvalued valuation view."
+            )
+
+        return {
+            "status": "passed" if not reasons else "triggered",
+            "decision": final,
+            "original_decision": original,
+            "reasons": reasons,
+            "checks": {
+                "confidence_floor": output.confidence >= 0.55,
+                "upstream_failures": not contains_failure(package),
+                "buy_invalidation_required": (
+                    original != "BUY"
+                    or bool(output.invalidation_conditions)
+                ),
+                "valuation_conflict": not (
+                    original == "BUY"
+                    and any(
+                        phrase in valuation_text
+                        for phrase in (
+                            "overvalued",
+                            "materially overvalued",
+                            "significantly overvalued",
+                        )
+                    )
+                ),
+            },
+        }
 
     def _build_prompt(
         self,
