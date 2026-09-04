@@ -63,6 +63,7 @@ from ai.nick.portfolio_risk_guard import PortfolioRiskGuard
 from ai.nick.portfolio_quality import PortfolioQualityEngine
 from ai.nick.portfolio_decision_guard import PortfolioDecisionGuard
 from ai.nick.portfolio_rebalance import PortfolioRebalanceEngine
+from ai.nick.portfolio_monitoring import PortfolioMonitoringEngine
 from ai.research.investment.investment_bridge import InvestmentBridge
 from ai.orchestration.research_orchestrator import ResearchOrchestrator
 from ai.research.workers.us_stock_discovery_worker import (
@@ -126,6 +127,7 @@ class IntelligencePipeline:
         portfolio_quality_engine: PortfolioQualityEngine | None = None,
         portfolio_decision_guard: PortfolioDecisionGuard | None = None,
         portfolio_rebalance_engine: PortfolioRebalanceEngine | None = None,
+        portfolio_monitoring_engine: PortfolioMonitoringEngine | None = None,
         investment_bridge: InvestmentBridge | None = None,
     ) -> None:
 
@@ -194,6 +196,10 @@ class IntelligencePipeline:
         self.portfolio_rebalance_engine = (
             portfolio_rebalance_engine
             or PortfolioRebalanceEngine()
+        )
+        self.portfolio_monitoring_engine = (
+            portfolio_monitoring_engine
+            or PortfolioMonitoringEngine()
         )
         self.investment_bridge = (
             investment_bridge
@@ -1005,6 +1011,21 @@ class IntelligencePipeline:
                 "total_buy_weight": rebalance_plan.total_buy_weight,
                 "total_sell_weight": rebalance_plan.total_sell_weight,
                 "unchanged_count": rebalance_plan.unchanged_count,
+            }
+
+            monitoring = self.portfolio_monitoring_engine.evaluate(
+                portfolio_result,
+                current_portfolio,
+            )
+
+            portfolio_result["monitoring"] = {
+                "status": monitoring.status,
+                "allocation_drift": monitoring.allocation_drift,
+                "cash_drift": monitoring.cash_drift,
+                "risk_exposure": monitoring.risk_exposure,
+                "quality_score": monitoring.quality_score,
+                "alerts": list(monitoring.alerts),
+                "checks": dict(monitoring.checks),
             }
 
         # ---------------------------------------------------------
