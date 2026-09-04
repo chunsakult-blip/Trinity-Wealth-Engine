@@ -59,6 +59,7 @@ from ai.nick.portfolio_intelligence import (
     PortfolioCandidate,
     PortfolioIntelligence,
 )
+from ai.nick.portfolio_risk_guard import PortfolioRiskGuard
 from ai.research.investment.investment_bridge import InvestmentBridge
 from ai.orchestration.research_orchestrator import ResearchOrchestrator
 from ai.research.workers.us_stock_discovery_worker import (
@@ -118,6 +119,7 @@ class IntelligencePipeline:
         reflection: ReflectionAgent | None = None,
         nick: Nick | None = None,
         portfolio_intelligence: PortfolioIntelligence | None = None,
+        portfolio_risk_guard: PortfolioRiskGuard | None = None,
         investment_bridge: InvestmentBridge | None = None,
     ) -> None:
 
@@ -170,6 +172,10 @@ class IntelligencePipeline:
         self.portfolio_intelligence = (
             portfolio_intelligence
             or PortfolioIntelligence()
+        )
+        self.portfolio_risk_guard = (
+            portfolio_risk_guard
+            or PortfolioRiskGuard()
         )
         self.investment_bridge = (
             investment_bridge
@@ -861,6 +867,26 @@ class IntelligencePipeline:
                 "cash_weight": allocation.cash_weight,
                 "total_invested": allocation.total_invested,
             }
+
+            risk_check = self.portfolio_risk_guard.validate(
+                portfolio_result
+            )
+
+            portfolio_result["risk_guard"] = {
+                "status": risk_check.status,
+                "approved": risk_check.approved,
+                "cash_weight": risk_check.cash_weight,
+                "total_invested": risk_check.total_invested,
+                "risk_exposure": risk_check.risk_exposure,
+                "reasons": list(risk_check.reasons),
+                "checks": dict(risk_check.checks),
+            }
+
+            portfolio_result["status"] = (
+                "approved"
+                if risk_check.approved
+                else "blocked"
+            )
 
         # ---------------------------------------------------------
         # 10. INVESTMENT PACKAGE
