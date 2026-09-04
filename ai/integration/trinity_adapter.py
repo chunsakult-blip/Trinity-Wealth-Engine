@@ -1,4 +1,4 @@
-"""
+﻿"""
 Trinity -> AI Intelligence integration boundary.
 
 This module deliberately keeps the existing Trinity execution engine
@@ -92,11 +92,49 @@ class TrinityAdapter:
         evidence = self._extract_evidence(payload)
         warnings = self._extract_warnings(payload)
 
+        state = payload.get("state")
+
+        if not isinstance(state, Mapping):
+
+            state = {}
+
+
+        equity = {
+
+            "quant_score": state.get("equity_quant_score"),
+
+            "narrative_context": state.get("equity_narrative_context"),
+
+            "news_raw": state.get("equity_news_raw"),
+
+            "output": state.get("equity_output"),
+
+        }
+
+
+        equity = {
+
+            key: value
+
+            for key, value in equity.items()
+
+            if value is not None
+
+        }
+
+
         data = {
+
             "query": query,
+
             "tickers": normalized_tickers,
+
             "trinity_output": trinity_output,
+
             "normalized": self._normalize_payload(payload),
+
+            "equity": equity,
+
         }
 
         confidence = self._extract_confidence(payload)
@@ -286,3 +324,4 @@ class TrinityAdapter:
 
 
 DEFAULT_TRINITY_ADAPTER = TrinityAdapter()
+
